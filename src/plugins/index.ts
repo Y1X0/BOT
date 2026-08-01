@@ -10,6 +10,10 @@ import { economyPlugin } from './economy';
 import { repliesPlugin } from './replies';
 import { analyticsPlugin } from './analytics';
 import { extrasPlugin } from './extras';
+import { funPlugin } from './fun';
+import { notesPlugin } from './notes';
+import { afkPlugin } from './afk';
+import { toolsPlugin } from './tools';
 import { aiPlugin } from './ai';
 
 /**
@@ -33,8 +37,12 @@ allPlugins.push(
   welcomePlugin,
   analyticsPlugin,
   extrasPlugin,
+  funPlugin,
+  toolsPlugin,
+  notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,
   engagementPlugin, // passive: XP, calls next()
+  afkPlugin, // passive: AFK return/mention, calls next()
   gamesPlugin, // passive: game answers, calls next() when not consumed
   repliesPlugin, // passive: keyword replies (terminal)
   aiPlugin,

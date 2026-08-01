@@ -29,6 +29,7 @@ model Chat {
   filters        WordFilter[]
   auditLogs      AuditLog[]
   economy        EconomyAccount[]
+  notes          Note[]
 
   @@index([type])
 }
@@ -87,6 +88,8 @@ model Member {
   messageCount Int      @default(0)
   xp           Int      @default(0)
   level        Int      @default(0)
+  afkSince     DateTime? // set when the user goes AFK, null otherwise
+  afkReason    String?
   lastSeenAt   DateTime @default(now())
   joinedAt     DateTime @default(now())
 
@@ -150,6 +153,21 @@ model WordFilter {
   createdAt DateTime @default(now())
 
   @@unique([chatId, word])
+  @@index([chatId])
+}
+
+/// Saved notes: admin-stored text retrievable by name or #hashtag.
+model Note {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  name      String
+  content   String
+  createdBy BigInt
+  createdAt DateTime @default(now())
+
+  @@unique([chatId, name])
   @@index([chatId])
 }
 
