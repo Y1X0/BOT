@@ -4,74 +4,32 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { isBotOwner } from '../../utils/permissions';
 import { displayName } from '../../utils/format';
+import {
+  whispers,
+  pendingTokens,
+  dmPending,
+  storeWhisper,
+  makeToken,
+} from './state';
 
 /**
- * "Whisper" (همسة) — reply-based, no inline mode required.
- *
- * Flow:
- *   1. Reply to the target's message and type "اهمس" (or /whisper).
- *      - "اهمس نص السر"  → whisper created immediately (trigger msg deleted).
- *      - "اهمس" alone     → bot opens a force-reply box to type the secret.
- *   2. The bot posts a hidden message with a "عرض الهمسة" button.
- *   3. Only the target (or the sender, or the bot owner) can reveal it.
+ * "Whisper" (همسة) — the secret is typed in the bot's DM, never in the group,
+ * so it can't leak. Flow:
+ *   1. Reply to the target in the group and type "اهمس" (or /whisper).
+ *   2. Bot posts a message with a button that deep-links to its DM.
+ *   3. Sender taps it, types the secret privately in DM.
+ *   4. Bot posts the hidden whisper into the group; only the target, the
+ *      sender, or the bot owner can reveal it.
  */
-interface Whisper {
-  senderId: number;
-  targetId: number;
-  targetUsername?: string;
-  targetName: string;
-  text: string;
-}
-
-interface Pending {
-  senderId: number;
-  targetId: number;
-  targetUsername?: string;
-  targetName: string;
-}
-
-const whispers = new Map<string, Whisper>();
-const pending = new Map<string, Pending>(); // key: `${chatId}:${promptMsgId}`
-const MAX = 5000;
-let counter = 0;
-
-function store(w: Whisper): string {
-  const id = `${w.senderId.toString(36)}${(counter++).toString(36)}`;
-  whispers.set(id, w);
-  if (whispers.size > MAX) {
-    const oldest = whispers.keys().next().value;
-    if (oldest) whispers.delete(oldest);
-  }
-  return id;
-}
-
 type TargetUser = { id: number; first_name?: string; username?: string; is_bot?: boolean };
-
-async function postWhisper(
-  ctx: BotContext,
-  senderId: number,
-  target: { id: number; username?: string; name: string },
-  text: string,
-): Promise<void> {
-  const id = store({
-    senderId,
-    targetId: target.id,
-    targetUsername: target.username?.toLowerCase(),
-    targetName: target.name,
-    text,
-  });
-  await ctx.reply(`🤫 همسة سرية إلى ${target.name}\nفقط هو من يقدر يفتحها 👇`, {
-    reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
-  });
-}
 
 export const whisperPlugin: Plugin = {
   name: 'whisper',
-  description: 'Secret reply-based whispers (no inline mode needed)',
+  description: 'Secret whispers with the secret entered privately in DM',
   commands: [{ command: 'whisper', description: '🤫 همسة سرية (بالرد على العضو)' }],
 
   register(bot: Telegraf<BotContext>) {
-    // /whisper or "اهمس" — must be a reply to the target member.
+    // Step 1: /whisper or "اهمس" as a reply to the target in a group.
     bot.command('whisper', async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private' || !ctx.from) return;
       const replied = (ctx.message as { reply_to_message?: { from?: TargetUser } }).reply_to_message;
@@ -80,57 +38,95 @@ export const whisperPlugin: Plugin = {
         await ctx.reply('🤫 ردّ على رسالة الشخص الذي تريد أن تهمس له ثم اكتب: اهمس');
         return;
       }
-      const targetName = displayName(target);
-      const text = ctx.message.text.split(' ').slice(1).join(' ').trim();
 
-      if (text) {
-        // One-shot form: delete the trigger (it holds the secret) then post.
-        await ctx.deleteMessage().catch(() => undefined);
-        await postWhisper(ctx, ctx.from.id, { id: target.id, username: target.username, name: targetName }, text);
+      const username = ctx.botInfo?.username;
+      if (!username) {
+        await ctx.reply('⚠️ تعذّر تجهيز الهمسة الآن، حاول لاحقاً.');
         return;
       }
 
-      // Interactive form: open a force-reply "place to whisper in".
-      const prompt = await ctx.reply(`✍️ اكتب همستك لـ ${targetName} بالرد على هذه الرسالة:`, {
-        reply_markup: { force_reply: true, selective: true, input_field_placeholder: 'همستك السرية...' },
-        reply_parameters: { message_id: ctx.message.message_id },
-      });
-      pending.set(`${ctx.chat.id}:${prompt.message_id}`, {
+      const targetName = displayName(target);
+      // Delete the trigger (in case the user typed a secret after "اهمس").
+      await ctx.deleteMessage().catch(() => undefined);
+
+      const token = makeToken(ctx.from.id);
+      const prompt = await ctx.reply(
+        `🤫 ${displayName(ctx.from)} يريد أن يهمس لـ ${targetName}\nاضغط الزر لكتابة همستك بالخاص 👇`,
+        {
+          reply_markup: {
+            inline_keyboard: [[{ text: '✍️ اكتب همستك', url: `https://t.me/${username}?start=w_${token}` }]],
+          },
+        },
+      );
+
+      pendingTokens.set(token, {
         senderId: ctx.from.id,
         targetId: target.id,
-        targetUsername: target.username,
+        targetUsername: target.username?.toLowerCase(),
         targetName,
+        chatId: ctx.chat.id,
+        promptMsgId: prompt.message_id,
       });
     });
 
-    // Capture the secret when the sender replies to our force-reply prompt.
-    bot.on(message('text'), async (ctx, next) => {
-      const chat = ctx.chat;
-      const from = ctx.from;
-      const replied = (ctx.message as { reply_to_message?: { message_id?: number } }).reply_to_message;
-      if (!chat || !from || !replied?.message_id) return next();
-
-      const key = `${chat.id}:${replied.message_id}`;
-      const p = pending.get(key);
-      if (!p || p.senderId !== from.id) return next();
-
-      // This is a whisper secret. Remove it + the prompt, then post the whisper.
-      pending.delete(key);
-      const secret = ctx.message.text.trim();
-      await ctx.deleteMessage().catch(() => undefined); // the secret
-      await ctx.telegram.deleteMessage(chat.id, replied.message_id).catch(() => undefined); // the prompt
-      if (secret) {
-        await postWhisper(
-          ctx,
-          from.id,
-          { id: p.targetId, username: p.targetUsername, name: p.targetName },
-          secret,
-        );
+    // Step 3a: DM /start with the whisper token → ask for the secret.
+    bot.start(async (ctx, next) => {
+      const payload = ctx.startPayload;
+      if (!payload || !payload.startsWith('w_')) return next();
+      const token = payload.slice(2);
+      const p = pendingTokens.get(token);
+      if (!p) {
+        await ctx.reply('⌛ انتهت صلاحية هذه الهمسة.');
+        return;
       }
-      return; // consumed
+      if (ctx.from?.id !== p.senderId) {
+        await ctx.reply('🔒 هذه الهمسة ليست لك.');
+        return;
+      }
+      dmPending.set(ctx.from.id, token);
+      await ctx.reply(`✍️ اكتب همستك لـ ${p.targetName} الآن وأرسلها كرسالة عادية:`);
     });
 
-    // Reveal on button press.
+    // Step 3b: DM text = the secret. Post the hidden whisper to the group.
+    bot.on(message('text'), async (ctx, next) => {
+      if (ctx.chat?.type !== 'private' || !ctx.from) return next();
+      const token = dmPending.get(ctx.from.id);
+      if (!token) return next();
+
+      dmPending.delete(ctx.from.id);
+      const p = pendingTokens.get(token);
+      pendingTokens.delete(token);
+      if (!p) {
+        await ctx.reply('⌛ انتهت صلاحية هذه الهمسة.');
+        return;
+      }
+
+      const secret = ctx.message.text.trim();
+      if (!secret) {
+        await ctx.reply('❌ الهمسة فارغة.');
+        return;
+      }
+
+      const id = storeWhisper({
+        senderId: p.senderId,
+        targetId: p.targetId,
+        targetUsername: p.targetUsername,
+        targetName: p.targetName,
+        text: secret,
+      });
+
+      await ctx.telegram
+        .sendMessage(p.chatId, `🤫 همسة سرية إلى ${p.targetName}\nفقط هو من يقدر يفتحها 👇`, {
+          reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
+        })
+        .catch(() => undefined);
+
+      // Clean up the group prompt and confirm privately.
+      await ctx.telegram.deleteMessage(p.chatId, p.promptMsgId).catch(() => undefined);
+      await ctx.reply('✅ تم إرسال همستك للقروب بسرية.');
+    });
+
+    // Step 4: reveal on button press.
     bot.action(/^wh:(.+)$/, async (ctx) => {
       const id = ctx.match[1];
       const w = whispers.get(id);

@@ -2,6 +2,7 @@ import type { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
+import { isAwaitingWhisper } from '../whisper/state';
 
 /**
  * Natural-language command aliases: lets users trigger commands by typing
@@ -97,11 +98,9 @@ export const aliasesPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     bot.on(message('text'), async (ctx, next) => {
-      // Don't treat replies to the bot (e.g. whisper force-reply input) as
-      // alias commands — that text is data, not a command.
-      const repliedTo = (ctx.message as { reply_to_message?: { from?: { id: number } } })
-        .reply_to_message?.from;
-      if (repliedTo && ctx.botInfo && repliedTo.id === ctx.botInfo.id) return next();
+      // While a user is typing a whisper secret in DM, their text is data,
+      // not a command — never rewrite it.
+      if (ctx.from && isAwaitingWhisper(ctx.from.id)) return next();
 
       const rewritten = matchAlias(ctx.message.text);
       if (rewritten) {

@@ -16,13 +16,12 @@ export function createGeneralPlugin(getPlugins: () => Plugin[]): Plugin {
     ],
 
     register(bot: Telegraf<BotContext>) {
-      bot.start(async (ctx) => {
+      bot.start(async (ctx, next) => {
+        // Deep-link payloads (e.g. whisper tokens) are handled by other
+        // plugins' start handlers — pass through instead of showing the menu.
+        if (ctx.startPayload) return next();
         const t = ctx.state.t!;
-        if (ctx.chat.type === 'private') {
-          await ctx.reply(t('start.private'));
-        } else {
-          await ctx.reply(t('start.private'));
-        }
+        await ctx.reply(t('start.private'));
       });
 
       bot.command('help', async (ctx) => {
