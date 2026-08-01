@@ -11,6 +11,7 @@ import { economyPlugin } from './economy';
 import { repliesPlugin } from './replies';
 import { analyticsPlugin } from './analytics';
 import { extrasPlugin } from './extras';
+import { decoratePlugin } from './decorate';
 import { funPlugin } from './fun';
 import { notesPlugin } from './notes';
 import { afkPlugin } from './afk';
@@ -39,6 +40,7 @@ allPlugins.push(
   welcomePlugin,
   analyticsPlugin,
   extrasPlugin,
+  decoratePlugin,
   funPlugin,
   toolsPlugin,
   notesPlugin, // passive: #hashtag recall, calls next()

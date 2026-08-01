@@ -49,6 +49,7 @@ const ALIASES: Alias[] = [
   { command: 'notes', triggers: ['الملاحظات', 'ملاحظات'] },
   { command: 'afk', triggers: ['غائب', 'انا غائب', 'باك بعدين'] },
   { command: 'poll', triggers: ['تصويت', 'استفتاء'] },
+  { command: 'decorate', triggers: ['زخرفه', 'زخرف', 'زخرفه كلمه'] },
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */
