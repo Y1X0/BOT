@@ -14,7 +14,7 @@ export const analyticsPlugin: Plugin = {
   commands: [
     { command: 'stats', description: '📈 إحصائيات الجروب' },
     { command: 'activetop', description: '🏆 الأكثر تفاعلاً' },
-    { command: 'report', description: '📊 تقرير الجروب' },
+    { command: 'groupreport', description: '📊 تقرير الجروب الكامل' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -48,7 +48,7 @@ export const analyticsPlugin: Plugin = {
       await ctx.reply(t('leaderboard.header', { list }));
     });
 
-    bot.command('report', async (ctx) => {
+    bot.command('groupreport', async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const title = (ctx.chat as { title?: string }).title ?? 'الجروب';
       const [members, messages, topMsg, topXp] = await Promise.all([

@@ -88,7 +88,7 @@ const ALIASES: Alias[] = [
   { command: 'missions', triggers: ['مهامي', 'المهام', 'مهام'] },
   { command: 'claim', triggers: ['استلم', 'استلام'] },
   { command: 'spin', triggers: ['عجله', 'عجله الحظ', 'دور'] },
-  { command: 'report', triggers: ['تقرير', 'تقرير الجروب'] },
+  { command: 'groupreport', triggers: ['تقرير', 'تقرير الجروب'] },
   { command: 'schedule', triggers: ['جدول', 'جدوله'] },
   { command: 'schedules', triggers: ['المجدوله', 'الرسائل المجدوله'] },
 ];
