@@ -15,11 +15,22 @@ function getCookiesPath(): string | null {
   if (cookiesPath !== undefined) return cookiesPath;
   cookiesPath = null;
   try {
-    if (env.YT_COOKIES && env.YT_COOKIES.trim()) {
+    const raw = env.YT_COOKIES?.trim();
+    if (raw) {
+      let content = raw;
+      // Accept either raw cookies.txt or a Base64 blob (single-line, robust in
+      // env vars). Detect Base64: only base64 chars, no tabs, no "youtube".
+      const looksBase64 =
+        /^[A-Za-z0-9+/=\s]+$/.test(raw) && !raw.includes('\t') && !/youtube/i.test(raw);
+      if (looksBase64) {
+        content = Buffer.from(raw.replace(/\s+/g, ''), 'base64').toString('utf8');
+      } else {
+        content = raw.replace(/\\n/g, '\n'); // literal "\n" → real newlines
+      }
       const p = join(tmpdir(), 'yt-cookies.txt');
-      // Support both real newlines and literal "\n" pasted into an env var.
-      writeFileSync(p, env.YT_COOKIES.replace(/\\n/g, '\n'), 'utf8');
+      writeFileSync(p, content, 'utf8');
       cookiesPath = p;
+      log.info('Using YouTube cookies from YT_COOKIES');
     } else if (env.YT_COOKIES_FILE && existsSync(env.YT_COOKIES_FILE)) {
       cookiesPath = env.YT_COOKIES_FILE;
     }
