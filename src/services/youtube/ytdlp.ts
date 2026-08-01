@@ -44,15 +44,15 @@ function getCookiesPath(): string | null {
 /**
  * Player clients tried in order when the request is blocked. YouTube blocks
  * some clients on datacenter IPs but not others, so we fall back through the
- * list until one works — no manual env fiddling needed.
+ * list until one works — no cookies required, no manual env fiddling.
+ * Order per request: android → web first, then broader fallbacks.
  */
-const CLIENT_FALLBACKS = ['tv', 'mweb', 'web_embedded', 'android_vr', 'default'];
+const CLIENT_FALLBACKS = ['android', 'web', 'tv', 'mweb', 'web_embedded', 'android_vr', 'default'];
 
 /** The ordered list of player clients to attempt for this environment. */
 function clientsToTry(): (string | null)[] {
   if (env.YT_PLAYER_CLIENT) return [env.YT_PLAYER_CLIENT]; // explicit override wins
-  if (getCookiesPath() || env.YT_PROXY) return [null]; // cookies/proxy → default works
-  return CLIENT_FALLBACKS;
+  return CLIENT_FALLBACKS; // cookies (if any) are attached to every attempt
 }
 
 /** Args applied to every yt-dlp call. `client` null = no player_client override. */
@@ -153,7 +153,10 @@ export async function search(query: string, limit: number): Promise<SearchItem[]
         items.push({ videoId, title, duration });
       }
     }
-    if (items.length) return items;
+    if (items.length) {
+      log.info({ client: client ?? 'default', count: items.length }, 'search succeeded');
+      return items;
+    }
 
     lastError = code === 0 ? 'notfound' : classifyError(stderr);
     log.warn({ code, client, stderr: stderr.slice(-200) }, 'search attempt failed');
@@ -172,7 +175,10 @@ export async function downloadAudio(
   let lastError: YtError = 'failed';
   for (const client of clientsToTry()) {
     const result = await attemptDownload(videoId, client);
-    if ('filePath' in result) return result;
+    if ('filePath' in result) {
+      log.info({ client: client ?? 'default' }, 'download succeeded (extractor)');
+      return result;
+    }
     lastError = result.error;
     log.warn({ client, error: lastError }, 'download attempt failed');
     if (!isRetryable(lastError)) break;

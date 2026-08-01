@@ -21,10 +21,12 @@ FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# openssl for Prisma; ffmpeg + yt-dlp (static build) for the audio feature.
+# openssl for Prisma; ffmpeg + yt-dlp for the audio feature.
+# Use the nightly build — it tracks YouTube extractor fixes far more closely
+# than the stable release, which matters for bot-detection bypass.
 RUN apt-get update -y \
     && apt-get install -y openssl ffmpeg ca-certificates wget \
-    && wget -q https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -O /usr/local/bin/yt-dlp \
+    && wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux -O /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
