@@ -19,6 +19,7 @@ import { toolsPlugin } from './tools';
 import { whisperPlugin } from './whisper';
 import { youtubePlugin } from './youtube';
 import { downloaderPlugin } from './downloader';
+import { voiceChatPlugin } from './voicechat';
 import { aiPlugin } from './ai';
 
 /**
@@ -41,6 +42,7 @@ allPlugins.push(
   adminPlugin,
   moderationPlugin,
   welcomePlugin,
+  voiceChatPlugin,
   analyticsPlugin,
   extrasPlugin,
   decoratePlugin,
