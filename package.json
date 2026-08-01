@@ -1,0 +1,50 @@
+{
+  "name": "telegram-group-bot",
+  "version": "1.0.0",
+  "description": "Production-ready Telegram Group Management & Interactive Bot (plugin-based architecture)",
+  "main": "dist/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "npm run prisma:generate && tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "db:provider": "node scripts/set-db-provider.mjs",
+    "prisma:generate": "npm run db:provider && prisma generate",
+    "prisma:migrate": "npm run db:provider && prisma migrate dev",
+    "prisma:deploy": "npm run db:provider && prisma migrate deploy",
+    "prisma:studio": "npm run db:provider && prisma studio",
+    "db:push": "npm run db:provider && prisma db push",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "telegraf",
+    "group-management",
+    "moderation",
+    "typescript"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pino": "^9.6.0",
+    "telegraf": "^4.16.3",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.5",
+    "pino-pretty": "^13.0.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

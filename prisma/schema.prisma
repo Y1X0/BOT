@@ -1,0 +1,169 @@
+// Prisma schema — SQLite by default, portable to PostgreSQL.
+// To switch to PostgreSQL: set provider = "postgresql" and DATABASE_URL accordingly.
+// Enum-like fields are stored as String for cross-DB portability (SQLite has no enums).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Provider is set at build time by scripts/set-db-provider.mjs based on the
+  // DATABASE_PROVIDER env var (Prisma forbids env() here). Default: sqlite.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A Telegram chat (group / supergroup) the bot has been added to.
+model Chat {
+  id             BigInt    @id // Telegram chat id
+  title          String?
+  type           String    @default("group")
+  language       String    @default("ar")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  settings       ChatSettings?
+  members        Member[]
+  warnings       Warning[]
+  replies        CustomReply[]
+  filters        WordFilter[]
+  auditLogs      AuditLog[]
+  economy        EconomyAccount[]
+
+  @@index([type])
+}
+
+/// Per-chat configuration. One row per chat.
+model ChatSettings {
+  chatId              BigInt   @id
+  chat                Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  // Welcome / farewell
+  welcomeEnabled      Boolean  @default(true)
+  welcomeMessage      String?  // supports {name} {title} {count} placeholders
+  welcomeImageUrl     String?
+  farewellEnabled     Boolean  @default(false)
+  farewellMessage     String?
+  captchaEnabled      Boolean  @default(false)
+  captchaTimeoutSec   Int      @default(120)
+
+  // Anti-spam / moderation
+  antispamEnabled     Boolean  @default(true)
+  floodEnabled        Boolean  @default(true)
+  floodLimit          Int      @default(7)   // messages
+  floodWindowSec      Int      @default(10)  // per window
+  antiLinkEnabled     Boolean  @default(false)
+  antiForwardEnabled  Boolean  @default(false)
+  filtersEnabled      Boolean  @default(true)
+  maxWarnings         Int      @default(3)
+  warnAction          String   @default("mute") // mute | kick | ban
+
+  // Fun / engagement
+  repliesEnabled      Boolean  @default(true)
+  reactionsEnabled    Boolean  @default(true)
+  gamesEnabled        Boolean  @default(true)
+  economyEnabled      Boolean  @default(true)
+  xpEnabled           Boolean  @default(true)
+
+  // AI
+  aiEnabled           Boolean  @default(false)
+
+  // Rules
+  rules               String?
+
+  updatedAt           DateTime @updatedAt
+}
+
+/// A user's membership + stats inside a specific chat.
+model Member {
+  id           Int      @id @default(autoincrement())
+  chatId       BigInt
+  userId       BigInt
+  chat         Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  username     String?
+  firstName    String?
+  role         String   @default("member") // owner | admin | moderator | member
+  messageCount Int      @default(0)
+  xp           Int      @default(0)
+  level        Int      @default(0)
+  lastSeenAt   DateTime @default(now())
+  joinedAt     DateTime @default(now())
+
+  @@unique([chatId, userId])
+  @@index([chatId, xp])
+  @@index([chatId, messageCount])
+}
+
+/// In-group economy account (coins) per user per chat.
+model EconomyAccount {
+  id          Int      @id @default(autoincrement())
+  chatId      BigInt
+  userId      BigInt
+  chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  balance     Int      @default(0)
+  lastDailyAt DateTime?
+
+  @@unique([chatId, userId])
+  @@index([chatId, balance])
+}
+
+/// Moderation warnings issued to a user in a chat.
+model Warning {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  userId    BigInt
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  reason    String?
+  issuedBy  BigInt
+  createdAt DateTime @default(now())
+
+  @@index([chatId, userId])
+}
+
+/// Admin-defined keyword -> response(s). Multiple responses = random pick.
+model CustomReply {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  trigger   String
+  responses String   // JSON string array
+  matchType String   @default("contains") // exact | contains | regex
+  createdBy BigInt
+  createdAt DateTime @default(now())
+
+  @@unique([chatId, trigger])
+  @@index([chatId])
+}
+
+/// Banned words per chat.
+model WordFilter {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  word      String
+  action    String   @default("delete") // delete | warn | mute
+  createdAt DateTime @default(now())
+
+  @@unique([chatId, word])
+  @@index([chatId])
+}
+
+/// Audit log of moderation/admin actions for accountability.
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  action    String
+  actorId   BigInt
+  targetId  BigInt?
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([chatId, createdAt])
+}

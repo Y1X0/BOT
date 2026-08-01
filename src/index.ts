@@ -1,0 +1,66 @@
+import { env } from './config/env';
+import { logger } from './core/logger';
+import { connectDatabase, disconnectDatabase } from './core/database';
+import { createBot, publishCommands } from './core/bot';
+import { createServer, startServer } from './core/server';
+import type { Server } from 'http';
+
+async function main(): Promise<void> {
+  logger.info({ mode: env.BOT_MODE, env: env.NODE_ENV }, 'Starting Telegram bot');
+
+  await connectDatabase();
+
+  const { bot, plugins } = await createBot();
+  const app = createServer(bot);
+  const server: Server = await startServer(app);
+
+  await publishCommands(bot, plugins);
+
+  if (env.BOT_MODE === 'webhook') {
+    if (!env.WEBHOOK_DOMAIN) {
+      throw new Error('WEBHOOK_DOMAIN is required when BOT_MODE=webhook');
+    }
+    const path = env.WEBHOOK_PATH.startsWith('/') ? env.WEBHOOK_PATH : `/${env.WEBHOOK_PATH}`;
+    await bot.telegram.setWebhook(`${env.WEBHOOK_DOMAIN}${path}`, {
+      secret_token: env.WEBHOOK_SECRET,
+    });
+    logger.info({ url: `${env.WEBHOOK_DOMAIN}${path}` }, 'Webhook registered');
+  } else {
+    // Long polling. Do not await launch() — it resolves only when the bot stops.
+    await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => undefined);
+    bot.launch(() => logger.info('Bot started (long polling)'));
+  }
+
+  // --- Graceful shutdown ---
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info({ signal }, 'Shutting down...');
+    try {
+      bot.stop(signal);
+    } catch {
+      /* already stopped */
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await disconnectDatabase();
+    logger.info('Shutdown complete');
+    process.exit(0);
+  };
+
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+
+  logger.info('Bot is up and running ✅');
+}
+
+// Fail loud on unexpected top-level errors.
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason }, 'Unhandled promise rejection');
+});
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, 'Uncaught exception — exiting');
+  process.exit(1);
+});
+
+main().catch((err) => {
+  logger.fatal({ err }, 'Fatal startup error');
+  process.exit(1);
+});
