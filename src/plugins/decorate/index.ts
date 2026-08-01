@@ -3,6 +3,11 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { decorate } from './decorate';
 
+/** Escape text for Telegram HTML parse mode. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /**
  * Text decoration command. `/decorate <word>` (or the Arabic alias
  * "زخرفة <word>") replies with a numbered list of stylised variants.
@@ -25,8 +30,13 @@ export const decoratePlugin: Plugin = {
       }
 
       const variants = decorate(text);
-      const list = variants.map((v, i) => `${i + 1}. ${v}`).join('\n');
-      await ctx.reply(`🎨 زخرفة «${text}»:\n\n${list}\n\nانسخ أي واحدة تعجبك ✨`);
+      // Each variant is wrapped in a <code> span: tapping it in Telegram
+      // copies just that decoration to the clipboard automatically.
+      const list = variants.map((v) => `<code>${escapeHtml(v)}</code>`).join('\n');
+      await ctx.reply(
+        `🎨 زخرفة «${escapeHtml(text)}»:\n\n👆 اضغط على أي زخرفة لنسخها تلقائياً\n\n${list}`,
+        { parse_mode: 'HTML' },
+      );
     });
   },
 };
