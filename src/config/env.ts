@@ -87,6 +87,13 @@ const envSchema = z.object({
     .string()
     .default('true')
     .transform((v) => v !== 'false'),
+  // Piped fallback engine: extracts via a Piped instance (different IP), so it
+  // can succeed when yt-dlp is blocked on the server's datacenter IP.
+  YT_PIPED_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false'),
+  YT_PIPED_INSTANCES: z.string().optional(), // comma-separated API base URLs
 });
 
 const parsed = envSchema.safeParse(process.env);

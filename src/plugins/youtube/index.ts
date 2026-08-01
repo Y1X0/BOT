@@ -9,6 +9,7 @@ import { search, downloadAudio, type SearchItem, type YtError } from '../../serv
 import { youtubeQueue } from '../../services/youtube/queue';
 import { youtubeConfig, setConfig, TELEGRAM_SEND_LIMIT, type YoutubeConfig } from '../../services/youtube/config';
 import { getCachedAudio, cacheAudio, bumpCacheHit, dropCachedAudio } from '../../services/youtube/cache';
+import { pipedSearch, pipedDownload } from '../../services/youtube/piped';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:youtube');
@@ -61,7 +62,12 @@ export const youtubePlugin: Plugin = {
       if (query.length > 150) return void ctx.reply('🎵 البحث طويل جداً.');
 
       const status = await ctx.reply(`🔎 جاري البحث عن: ${query} ...`);
-      const found = await search(query, youtubeConfig.maxResults);
+      let found = await search(query, youtubeConfig.maxResults);
+      // Fallback engine when yt-dlp search is blocked.
+      if ('error' in found && env.YT_PIPED_ENABLED) {
+        const alt = await pipedSearch(query, youtubeConfig.maxResults);
+        if (!('error' in alt)) found = alt;
+      }
 
       if ('error' in found) {
         await editText(ctx, status.message_id, ERRORS[found.error]);
@@ -129,7 +135,13 @@ export const youtubePlugin: Plugin = {
           if (statusId) await telegram.editMessageText(chatId, statusId, undefined, `⬇️ جاري التحميل: ${item.title}`).catch(() => undefined);
           await telegram.sendChatAction(chatId, 'upload_voice').catch(() => undefined);
 
-          const result = await downloadAudio(item.videoId);
+          let result = await downloadAudio(item.videoId);
+          // Fallback to the Piped engine when yt-dlp is blocked/DRM/failed.
+          if ('error' in result && env.YT_PIPED_ENABLED && result.error !== 'notinstalled' && result.error !== 'toolarge') {
+            if (statusId) await telegram.editMessageText(chatId, statusId, undefined, `🔁 محاولة عبر محرك بديل: ${item.title}`).catch(() => undefined);
+            const alt = await pipedDownload(item.videoId);
+            if (!('error' in alt)) result = alt;
+          }
           if ('error' in result) {
             if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error]).catch(() => undefined);
             return;
