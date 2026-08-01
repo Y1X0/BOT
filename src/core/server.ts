@@ -25,7 +25,7 @@ export function createServer(bot: Telegraf<BotContext>): Express {
 
   // Web dashboard (opt-in): API + single-page UI.
   if (env.DASHBOARD_ENABLED) {
-    app.use('/api', createDashboardApi());
+    app.use('/api', createDashboardApi(bot.telegram));
     app.get('/dashboard', (_req, res) => res.type('html').send(DASHBOARD_HTML));
     log.info('Web dashboard enabled at /dashboard');
   }

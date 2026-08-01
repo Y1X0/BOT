@@ -1,4 +1,6 @@
+import os from 'node:os';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import type { Telegram } from 'telegraf';
 import { prisma } from '../core/database';
 import { env, isProd } from '../config/env';
 import { isBotOwner } from '../utils/permissions';
@@ -6,6 +8,9 @@ import { memberCount, totalMessages, topByMessages } from '../services/member.se
 import { addReply, deleteReply, listReplies } from '../services/replies.service';
 import { addFilter, deleteFilter, listFilters } from '../services/filters.service';
 import { TOGGLEABLE_SETTINGS } from '../services/settings.service';
+import { queryLogs, queryMedia, logAnalytics } from '../services/logging.service';
+import { youtubeQueue } from '../services/youtube/queue';
+import { recentErrors, clearErrors } from '../core/errors';
 import {
   SESSION_COOKIE,
   readCookie,
@@ -40,9 +45,15 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): voi
 
 /** Whitelisted settings fields the dashboard may update. */
 const NUMERIC_FIELDS = ['maxWarnings', 'floodLimit', 'floodWindowSec', 'captchaTimeoutSec', 'nightStartHour', 'nightEndHour'];
-const STRING_FIELDS = ['rules', 'welcomeMessage', 'farewellMessage', 'welcomeImageUrl', 'warnAction'];
+const STRING_FIELDS = ['rules', 'welcomeMessage', 'farewellMessage', 'welcomeImageUrl', 'warnAction', 'moderationAction'];
 
-export function createDashboardApi(): express.Router {
+/** Record an owner action in the dashboard audit trail. */
+async function audit(actorId: number | undefined, action: string, details?: string): Promise<void> {
+  if (!actorId) return;
+  await prisma.dashboardAudit.create({ data: { actorId: BigInt(actorId), action, details: details ?? null } }).catch(() => undefined);
+}
+
+export function createDashboardApi(telegram: Telegram): express.Router {
   const router = express.Router();
 
   router.get('/config', (_req, res) => json(res, { botUsername: env.BOT_USERNAME ?? '' }));
@@ -91,6 +102,7 @@ export function createDashboardApi(): express.Router {
     for (const key of STRING_FIELDS) if (typeof body[key] === 'string') data[key] = body[key];
     if (!Object.keys(data).length) return json(res, { error: 'no_valid_fields' }, 400);
     const updated = await prisma.chatSettings.update({ where: { chatId: BigInt(req.params.id) }, data });
+    await audit((req as AuthedRequest).userId, 'settings', `chat=${req.params.id} ${Object.keys(data).join(',')}`);
     json(res, updated);
   });
 
@@ -136,6 +148,90 @@ export function createDashboardApi(): express.Router {
   router.delete('/chats/:id/filters/:word', async (req, res) => {
     const ok = await deleteFilter(BigInt(req.params.id), req.params.word);
     json(res, { ok });
+  });
+
+  // ---- Super Admin: monitor / media / logs / analytics / system ----
+
+  router.get('/monitor', async (req, res) => {
+    const q = req.query as Record<string, string>;
+    const rows = await queryLogs({ chatId: q.chatId, type: q.type, limit: Number(q.limit) || 60, before: q.before ? Number(q.before) : undefined });
+    json(res, rows);
+  });
+
+  router.get('/logs', async (req, res) => {
+    const q = req.query as Record<string, string>;
+    const rows = await queryLogs({
+      chatId: q.chatId,
+      userId: q.userId,
+      type: q.type,
+      q: q.q,
+      flagged: q.flagged === 'true' ? true : undefined,
+      limit: Number(q.limit) || 60,
+      before: q.before ? Number(q.before) : undefined,
+    });
+    json(res, rows);
+  });
+
+  router.get('/media', async (req, res) => {
+    const q = req.query as Record<string, string>;
+    json(res, await queryMedia(q.chatId, q.type, Number(q.limit) || 40));
+  });
+
+  // Resolve a media file to a temporary Telegram URL (owner-only, ≤20MB files).
+  router.get('/media/:id/link', async (req, res) => {
+    const row = await prisma.messageLog.findUnique({ where: { id: Number(req.params.id) } });
+    if (!row?.fileId) return json(res, { error: 'not_found' }, 404);
+    try {
+      const link = await telegram.getFileLink(row.fileId);
+      json(res, { url: link.toString() });
+    } catch {
+      json(res, { error: 'too_large_or_expired' }, 502);
+    }
+  });
+
+  router.get('/analytics', async (_req, res) => json(res, await logAnalytics()));
+
+  router.get('/system', (_req, res) => {
+    const mem = process.memoryUsage();
+    json(res, {
+      uptimeSec: Math.round(process.uptime()),
+      memory: { rssMB: +(mem.rss / 1048576).toFixed(1), heapMB: +(mem.heapUsed / 1048576).toFixed(1) },
+      loadavg: os.loadavg().map((n) => +n.toFixed(2)),
+      cpus: os.cpus().length,
+      queue: youtubeQueue.stats(),
+      errors: recentErrors().slice(0, 30),
+      node: process.version,
+    });
+  });
+
+  router.get('/audit', async (_req, res) => {
+    const rows = await prisma.dashboardAudit.findMany({ orderBy: { id: 'desc' }, take: 100 });
+    json(res, rows);
+  });
+
+  // Owner actions.
+  router.post('/chats/:id/broadcast', async (req: AuthedRequest, res) => {
+    const { text } = (req.body ?? {}) as { text?: string };
+    if (!text) return json(res, { error: 'bad_input' }, 400);
+    try {
+      await telegram.sendMessage(Number(req.params.id), text);
+      await audit(req.userId, 'broadcast', `chat=${req.params.id}`);
+      json(res, { ok: true });
+    } catch {
+      json(res, { error: 'send_failed' }, 502);
+    }
+  });
+
+  router.post('/system/clearcache', async (req: AuthedRequest, res) => {
+    clearErrors();
+    await audit(req.userId, 'clearcache');
+    json(res, { ok: true });
+  });
+
+  router.post('/system/restart', async (req: AuthedRequest, res) => {
+    await audit(req.userId, 'restart');
+    json(res, { ok: true, note: 'restarting' });
+    setTimeout(() => process.exit(0), 400); // Railway/Render restarts the process
   });
 
   return router;

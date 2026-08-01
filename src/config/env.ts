@@ -117,6 +117,14 @@ const envSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   DASHBOARD_SECRET: z.string().optional(), // cookie signing key (falls back to BOT_TOKEN)
+
+  // Message logging (owner monitor/media/logs). Opt-in — you are responsible
+  // for informing group members and complying with local privacy law.
+  MESSAGE_LOG_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  MESSAGE_LOG_RETENTION_DAYS: z.coerce.number().default(7),
 });
 
 const parsed = envSchema.safeParse(process.env);

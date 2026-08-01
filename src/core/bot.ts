@@ -5,6 +5,9 @@ import { createLogger } from './logger';
 import { contextMiddleware } from '../middlewares/context.middleware';
 import { rateLimitMiddleware } from '../middlewares/rateLimit.middleware';
 import { antispamMiddleware } from '../middlewares/antispam.middleware';
+import { loggingMiddleware } from '../middlewares/logging.middleware';
+import { moderationMiddleware } from '../middlewares/moderation.middleware';
+import { recordError } from './errors';
 import { registerPlugins, type Plugin } from './plugin';
 import { allPlugins } from '../plugins';
 
@@ -26,16 +29,20 @@ export async function createBot(): Promise<{
   // Global error boundary — never let a handler crash the process.
   bot.catch((err, ctx) => {
     log.error({ err, updateType: ctx.updateType }, 'Unhandled bot error');
+    recordError(err instanceof Error ? err.message : String(err), ctx.updateType);
   });
 
   // Middleware pipeline order matters:
   // 1) enrich context (settings/locale/role)
-  // 2) rate-limit commands
-  // 3) anti-spam moderation (may short-circuit)
-  // 4) plugins / command handlers
+  // 2) record message metadata (owner dashboard, opt-in)
+  // 3) rate-limit commands
+  // 4) anti-spam moderation (may short-circuit)
+  // 5) plugins / command handlers
   bot.use(contextMiddleware);
+  bot.use(loggingMiddleware);
   bot.use(rateLimitMiddleware);
   bot.use(antispamMiddleware);
+  bot.use(moderationMiddleware);
 
   const plugins = await registerPlugins(bot, allPlugins);
 

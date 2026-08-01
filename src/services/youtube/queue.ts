@@ -28,6 +28,17 @@ export class QueueManager {
     return q ? q.pending.length + q.running : 0;
   }
 
+  /** Snapshot across all chats (for the owner dashboard). */
+  stats(): { chats: number; running: number; pending: number } {
+    let running = 0;
+    let pending = 0;
+    for (const q of this.chats.values()) {
+      running += q.running;
+      pending += q.pending.length;
+    }
+    return { chats: this.chats.size, running, pending };
+  }
+
   /**
    * Enqueue a job for `chatId`. Returns its 1-based position in line
    * (1 = starts immediately). `maxQueue` caps pending jobs; returns -1 if full.

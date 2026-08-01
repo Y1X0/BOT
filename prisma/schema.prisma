@@ -75,6 +75,10 @@ model ChatSettings {
   nightEndHour        Int      @default(6)
   cleanServiceEnabled Boolean  @default(false)
 
+  // AI moderation
+  moderationEnabled   Boolean  @default(false)
+  moderationAction    String   @default("delete") // delete | warn | mute | ban
+
   // Rules
   rules               String?
 
@@ -177,6 +181,38 @@ model Note {
 
   @@unique([chatId, name])
   @@index([chatId])
+}
+
+/// Logged message metadata (opt-in via MESSAGE_LOG_ENABLED). Powers the
+/// owner dashboard's monitor, media viewer, logs, search, and analytics.
+model MessageLog {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  chatTitle String?
+  userId    BigInt
+  userName  String?
+  messageId Int
+  type      String // text|photo|video|audio|voice|animation|sticker|document|location|contact|edit|other
+  text      String?
+  fileId    String?
+  flagged   Boolean  @default(false) // set by AI moderation
+  createdAt DateTime @default(now())
+
+  @@index([chatId, createdAt])
+  @@index([userId])
+  @@index([type])
+  @@index([flagged])
+}
+
+/// Audit trail of actions performed through the owner dashboard.
+model DashboardAudit {
+  id        Int      @id @default(autoincrement())
+  actorId   BigInt
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 /// Unlocked achievements per member.

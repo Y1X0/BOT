@@ -16,6 +16,17 @@ async function main(): Promise<void> {
 
   await publishCommands(bot, plugins);
 
+  // Periodic message-log retention cleanup (owner dashboard, opt-in).
+  if (env.MESSAGE_LOG_ENABLED) {
+    const { cleanupOldLogs } = await import('./services/logging.service');
+    const runCleanup = () =>
+      cleanupOldLogs(env.MESSAGE_LOG_RETENTION_DAYS)
+        .then((n) => n && logger.info({ deleted: n }, 'Pruned old message logs'))
+        .catch(() => undefined);
+    void runCleanup();
+    setInterval(() => void runCleanup(), 6 * 3600_000).unref();
+  }
+
   if (env.BOT_MODE === 'webhook') {
     if (!env.WEBHOOK_DOMAIN) {
       throw new Error('WEBHOOK_DOMAIN is required when BOT_MODE=webhook');
