@@ -110,6 +110,13 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v !== 'false'),
   DL_MAX_SIZE_MB: z.coerce.number().default(50),
+
+  // Web dashboard (opt-in). Login via Telegram widget, owner-only.
+  DASHBOARD_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  DASHBOARD_SECRET: z.string().optional(), // cookie signing key (falls back to BOT_TOKEN)
 });
 
 const parsed = envSchema.safeParse(process.env);

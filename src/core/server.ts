@@ -4,6 +4,8 @@ import type { BotContext } from './context';
 import { env } from '../config/env';
 import { prisma } from './database';
 import { createLogger } from './logger';
+import { createDashboardApi } from '../dashboard/api';
+import { DASHBOARD_HTML } from '../dashboard/page';
 
 const log = createLogger('server');
 
@@ -20,6 +22,13 @@ export function createServer(bot: Telegraf<BotContext>): Express {
   app.get('/', (_req, res) => {
     res.json({ name: 'telegram-group-bot', status: 'running', mode: env.BOT_MODE });
   });
+
+  // Web dashboard (opt-in): API + single-page UI.
+  if (env.DASHBOARD_ENABLED) {
+    app.use('/api', createDashboardApi());
+    app.get('/dashboard', (_req, res) => res.type('html').send(DASHBOARD_HTML));
+    log.info('Web dashboard enabled at /dashboard');
+  }
 
   app.get('/health', async (_req, res) => {
     try {
