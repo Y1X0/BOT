@@ -72,8 +72,12 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v !== 'false'),
   YTDLP_PATH: z.string().default('yt-dlp'),
-  YT_MAX_DURATION_SEC: z.coerce.number().default(1200), // 20 min
-  YT_COOLDOWN_SEC: z.coerce.number().default(20), // per-user cooldown
+  // 0 = unlimited. (Telegram's own bot API still caps sends at ~50MB unless a
+  // local Bot API server is used.)
+  YT_MAX_DURATION_SEC: z.coerce.number().default(0),
+  YT_MAX_SIZE_MB: z.coerce.number().default(0),
+  YT_MAX_RESULTS: z.coerce.number().default(10),
+  YT_CONCURRENCY_PER_GROUP: z.coerce.number().default(1),
 });
 
 const parsed = envSchema.safeParse(process.env);
