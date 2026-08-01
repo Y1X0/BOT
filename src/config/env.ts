@@ -99,6 +99,17 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v !== 'false'),
   YT_INVIDIOUS_INSTANCES: z.string().optional(),
+
+  // Generic link downloader (TikTok, Instagram Reels, X, Facebook, ...)
+  DL_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false'),
+  DL_AUTO: z // auto-download when a known short-video link is posted
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false'),
+  DL_MAX_SIZE_MB: z.coerce.number().default(50),
 });
 
 const parsed = envSchema.safeParse(process.env);

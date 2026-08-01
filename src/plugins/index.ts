@@ -18,6 +18,7 @@ import { afkPlugin } from './afk';
 import { toolsPlugin } from './tools';
 import { whisperPlugin } from './whisper';
 import { youtubePlugin } from './youtube';
+import { downloaderPlugin } from './downloader';
 import { aiPlugin } from './ai';
 
 /**
@@ -47,6 +48,7 @@ allPlugins.push(
   toolsPlugin,
   whisperPlugin,
   youtubePlugin,
+  downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,
   engagementPlugin, // passive: XP, calls next()
