@@ -100,7 +100,8 @@ async function enqueueDownload(
           await removeStatus();
           return;
         }
-        if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error]).catch(() => undefined);
+        const reason = result.reason ? `\n📄 ${result.reason}` : '';
+        if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error] + reason).catch(() => undefined);
         return;
       }
 

@@ -19,11 +19,24 @@ export interface DlResult {
   cleanup: () => Promise<void>;
 }
 
+/** Short, user-safe reason pulled from yt-dlp's ERROR line (for diagnostics). */
+function extractReason(stderr: string): string | undefined {
+  const line = stderr
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /error/i.test(l))
+    .pop();
+  if (!line) return undefined;
+  return line.replace(/^ERROR:\s*/i, '').slice(0, 180);
+}
+
 /**
  * Download a video/media file from any yt-dlp-supported URL (TikTok, Instagram
  * Reels, X/Twitter, Facebook, etc.). Fixed argv — no shell. Never throws.
  */
-export async function downloadVideo(url: string): Promise<DlResult | { error: DlError }> {
+export async function downloadVideo(
+  url: string,
+): Promise<DlResult | { error: DlError; reason?: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'dl-'));
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
   const maxMb = env.DL_MAX_SIZE_MB > 0 ? env.DL_MAX_SIZE_MB : 50;
@@ -36,8 +49,9 @@ export async function downloadVideo(url: string): Promise<DlResult | { error: Dl
     ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
     '--max-filesize',
     `${maxMb}M`,
-    '-f',
-    'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+    // Prefer mp4 without *requiring* it (accepts any format → far fewer failures).
+    '-S',
+    'ext:mp4:m4a,res,br',
     '--merge-output-format',
     'mp4',
     '-o',
@@ -47,11 +61,11 @@ export async function downloadVideo(url: string): Promise<DlResult | { error: Dl
     url,
   ];
 
-  return new Promise<DlResult | { error: DlError }>((resolve) => {
+  return new Promise<DlResult | { error: DlError; reason?: string }>((resolve) => {
     let stdout = '';
     let stderr = '';
     let done = false;
-    const finish = (r: DlResult | { error: DlError }) => {
+    const finish = (r: DlResult | { error: DlError; reason?: string }) => {
       if (done) return;
       done = true;
       resolve(r);
@@ -88,13 +102,14 @@ export async function downloadVideo(url: string): Promise<DlResult | { error: Dl
         /* fall through */
       }
       await cleanup();
-      log.warn({ code, stderr: stderr.slice(-300) }, 'download produced no file');
+      log.warn({ code, stderr: stderr.slice(-400) }, 'download produced no file');
+      const reason = extractReason(stderr);
       if (code === null) finish({ error: 'timeout' });
       else if (/max-filesize|larger than/i.test(stderr)) finish({ error: 'toolarge' });
-      else if (/login required|private|not available|age-restricted/i.test(stderr))
-        finish({ error: 'private' });
-      else if (/Unsupported URL|is not a valid URL/i.test(stderr)) finish({ error: 'unsupported' });
-      else finish({ error: 'failed' });
+      else if (/login required|login to|private|not available|age-restricted|rate-limit/i.test(stderr))
+        finish({ error: 'private', reason });
+      else if (/Unsupported URL|is not a valid URL/i.test(stderr)) finish({ error: 'unsupported', reason });
+      else finish({ error: 'failed', reason });
     });
   });
 }
