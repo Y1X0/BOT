@@ -1,9 +1,13 @@
 /**
  * Fun Image Editor effect registry. Each effect is a prompt template applied to
  * the user's photo. Add new effects by appending here — the menu builds itself.
- * Prompts instruct the model to KEEP the person's face/identity and stay
- * tasteful/non-sexual. Body/clothing-altering or gender-swap effects are
- * intentionally excluded to avoid non-consensual or harassing edits.
+ *
+ * Policy: purely for entertainment and strictly PG (suitable for all ages).
+ * Every prompt keeps the person's face/identity recognizable and forces
+ * modest, fully-clothed, non-sexual, non-humiliating output. Costume and
+ * gender-presentation effects are allowed but ALWAYS with modest everyday
+ * clothing. Nudity, sexual/suggestive content, gore, and bullying are never
+ * produced — the model is instructed to keep results wholesome.
  */
 export interface Effect {
   id: string;
@@ -13,7 +17,11 @@ export interface Effect {
   prompt: string;
 }
 
-const KEEP = 'Preserve the person’s exact face and identity so they stay recognizable. High quality, tasteful, non-sexual, do not distort facial features.';
+const KEEP =
+  'Preserve the person’s exact face and identity so they stay recognizable. ' +
+  'Keep it strictly PG and suitable for all ages: fully clothed, modest, ' +
+  'non-revealing, non-sexual, and never humiliating, insulting or bullying. ' +
+  'High quality, do not distort facial features.';
 
 function e(id: string, emoji: string, label: string, group: string, desc: string): Effect {
   return { id, emoji, label, group, prompt: `Transform the person in this photo: ${desc}. ${KEEP}` };
@@ -57,12 +65,26 @@ export const EFFECTS: Effect[] = [
   e('hat', '🎩', 'قبعة', 'إكسسوارات', 'add an elegant top hat'),
   e('crown', '👑', 'تاج', 'إكسسوارات', 'add a golden crown'),
   e('beard', '🧔', 'لحية', 'إكسسوارات', 'add a thick well-groomed beard'),
+  e('mustache', '👨', 'شارب', 'إكسسوارات', 'add a fun stylish mustache'),
+  e('hair', '💇', 'شعر', 'إكسسوارات', 'give them a fun new hairstyle'),
+  // Outfits (all modest, everyday, fully clothed)
+  e('formal', '🤵', 'رسمي', 'ملابس', 'dress them in an elegant, modest formal suit'),
+  e('sport', '🏃', 'رياضي', 'ملابس', 'dress them in modest athletic sportswear such as a tracksuit'),
+  e('costume', '🎉', 'تنكري', 'ملابس', 'dress them in a fun, modest costume-party outfit'),
+  e('traditional', '🧕', 'تراثي', 'ملابس', 'dress them in elegant, modest traditional clothing'),
+  // Gender presentation (fun, modest, fully clothed — face kept recognizable)
+  e('man', '👨', 'كرجل', 'تحويل', 'depict them presenting as a man wearing modest everyday clothing'),
+  e('woman', '👩', 'كامرأة', 'تحويل', 'depict them presenting as a woman wearing modest, fully-covering everyday clothing (long sleeves), no revealing outfit'),
+  // Fun captions / stickers
+  e('meme', '😂', 'ميم', 'مرح', 'add a funny PG meme-style caption and playful cartoon stickers around them'),
+  e('emoji', '✨', 'ملصقات', 'مرح', 'add playful cartoon emoji stickers and sparkles around them'),
   // Backgrounds (scenery only — fully clothed)
   e('space', '🌌', 'فضاء', 'خلفيات', 'place them (fully clothed) in outer space with stars'),
   e('castle', '🏰', 'قلعة', 'خلفيات', 'place them (fully clothed) in front of a fantasy castle'),
   e('forest', '🌲', 'غابة', 'خلفيات', 'place them (fully clothed) in a beautiful forest'),
   e('city', '🏙', 'مدينة', 'خلفيات', 'place them (fully clothed) in a modern city skyline'),
   e('beach', '🏖', 'شاطئ', 'خلفيات', 'place them (fully clothed) standing at a sunny beach'),
+  e('snow', '⛄', 'ثلج', 'خلفيات', 'place them (fully clothed, in warm winter clothes) in a snowy landscape'),
   // Age
   e('older', '👴', 'عجوز', 'العمر', 'make them look elderly with grey hair and wrinkles'),
   e('younger', '👶', 'أصغر', 'العمر', 'make them look like a young child'),

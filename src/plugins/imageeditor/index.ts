@@ -5,6 +5,7 @@ import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { getImageProvider } from '../../services/image/provider';
 import { EFFECTS, EFFECT_GROUPS, findEffect } from '../../services/image/effects';
+import { isPromptAllowed, PG_SUFFIX } from '../../services/image/safety';
 import { QueueManager } from '../../services/youtube/queue';
 import { createLogger } from '../../core/logger';
 
@@ -159,12 +160,15 @@ export const imageEditorPlugin: Plugin = {
       }
       const prompt = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!prompt) return void ctx.reply('🖼 اكتب وصفاً.\nمثال: /imagine قلعة في الفضاء');
+      if (!isPromptAllowed(prompt)) {
+        return void ctx.reply('🚫 هذا الطلب غير مناسب. المحرّر للترفيه فقط ويجب أن يكون المحتوى لائقاً لجميع الأعمار.');
+      }
       if (!ctx.chat || !canUse(ctx.chat.id)) return void ctx.reply('🚦 تم بلوغ الحد اليومي.');
       const chatId = ctx.chat.id;
       const telegram = ctx.telegram;
       const status = await ctx.reply('⏳ جاري توليد الصورة...').catch(() => undefined);
       imageQueue.enqueue(chatId, async () => {
-        const out = await getImageProvider().generate(prompt);
+        const out = await getImageProvider().generate(prompt + PG_SUFFIX);
         if (!out) return void edit(telegram, chatId, status, '⚠️ تعذّر التوليد.');
         bump(chatId);
         await telegram.sendPhoto(chatId, Input.fromBuffer(out, 'img.png'), { caption: `🖼 ${prompt.slice(0, 100)}` }).catch(() => undefined);
