@@ -171,6 +171,20 @@ model Note {
   @@index([chatId])
 }
 
+/// Cache of downloaded YouTube audio: reuse Telegram file_id so a song is
+/// fetched from YouTube once, then re-sent instantly across all chats.
+model AudioCache {
+  id        Int      @id @default(autoincrement())
+  videoId   String   @unique
+  fileId    String
+  title     String
+  duration  Int?
+  hits      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([videoId])
+}
+
 /// Audit log of moderation/admin actions for accountability.
 model AuditLog {
   id        Int      @id @default(autoincrement())

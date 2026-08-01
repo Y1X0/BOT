@@ -8,6 +8,7 @@ import { requireRole } from '../../utils/permissions';
 import { search, downloadAudio, type SearchItem, type YtError } from '../../services/youtube/ytdlp';
 import { youtubeQueue } from '../../services/youtube/queue';
 import { youtubeConfig, setConfig, TELEGRAM_SEND_LIMIT, type YoutubeConfig } from '../../services/youtube/config';
+import { getCachedAudio, cacheAudio, bumpCacheHit, dropCachedAudio } from '../../services/youtube/cache';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:youtube');
@@ -97,6 +98,27 @@ export const youtubePlugin: Plugin = {
       await ctx.answerCbQuery(`تمت الإضافة: ${item.title.slice(0, 40)}`);
 
       const telegram = ctx.telegram;
+
+      // --- Cache hit: re-send instantly, no YouTube request, no queue. ---
+      const cached = await getCachedAudio(item.videoId).catch(() => null);
+      if (cached) {
+        const s = await telegram.sendMessage(chatId, `⚡️ من الأرشيف: ${item.title}`).catch(() => undefined);
+        try {
+          await telegram.sendAudio(chatId, cached.fileId, {
+            title: cached.title,
+            performer: 'YouTube',
+            caption: `🎵 ${cached.title}`,
+          });
+          await bumpCacheHit(item.videoId);
+          if (s) await telegram.deleteMessage(chatId, s.message_id).catch(() => undefined);
+          return;
+        } catch {
+          // Stale file_id — drop it and fall through to a fresh download.
+          await dropCachedAudio(item.videoId);
+          if (s) await telegram.deleteMessage(chatId, s.message_id).catch(() => undefined);
+        }
+      }
+
       const status = await telegram
         .sendMessage(chatId, `⏳ في قائمة الانتظار: ${item.title}`)
         .catch(() => undefined);
@@ -127,11 +149,16 @@ export const youtubePlugin: Plugin = {
                   .catch(() => undefined);
               return;
             }
-            await telegram.sendAudio(
+            const sent = await telegram.sendAudio(
               chatId,
               Input.fromLocalFile(result.filePath),
               { title: result.title, performer: 'YouTube', caption: `🎵 ${result.title}` },
             );
+            // Cache the Telegram file_id so this song is never re-downloaded.
+            const fileId = (sent as { audio?: { file_id?: string } }).audio?.file_id;
+            if (fileId) {
+              await cacheAudio(item.videoId, fileId, result.title, item.duration).catch(() => undefined);
+            }
             if (statusId) await telegram.deleteMessage(chatId, statusId).catch(() => undefined);
           } finally {
             await result.cleanup(); // always remove temp files
