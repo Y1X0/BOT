@@ -48,7 +48,8 @@ export const downloaderPlugin: Plugin = {
       await enqueueDownload(ctx, url);
     });
 
-    // Auto-download when a known short-video link is posted.
+    // Auto-download: a message that is JUST a link (or contains a known
+    // short-video link) is downloaded automatically — no command needed.
     bot.on(message('text'), async (ctx, next) => {
       const chat = ctx.chat;
       if (
@@ -59,11 +60,15 @@ export const downloaderPlugin: Plugin = {
       ) {
         return next();
       }
-      const text = ctx.message.text;
+      const text = ctx.message.text.trim();
       if (text.startsWith('/')) return next();
       const url = text.match(URL_RE)?.[1];
-      if (url && AUTO_DOMAINS.test(url)) {
-        await enqueueDownload(ctx, url);
+      if (!url) return next();
+
+      const isLoneUrl = /^https?:\/\/\S+$/i.test(text); // the whole message is a link
+      if (isLoneUrl || AUTO_DOMAINS.test(url)) {
+        // Silent on "unsupported" so ordinary (non-media) links don't spam.
+        await enqueueDownload(ctx, url, { silentUnsupported: true });
         return; // consumed
       }
       return next();
@@ -71,11 +76,17 @@ export const downloaderPlugin: Plugin = {
   },
 };
 
-async function enqueueDownload(ctx: BotContext, url: string): Promise<void> {
+async function enqueueDownload(
+  ctx: BotContext,
+  url: string,
+  opts: { silentUnsupported?: boolean } = {},
+): Promise<void> {
   const chatId = ctx.chat!.id;
   const telegram = ctx.telegram;
   const status = await ctx.reply('⏳ جاري تنزيل الرابط...').catch(() => undefined);
   const statusId = status?.message_id;
+  const removeStatus = () =>
+    statusId ? telegram.deleteMessage(chatId, statusId).catch(() => undefined) : undefined;
 
   const job = async () => {
     try {
@@ -84,6 +95,11 @@ async function enqueueDownload(ctx: BotContext, url: string): Promise<void> {
 
       const result = await downloadVideo(url);
       if ('error' in result) {
+        // Non-media links posted casually shouldn't spam an error.
+        if (result.error === 'unsupported' && opts.silentUnsupported) {
+          await removeStatus();
+          return;
+        }
         if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error]).catch(() => undefined);
         return;
       }
