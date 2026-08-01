@@ -1,9 +1,10 @@
 import type { Telegraf } from 'telegraf';
+import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
-import { displayName } from '../../utils/format';
+import { resolveTarget } from '../../utils/format';
 import { getSettings } from '../../services/settings.service';
 import { createLogger } from '../../core/logger';
 
@@ -17,7 +18,8 @@ export const infoPlugin: Plugin = {
     { command: 'date', description: '📅 التاريخ' },
     { command: 'day', description: '📆 اليوم' },
     { command: 'weather', description: '🌤 حالة الطقس' },
-    { command: 'id', description: '🆔 معرّفك ومعرّف الجروب' },
+    { command: 'id', description: '🆔 معلوماتك (صورة، بايو، آيدي)' },
+    { command: 'info', description: '👤 معلومات عضو (بالرد عليه)' },
     { command: 'rules', description: '📜 قوانين الجروب' },
   ],
 
@@ -37,19 +39,30 @@ export const infoPlugin: Plugin = {
       await ctx.reply(t('info.day', { day: formatDay(ctx.state.locale!) }));
     });
 
-    bot.command('id', async (ctx) => {
-      const t = ctx.state.t!;
-      let text = t('info.id_user', {
-        name: displayName(ctx.from),
-        userId: ctx.from?.id ?? '?',
-      });
-      if (ctx.chat && ctx.chat.type !== 'private') {
-        text += t('info.id_chat', {
-          title: (ctx.chat as { title?: string }).title ?? '',
-          chatId: ctx.chat.id,
-        });
+    // /id and /info → rich profile card (photo + bio + username + id).
+    // With a reply, shows the replied user's info; otherwise the sender's.
+    const infoHandler = async (ctx: BotContext) => {
+      const target = resolveTarget(ctx) ?? ctx.from;
+      if (!target) return;
+      await sendUserInfo(ctx, target);
+    };
+    bot.command('id', infoHandler);
+    bot.command('info', infoHandler);
+
+    // Also trigger on a bare "id" / "آيدي" message (no slash needed).
+    bot.on(message('text'), async (ctx, next) => {
+      const chat = ctx.chat;
+      const t = ctx.message.text.trim().toLowerCase();
+      const isTrigger = t === 'id' || t === 'ايدي' || t === 'آيدي' || t === 'الايدي';
+      if (
+        chat &&
+        (chat.type === 'group' || chat.type === 'supergroup') &&
+        isTrigger
+      ) {
+        const target = resolveTarget(ctx) ?? ctx.from;
+        if (target) await sendUserInfo(ctx, target);
       }
-      await ctx.replyWithMarkdownV2(escapeIds(text));
+      return next();
     });
 
     bot.command('rules', async (ctx) => {
@@ -83,9 +96,61 @@ export const infoPlugin: Plugin = {
   },
 };
 
-function escapeIds(text: string): string {
-  // Only escape characters that break MarkdownV2, preserving backtick code spans.
-  return text.replace(/([_*[\]()~>#+\-=|{}.!])/g, '\\$1');
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+interface TargetUser {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  is_bot?: boolean;
+}
+
+/**
+ * Build and send a profile card for `target`: profile photo (if any) with a
+ * caption containing name, username, bio, and a copyable numeric ID.
+ * Every Telegram call is guarded so a missing photo/bio never breaks the reply.
+ */
+async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> {
+  // Try to enrich with bio via getChat (works for users the bot can see).
+  let bio = '';
+  try {
+    const chat = (await ctx.telegram.getChat(target.id)) as { bio?: string };
+    if (chat.bio) bio = chat.bio;
+  } catch {
+    /* bio unavailable — ignore */
+  }
+
+  const fullName = [target.first_name, target.last_name].filter(Boolean).join(' ') || '—';
+  const username = target.username ? `@${target.username}` : 'لا يوجد';
+
+  const caption =
+    `👤 <b>معلومات العضو</b>\n\n` +
+    `الاسم: ${escapeHtml(fullName)}\n` +
+    `اليوزر: ${escapeHtml(username)}\n` +
+    `الآيدي: <code>${target.id}</code>\n` +
+    `البايو: ${bio ? escapeHtml(bio) : 'لا يوجد'}` +
+    (target.is_bot ? '\nالنوع: 🤖 بوت' : '');
+
+  // Fetch the latest profile photo (largest size), if available.
+  let photoFileId: string | undefined;
+  try {
+    const photos = await ctx.telegram.getUserProfilePhotos(target.id, 0, 1);
+    const sizes = photos.photos?.[0];
+    if (sizes?.length) photoFileId = sizes[sizes.length - 1].file_id;
+  } catch (err) {
+    log.debug({ err, userId: target.id }, 'getUserProfilePhotos failed');
+  }
+
+  if (photoFileId) {
+    await ctx
+      .replyWithPhoto(photoFileId, { caption, parse_mode: 'HTML' })
+      .catch(() => ctx.reply(caption, { parse_mode: 'HTML' }).catch(() => undefined));
+  } else {
+    await ctx.reply(caption, { parse_mode: 'HTML' }).catch(() => undefined);
+  }
 }
 
 interface WeatherResult {
