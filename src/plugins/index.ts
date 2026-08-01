@@ -9,6 +9,7 @@ import { gamesPlugin } from './games';
 import { economyPlugin } from './economy';
 import { repliesPlugin } from './replies';
 import { analyticsPlugin } from './analytics';
+import { extrasPlugin } from './extras';
 import { aiPlugin } from './ai';
 
 /**
@@ -31,6 +32,7 @@ allPlugins.push(
   moderationPlugin,
   welcomePlugin,
   analyticsPlugin,
+  extrasPlugin,
   economyPlugin,
   engagementPlugin, // passive: XP, calls next()
   gamesPlugin, // passive: game answers, calls next() when not consumed
