@@ -42,12 +42,21 @@ function getCookiesPath(): string | null {
 }
 
 /**
- * Player clients tried in order when the request is blocked. YouTube blocks
- * some clients on datacenter IPs but not others, so we fall back through the
- * list until one works — no cookies required, no manual env fiddling.
- * Order per request: android → web first, then broader fallbacks.
+ * Player clients tried in order until one yields a downloadable file.
+ * Some clients (notably `tv`/`web`) return DRM-protected formats that can't be
+ * saved, while mobile clients (`android`, `ios`, `mweb`) return normal audio —
+ * so those go first. `tv` is last (it caused "DRM protected" failures).
+ * No cookies required; cookies (if set) attach to every attempt.
  */
-const CLIENT_FALLBACKS = ['android', 'web', 'tv', 'mweb', 'web_embedded', 'android_vr', 'default'];
+const CLIENT_FALLBACKS = [
+  'android',
+  'ios',
+  'mweb',
+  'android_vr',
+  'web_embedded',
+  'web',
+  'tv',
+];
 
 /** The ordered list of player clients to attempt for this environment. */
 function clientsToTry(): (string | null)[] {
@@ -68,7 +77,7 @@ function commonArgs(client: string | null): string[] {
 
 /** Errors worth retrying with a different player client. */
 function isRetryable(e: YtError): boolean {
-  return e === 'blocked' || e === 'failed';
+  return e === 'blocked' || e === 'failed' || e === 'drm';
 }
 
 const SEARCH_TIMEOUT_MS = 30_000;
@@ -80,7 +89,14 @@ export interface SearchItem {
   duration: number | null; // seconds
 }
 
-export type YtError = 'notinstalled' | 'notfound' | 'toolarge' | 'blocked' | 'failed' | 'timeout';
+export type YtError =
+  | 'notinstalled'
+  | 'notfound'
+  | 'toolarge'
+  | 'blocked'
+  | 'failed'
+  | 'timeout'
+  | 'drm';
 
 export interface DownloadResult {
   filePath: string;
@@ -121,6 +137,7 @@ function run(
 
 function classifyError(stderr: string): YtError {
   if (/max-filesize|too large|file is larger/i.test(stderr)) return 'toolarge';
+  if (/DRM protected|drm/i.test(stderr)) return 'drm';
   if (/sign in|confirm you'?re not a bot|HTTP Error 429|blocked|not a bot/i.test(stderr))
     return 'blocked';
   return 'failed';

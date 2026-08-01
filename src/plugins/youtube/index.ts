@@ -24,6 +24,7 @@ const ERRORS: Record<YtError, string> = {
     '⚠️ يوتيوب حجب الطلب بعد تجربة عدة طرق.\nجرّب لاحقاً، أو (للمطوّر) أضف YT_COOKIES أو YT_PROXY لتجاوز الحجب.',
   failed: '⚠️ تعذّر جلب الصوت الآن، حاول مرة ثانية.',
   timeout: '⌛ انتهى وقت التحميل (الفيديو طويل جداً؟)، حاول مرة ثانية.',
+  drm: '🔒 هذا المقطع محمي (DRM) ولا يمكن تحميله. جرّب نتيجة ثانية من القائمة.',
 };
 
 function cacheResults(chatId: number, msgId: number, items: SearchItem[]): void {
