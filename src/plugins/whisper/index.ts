@@ -1,137 +1,133 @@
 import type { Telegraf } from 'telegraf';
+import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { isBotOwner } from '../../utils/permissions';
-import { createLogger } from '../../core/logger';
-
-const log = createLogger('plugin:whisper');
+import { displayName } from '../../utils/format';
 
 /**
- * "Whisper" (همسة) — a secret message sent into a group via inline mode that
- * only the intended recipient (or everyone, for a public whisper) can reveal.
- * The bot owner can always reveal any whisper.
+ * "Whisper" (همسة) — reply-based, no inline mode required.
  *
- * Usage in any chat:  @YourBot @username your secret text
- *                     @YourBot 123456789 your secret text   (by user id)
- *                     @YourBot your text                     (public whisper)
- *
- * Requires inline mode enabled in BotFather (/setinline).
+ * Flow:
+ *   1. Reply to the target's message and type "اهمس" (or /whisper).
+ *      - "اهمس نص السر"  → whisper created immediately (trigger msg deleted).
+ *      - "اهمس" alone     → bot opens a force-reply box to type the secret.
+ *   2. The bot posts a hidden message with a "عرض الهمسة" button.
+ *   3. Only the target (or the sender, or the bot owner) can reveal it.
  */
 interface Whisper {
   senderId: number;
-  targetId?: number;
-  targetUsername?: string; // lowercased, no '@'
+  targetId: number;
+  targetUsername?: string;
+  targetName: string;
   text: string;
-  groupWide: boolean;
 }
 
-// In-memory store (whispers are ephemeral by nature). Bounded to cap memory.
+interface Pending {
+  senderId: number;
+  targetId: number;
+  targetUsername?: string;
+  targetName: string;
+}
+
 const whispers = new Map<string, Whisper>();
-const MAX_WHISPERS = 5000;
+const pending = new Map<string, Pending>(); // key: `${chatId}:${promptMsgId}`
+const MAX = 5000;
 let counter = 0;
 
-function put(whisper: Whisper): string {
-  const id = `${whisper.senderId.toString(36)}${(counter++).toString(36)}`;
-  whispers.set(id, whisper);
-  if (whispers.size > MAX_WHISPERS) {
+function store(w: Whisper): string {
+  const id = `${w.senderId.toString(36)}${(counter++).toString(36)}`;
+  whispers.set(id, w);
+  if (whispers.size > MAX) {
     const oldest = whispers.keys().next().value;
     if (oldest) whispers.delete(oldest);
   }
   return id;
 }
 
+type TargetUser = { id: number; first_name?: string; username?: string; is_bot?: boolean };
+
+async function postWhisper(
+  ctx: BotContext,
+  senderId: number,
+  target: { id: number; username?: string; name: string },
+  text: string,
+): Promise<void> {
+  const id = store({
+    senderId,
+    targetId: target.id,
+    targetUsername: target.username?.toLowerCase(),
+    targetName: target.name,
+    text,
+  });
+  await ctx.reply(`🤫 همسة سرية إلى ${target.name}\nفقط هو من يقدر يفتحها 👇`, {
+    reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
+  });
+}
+
 export const whisperPlugin: Plugin = {
   name: 'whisper',
-  description: 'Secret inline whispers (two-party or group-wide)',
-  commands: [{ command: 'whisper', description: '🤫 شرح إرسال همسة سرية' }],
+  description: 'Secret reply-based whispers (no inline mode needed)',
+  commands: [{ command: 'whisper', description: '🤫 همسة سرية (بالرد على العضو)' }],
 
   register(bot: Telegraf<BotContext>) {
-    // Help command (the real feature is inline).
+    // /whisper or "اهمس" — must be a reply to the target member.
     bot.command('whisper', async (ctx) => {
-      const uname = ctx.botInfo?.username ?? 'بوتك';
-      await ctx.reply(
-        '🤫 الهمسة السرية\n\n' +
-          `اكتب في أي محادثة:\n` +
-          `<code>@${uname} @اسم_المستخدم رسالتك السرية</code>\n\n` +
-          'يظهر خيارين:\n' +
-          '• 🔒 همسة خاصة — فقط الشخص المذكور يفتحها\n' +
-          '• 📢 همسة للكل — أي أحد بالقروب يفتحها\n\n' +
-          'يمكنك استخدام آيدي الشخص بدل اسمه.',
-        { parse_mode: 'HTML' },
-      );
-    });
+      if (!ctx.chat || ctx.chat.type === 'private' || !ctx.from) return;
+      const replied = (ctx.message as { reply_to_message?: { from?: TargetUser } }).reply_to_message;
+      const target = replied?.from;
+      if (!target || target.is_bot || target.id === ctx.from.id) {
+        await ctx.reply('🤫 ردّ على رسالة الشخص الذي تريد أن تهمس له ثم اكتب: اهمس');
+        return;
+      }
+      const targetName = displayName(target);
+      const text = ctx.message.text.split(' ').slice(1).join(' ').trim();
 
-    // Inline query → offer whisper result(s).
-    bot.on('inline_query', async (ctx) => {
-      const q = ctx.inlineQuery.query.trim();
-      if (!q) {
-        await ctx.answerInlineQuery(
-          [
-            {
-              type: 'article',
-              id: 'whisper-help',
-              title: '🤫 كيف أرسل همسة؟',
-              description: 'اكتب: @اسم_المستخدم رسالتك السرية',
-              input_message_content: {
-                message_text: 'لإرسال همسة: اكتب في خانة الرسالة @اسم_البوت ثم @اسم_الشخص ثم رسالتك.',
-              },
-            },
-          ] as never,
-          { cache_time: 0, is_personal: true },
-        );
+      if (text) {
+        // One-shot form: delete the trigger (it holds the secret) then post.
+        await ctx.deleteMessage().catch(() => undefined);
+        await postWhisper(ctx, ctx.from.id, { id: target.id, username: target.username, name: targetName }, text);
         return;
       }
 
-      const parts = q.split(/\s+/);
-      const first = parts[0];
-      let targetUsername: string | undefined;
-      let targetId: number | undefined;
-      let message = q;
+      // Interactive form: open a force-reply "place to whisper in".
+      const prompt = await ctx.reply(`✍️ اكتب همستك لـ ${targetName} بالرد على هذه الرسالة:`, {
+        reply_markup: { force_reply: true, selective: true, input_field_placeholder: 'همستك السرية...' },
+        reply_parameters: { message_id: ctx.message.message_id },
+      });
+      pending.set(`${ctx.chat.id}:${prompt.message_id}`, {
+        senderId: ctx.from.id,
+        targetId: target.id,
+        targetUsername: target.username,
+        targetName,
+      });
+    });
 
-      if (first.startsWith('@') && first.length > 1) {
-        targetUsername = first.slice(1).toLowerCase();
-        message = parts.slice(1).join(' ');
-      } else if (/^\d{5,}$/.test(first)) {
-        targetId = Number(first);
-        message = parts.slice(1).join(' ');
+    // Capture the secret when the sender replies to our force-reply prompt.
+    bot.on(message('text'), async (ctx, next) => {
+      const chat = ctx.chat;
+      const from = ctx.from;
+      const replied = (ctx.message as { reply_to_message?: { message_id?: number } }).reply_to_message;
+      if (!chat || !from || !replied?.message_id) return next();
+
+      const key = `${chat.id}:${replied.message_id}`;
+      const p = pending.get(key);
+      if (!p || p.senderId !== from.id) return next();
+
+      // This is a whisper secret. Remove it + the prompt, then post the whisper.
+      pending.delete(key);
+      const secret = ctx.message.text.trim();
+      await ctx.deleteMessage().catch(() => undefined); // the secret
+      await ctx.telegram.deleteMessage(chat.id, replied.message_id).catch(() => undefined); // the prompt
+      if (secret) {
+        await postWhisper(
+          ctx,
+          from.id,
+          { id: p.targetId, username: p.targetUsername, name: p.targetName },
+          secret,
+        );
       }
-      const hasTarget = Boolean(targetUsername || targetId);
-      const targetLabel = targetUsername ? `@${targetUsername}` : targetId ? String(targetId) : '';
-
-      const results: unknown[] = [];
-
-      if (hasTarget && message) {
-        const id = put({ senderId: ctx.from.id, targetId, targetUsername, text: message, groupWide: false });
-        results.push({
-          type: 'article',
-          id,
-          title: `🔒 همسة خاصة إلى ${targetLabel}`,
-          description: 'فقط هو من يستطيع فتحها',
-          input_message_content: {
-            message_text: `🤫 همسة سرية إلى ${escapeHtml(targetLabel)}\nفقط هو من يقدر يفتحها 👇`,
-            parse_mode: 'HTML',
-          },
-          reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
-        });
-      }
-
-      // Group-wide option (always available when there is a message body).
-      const publicBody = hasTarget ? message : q;
-      if (publicBody) {
-        const id = put({ senderId: ctx.from.id, text: publicBody, groupWide: true });
-        results.push({
-          type: 'article',
-          id,
-          title: '📢 همسة للكل',
-          description: 'أي أحد بالقروب يقدر يفتحها',
-          input_message_content: {
-            message_text: '📢 همسة — اضغط للعرض 👇',
-          },
-          reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
-        });
-      }
-
-      await ctx.answerInlineQuery(results as never, { cache_time: 0, is_personal: true });
+      return; // consumed
     });
 
     // Reveal on button press.
@@ -144,26 +140,14 @@ export const whisperPlugin: Plugin = {
       }
       const u = ctx.from;
       const allowed =
-        w.groupWide ||
         isBotOwner(u.id) ||
         u.id === w.senderId ||
-        (w.targetId != null && u.id === w.targetId) ||
+        u.id === w.targetId ||
         (w.targetUsername != null &&
           u.username != null &&
           u.username.toLowerCase() === w.targetUsername);
 
-      if (allowed) {
-        await ctx.answerCbQuery(w.text, { show_alert: true });
-        if (isBotOwner(u.id) && u.id !== w.senderId && !w.groupWide) {
-          log.info({ ownerId: u.id, senderId: w.senderId }, 'Owner revealed a private whisper');
-        }
-      } else {
-        await ctx.answerCbQuery('🔒 هذه الهمسة ليست لك.', { show_alert: true });
-      }
+      await ctx.answerCbQuery(allowed ? w.text : '🔒 هذه الهمسة ليست لك.', { show_alert: true });
     });
   },
 };
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}

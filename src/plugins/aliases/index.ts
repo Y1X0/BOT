@@ -50,6 +50,7 @@ const ALIASES: Alias[] = [
   { command: 'afk', triggers: ['غائب', 'انا غائب', 'باك بعدين'] },
   { command: 'poll', triggers: ['تصويت', 'استفتاء'] },
   { command: 'decorate', triggers: ['زخرفه', 'زخرف', 'زخرفه كلمه'] },
+  { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه'] },
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */
@@ -96,6 +97,12 @@ export const aliasesPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     bot.on(message('text'), async (ctx, next) => {
+      // Don't treat replies to the bot (e.g. whisper force-reply input) as
+      // alias commands — that text is data, not a command.
+      const repliedTo = (ctx.message as { reply_to_message?: { from?: { id: number } } })
+        .reply_to_message?.from;
+      if (repliedTo && ctx.botInfo && repliedTo.id === ctx.botInfo.id) return next();
+
       const rewritten = matchAlias(ctx.message.text);
       if (rewritten) {
         const commandText = rewritten.split(' ')[0]; // e.g. "/joke"
