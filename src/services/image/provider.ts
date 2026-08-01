@@ -75,11 +75,86 @@ class OpenAIImageProvider implements ImageProvider {
   }
 }
 
+/**
+ * Google Gemini image model ("Nano Banana", gemini-2.5-flash-image) via the
+ * Generative Language API. One endpoint does both edit (image + text parts)
+ * and generate (text only). Free tier, no ID verification required.
+ */
+class GeminiImageProvider implements ImageProvider {
+  readonly name = 'gemini';
+
+  isConfigured(): boolean {
+    return Boolean(env.IMAGE_API_KEY);
+  }
+
+  private model(): string {
+    // Fall back to a real Gemini image model if IMAGE_MODEL is left at the
+    // OpenAI default, so users only have to set the key.
+    return env.IMAGE_MODEL.startsWith('gemini') ? env.IMAGE_MODEL : 'gemini-2.5-flash-image';
+  }
+
+  async edit(image: Buffer, prompt: string): Promise<Buffer | null> {
+    if (!this.isConfigured()) return null;
+    return this.generateContent([
+      { text: prompt },
+      { inline_data: { mime_type: 'image/png', data: image.toString('base64') } },
+    ]);
+  }
+
+  async generate(prompt: string): Promise<Buffer | null> {
+    if (!this.isConfigured()) return null;
+    return this.generateContent([{ text: prompt }]);
+  }
+
+  private async generateContent(parts: unknown[]): Promise<Buffer | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model()}:generateContent`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': env.IMAGE_API_KEY ?? '',
+        },
+        body: JSON.stringify({ contents: [{ parts }] }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        log.warn({ status: res.status, body: (await res.text()).slice(0, 200) }, 'gemini image api error');
+        return null;
+      }
+      const data = (await res.json()) as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{
+              inlineData?: { data?: string };
+              inline_data?: { data?: string };
+            }>;
+          };
+        }>;
+      };
+      const outParts = data.candidates?.[0]?.content?.parts ?? [];
+      for (const part of outParts) {
+        const b64 = part.inlineData?.data ?? part.inline_data?.data;
+        if (b64) return Buffer.from(b64, 'base64');
+      }
+      log.warn('gemini returned no image part');
+      return null;
+    } catch (err) {
+      log.warn({ err }, 'gemini image request failed');
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 let provider: ImageProvider | null = null;
 export function getImageProvider(): ImageProvider {
   if (!provider) {
-    // Add new providers here; selected via IMAGE_PROVIDER.
-    provider = new OpenAIImageProvider();
+    // Selected via IMAGE_PROVIDER. Add new providers to this switch.
+    provider = env.IMAGE_PROVIDER === 'gemini' ? new GeminiImageProvider() : new OpenAIImageProvider();
   }
   return provider;
 }

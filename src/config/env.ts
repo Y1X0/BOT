@@ -131,7 +131,7 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
-  IMAGE_PROVIDER: z.enum(['openai']).default('openai'),
+  IMAGE_PROVIDER: z.enum(['openai', 'gemini']).default('openai'),
   IMAGE_API_KEY: z.string().optional(),
   IMAGE_MODEL: z.string().default('gpt-image-1'),
   IMAGE_SIZE: z.string().default('1024x1024'),
