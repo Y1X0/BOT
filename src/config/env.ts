@@ -94,6 +94,11 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v !== 'false'),
   YT_PIPED_INSTANCES: z.string().optional(), // comma-separated API base URLs
+  YT_INVIDIOUS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false'),
+  YT_INVIDIOUS_INSTANCES: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
