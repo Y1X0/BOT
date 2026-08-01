@@ -1,4 +1,5 @@
 import type { Plugin } from '../core/plugin';
+import { aliasesPlugin } from './aliases';
 import { createGeneralPlugin } from './general';
 import { infoPlugin } from './info';
 import { adminPlugin } from './admin';
@@ -30,6 +31,7 @@ export const allPlugins: Plugin[] = [];
 const generalPlugin = createGeneralPlugin(() => allPlugins);
 
 allPlugins.push(
+  aliasesPlugin, // MUST be first: rewrites Arabic words → /commands
   generalPlugin,
   infoPlugin,
   adminPlugin,
