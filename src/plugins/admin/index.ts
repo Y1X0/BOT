@@ -6,10 +6,12 @@ import {
   getSettings,
   setBoolean,
   setRules,
+  setLocale,
   isToggleable,
   TOGGLEABLE_SETTINGS,
   type ToggleableSetting,
 } from '../../services/settings.service';
+import { isSupportedLocale } from '../../locales';
 import { prisma } from '../../core/database';
 
 /**
@@ -24,6 +26,7 @@ export const adminPlugin: Plugin = {
     { command: 'set', description: '🔧 ضبط إعداد: /set key on|off', staffOnly: true },
     { command: 'setrules', description: '📜 تحديد قوانين الجروب', staffOnly: true },
     { command: 'setwelcome', description: '👋 تحديد رسالة الترحيب', staffOnly: true },
+    { command: 'lang', description: '🌐 لغة الجروب: /lang ar|en', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -66,6 +69,16 @@ export const adminPlugin: Plugin = {
       if (!rules) return void ctx.reply(t('settings.rules_usage'));
       await setRules(ctx.chat.id, rules);
       await ctx.reply(t('settings.rules_set'));
+    });
+
+    bot.command('lang', requireRole('admin'), async (ctx) => {
+      const lang = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
+      if (!lang || !isSupportedLocale(lang)) {
+        await ctx.reply('🌐 استخدم: /lang ar  أو  /lang en');
+        return;
+      }
+      await setLocale(ctx.chat.id, lang);
+      await ctx.reply(lang === 'ar' ? '✅ تم ضبط اللغة إلى العربية.' : '✅ Language set to English.');
     });
 
     bot.command('setwelcome', requireRole('admin'), async (ctx) => {

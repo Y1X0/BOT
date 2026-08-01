@@ -73,6 +73,13 @@ const ALIASES: Alias[] = [
   { command: 'xo', triggers: ['اكس او', 'xo', 'اكسو'] },
   { command: 'riddle', triggers: ['فزوره', 'لغز', 'فزورة'] },
   { command: 'wordchain', triggers: ['سلسله كلمات', 'سلسله', 'كلمات متسلسله'] },
+  // Utilities
+  { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
+  { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
+  { command: 'password', triggers: ['باسورد', 'كلمه سر', 'password'] },
+  { command: 'hijri', triggers: ['هجري', 'التاريخ الهجري', 'تاريخ هجري'] },
+  { command: 'short', triggers: ['اختصر', 'اختصار', 'قصر الرابط'] },
+  { command: 'mp3', triggers: ['حوله', 'صوت الفيديو', 'استخرج الصوت'] },
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */

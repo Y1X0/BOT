@@ -24,6 +24,8 @@ import { islamicPlugin } from './islamic';
 import { toolboxPlugin } from './toolbox';
 import { managementPlugin } from './management';
 import { moreGamesPlugin } from './moregames';
+import { utilitiesPlugin } from './utilities';
+import { mediaToolsPlugin } from './mediatools';
 import { aiPlugin } from './ai';
 
 /**
@@ -51,6 +53,8 @@ allPlugins.push(
   analyticsPlugin,
   islamicPlugin,
   toolboxPlugin,
+  utilitiesPlugin,
+  mediaToolsPlugin,
   moreGamesPlugin, // passive: word-chain, calls next()
   extrasPlugin,
   decoratePlugin,
@@ -64,6 +68,6 @@ allPlugins.push(
   engagementPlugin, // passive: XP, calls next()
   afkPlugin, // passive: AFK return/mention, calls next()
   gamesPlugin, // passive: game answers, calls next() when not consumed
+  aiPlugin, // passive: reply on @mention/reply-to-bot (before terminal replies)
   repliesPlugin, // passive: keyword replies (terminal)
-  aiPlugin,
 );
