@@ -91,6 +91,8 @@ const ALIASES: Alias[] = [
   { command: 'groupreport', triggers: ['تقرير', 'تقرير الجروب'] },
   { command: 'schedule', triggers: ['جدول', 'جدوله'] },
   { command: 'schedules', triggers: ['المجدوله', 'الرسائل المجدوله'] },
+  { command: 'quizstart', triggers: ['مسابقه', 'مسابقه مباشره', 'ابدا مسابقه'] },
+  { command: 'mafia', triggers: ['مافيا', 'لعبه المافيا'] },
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */

@@ -28,6 +28,8 @@ import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
 import { scheduledPlugin } from './scheduled';
+import { liveQuizPlugin } from './livequiz';
+import { mafiaPlugin } from './mafia';
 import { aiPlugin } from './ai';
 
 /**
@@ -58,6 +60,8 @@ allPlugins.push(
   utilitiesPlugin,
   mediaToolsPlugin,
   moreGamesPlugin, // passive: word-chain, calls next()
+  liveQuizPlugin, // passive: live-quiz answers, calls next()
+  mafiaPlugin,
   extrasPlugin,
   decoratePlugin,
   funPlugin,
