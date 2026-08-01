@@ -49,15 +49,17 @@ export async function downloadVideo(
     ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
     '--max-filesize',
     `${maxMb}M`,
-    // Prefer mp4 without *requiring* it (accepts any format → far fewer failures).
+    // Prefer ≤720p mp4 to keep files under Telegram's limit; accept any format.
     '-S',
-    'ext:mp4:m4a,res,br',
+    'res:720,ext:mp4:m4a,br',
     '--merge-output-format',
     'mp4',
     '-o',
     `${join(dir, 'media')}.%(ext)s`,
+    // Print the title but DON'T switch to simulate mode (--print implies it).
     '--print',
-    '%(title)s',
+    'after_move:%(title)s',
+    '--no-simulate',
     url,
   ];
 

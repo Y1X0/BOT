@@ -222,8 +222,10 @@ async function attemptDownload(
     '--no-playlist',
     '-o',
     `${outBase}.%(ext)s`,
+    // Print the title but keep downloading (--print alone implies --simulate).
     '--print',
-    '%(title)s',
+    'after_move:%(title)s',
+    '--no-simulate',
     '--no-progress',
   ];
   if (youtubeConfig.maxDuration != null) {
