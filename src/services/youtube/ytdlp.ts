@@ -44,7 +44,8 @@ function getCookiesPath(): string | null {
 /** Args applied to every yt-dlp call to improve reliability on server IPs. */
 function commonArgs(): string[] {
   const a = ['--no-warnings', '--geo-bypass'];
-  if (env.YT_FORCE_IPV4) a.push('--force-ipv4');
+  if (env.YT_FORCE_IPV4 && !env.YT_PROXY) a.push('--force-ipv4');
+  if (env.YT_PROXY) a.push('--proxy', env.YT_PROXY);
   const cp = getCookiesPath();
   if (cp) a.push('--cookies', cp);
   if (env.YT_PLAYER_CLIENT) a.push('--extractor-args', `youtube:player_client=${env.YT_PLAYER_CLIENT}`);

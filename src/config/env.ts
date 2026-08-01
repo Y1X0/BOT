@@ -81,7 +81,8 @@ const envSchema = z.object({
   // Anti-block: YouTube blocks datacenter IPs. Provide cookies to fix it.
   YT_COOKIES: z.string().optional(), // full Netscape cookies.txt content
   YT_COOKIES_FILE: z.string().optional(), // or a path to a cookies file
-  YT_PLAYER_CLIENT: z.string().default(''), // e.g. "android", "web_safari", "tv"
+  YT_PLAYER_CLIENT: z.string().default(''), // e.g. "tv", "web_embedded", "android_vr"
+  YT_PROXY: z.string().optional(), // e.g. http://user:pass@host:port (residential)
   YT_FORCE_IPV4: z
     .string()
     .default('true')
