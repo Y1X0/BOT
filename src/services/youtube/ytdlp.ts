@@ -41,15 +41,34 @@ function getCookiesPath(): string | null {
   return cookiesPath;
 }
 
-/** Args applied to every yt-dlp call to improve reliability on server IPs. */
-function commonArgs(): string[] {
+/**
+ * Player clients tried in order when the request is blocked. YouTube blocks
+ * some clients on datacenter IPs but not others, so we fall back through the
+ * list until one works — no manual env fiddling needed.
+ */
+const CLIENT_FALLBACKS = ['tv', 'mweb', 'web_embedded', 'android_vr', 'default'];
+
+/** The ordered list of player clients to attempt for this environment. */
+function clientsToTry(): (string | null)[] {
+  if (env.YT_PLAYER_CLIENT) return [env.YT_PLAYER_CLIENT]; // explicit override wins
+  if (getCookiesPath() || env.YT_PROXY) return [null]; // cookies/proxy → default works
+  return CLIENT_FALLBACKS;
+}
+
+/** Args applied to every yt-dlp call. `client` null = no player_client override. */
+function commonArgs(client: string | null): string[] {
   const a = ['--no-warnings', '--geo-bypass'];
   if (env.YT_FORCE_IPV4 && !env.YT_PROXY) a.push('--force-ipv4');
   if (env.YT_PROXY) a.push('--proxy', env.YT_PROXY);
   const cp = getCookiesPath();
   if (cp) a.push('--cookies', cp);
-  if (env.YT_PLAYER_CLIENT) a.push('--extractor-args', `youtube:player_client=${env.YT_PLAYER_CLIENT}`);
+  if (client) a.push('--extractor-args', `youtube:player_client=${client}`);
   return a;
+}
+
+/** Errors worth retrying with a different player client. */
+function isRetryable(e: YtError): boolean {
+  return e === 'blocked' || e === 'failed';
 }
 
 const SEARCH_TIMEOUT_MS = 30_000;
@@ -112,32 +131,35 @@ function classifyError(stderr: string): YtError {
  * Uses a flat, download-free query so it stays fast.
  */
 export async function search(query: string, limit: number): Promise<SearchItem[] | { error: YtError }> {
-  const args = [
-    ...commonArgs(),
-    '--no-playlist',
-    '--flat-playlist',
-    '--skip-download',
-    '--print',
-    '%(id)s\t%(title)s\t%(duration)s',
-    `ytsearch${limit}:${query}`,
-  ];
-  const { code, stdout, stderr, spawnError } = await run(args, SEARCH_TIMEOUT_MS);
-  if (spawnError) return { error: spawnError.code === 'ENOENT' ? 'notinstalled' : 'failed' };
+  let lastError: YtError = 'failed';
+  for (const client of clientsToTry()) {
+    const args = [
+      ...commonArgs(client),
+      '--no-playlist',
+      '--flat-playlist',
+      '--skip-download',
+      '--print',
+      '%(id)s\t%(title)s\t%(duration)s',
+      `ytsearch${limit}:${query}`,
+    ];
+    const { code, stdout, stderr, spawnError } = await run(args, SEARCH_TIMEOUT_MS);
+    if (spawnError) return { error: spawnError.code === 'ENOENT' ? 'notinstalled' : 'failed' };
 
-  const items: SearchItem[] = [];
-  for (const line of stdout.split('\n')) {
-    const [videoId, title, dur] = line.split('\t');
-    if (videoId && title) {
-      const duration = dur && /^\d+(\.\d+)?$/.test(dur) ? Math.round(Number(dur)) : null;
-      items.push({ videoId, title, duration });
+    const items: SearchItem[] = [];
+    for (const line of stdout.split('\n')) {
+      const [videoId, title, dur] = line.split('\t');
+      if (videoId && title) {
+        const duration = dur && /^\d+(\.\d+)?$/.test(dur) ? Math.round(Number(dur)) : null;
+        items.push({ videoId, title, duration });
+      }
     }
+    if (items.length) return items;
+
+    lastError = code === 0 ? 'notfound' : classifyError(stderr);
+    log.warn({ code, client, stderr: stderr.slice(-200) }, 'search attempt failed');
+    if (!isRetryable(lastError)) break;
   }
-  if (items.length) return items;
-  if (code !== 0) {
-    log.warn({ code, stderr: stderr.slice(-300) }, 'search failed');
-    return { error: classifyError(stderr) };
-  }
-  return { error: 'notfound' };
+  return { error: lastError };
 }
 
 /**
@@ -147,12 +169,28 @@ export async function search(query: string, limit: number): Promise<SearchItem[]
 export async function downloadAudio(
   videoId: string,
 ): Promise<DownloadResult | { error: YtError }> {
+  let lastError: YtError = 'failed';
+  for (const client of clientsToTry()) {
+    const result = await attemptDownload(videoId, client);
+    if ('filePath' in result) return result;
+    lastError = result.error;
+    log.warn({ client, error: lastError }, 'download attempt failed');
+    if (!isRetryable(lastError)) break;
+  }
+  return { error: lastError };
+}
+
+/** A single download attempt with one player client. Cleans up on failure. */
+async function attemptDownload(
+  videoId: string,
+  client: string | null,
+): Promise<DownloadResult | { error: YtError }> {
   const dir = await mkdtemp(join(tmpdir(), 'yt-'));
   const outBase = join(dir, 'audio');
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
 
   const args = [
-    ...commonArgs(),
+    ...commonArgs(client),
     '-x',
     '--audio-format',
     'mp3',
@@ -188,7 +226,7 @@ export async function downloadAudio(
     /* no file produced */
   }
   await cleanup();
-  log.warn({ code, stderr: stderr.slice(-400) }, 'download produced no file');
+  log.warn({ code, client, stderr: stderr.slice(-300) }, 'attempt produced no file');
   if (code === null) return { error: 'timeout' };
   return { error: code === 0 ? 'notfound' : classifyError(stderr) };
 }
