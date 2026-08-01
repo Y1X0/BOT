@@ -50,16 +50,10 @@ export const downloaderPlugin: Plugin = {
 
     // Auto-download: a message that is JUST a link (or contains a known
     // short-video link) is downloaded automatically — no command needed.
+    // Works in groups AND in private chat with the bot.
     bot.on(message('text'), async (ctx, next) => {
       const chat = ctx.chat;
-      if (
-        !env.DL_ENABLED ||
-        !env.DL_AUTO ||
-        !chat ||
-        (chat.type !== 'group' && chat.type !== 'supergroup')
-      ) {
-        return next();
-      }
+      if (!env.DL_ENABLED || !env.DL_AUTO || !chat) return next();
       const text = ctx.message.text.trim();
       if (text.startsWith('/')) return next();
       const url = text.match(URL_RE)?.[1];
