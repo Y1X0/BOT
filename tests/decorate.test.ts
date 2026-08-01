@@ -3,11 +3,13 @@ import { decorate } from '../src/plugins/decorate/decorate';
 import { matchAlias } from '../src/plugins/aliases';
 
 describe('text decoration', () => {
-  it('returns multiple variants for Arabic input', () => {
+  it('returns many distinct variants for Arabic input', () => {
     const out = decorate('طاولة');
-    expect(out.length).toBeGreaterThan(5);
-    // Every frame variant should still contain the original word.
-    expect(out.some((v) => v.includes('طاولة'))).toBe(true);
+    expect(out.length).toBeGreaterThan(15);
+    // Letters are preserved (decorated), so each variant keeps the letters.
+    expect(out.every((v) => v.includes('ط') && v.includes('ة'))).toBe(true);
+    // No variant equals the plain input.
+    expect(out).not.toContain('طاولة');
   });
 
   it('adds Latin fancy fonts when input has ASCII letters', () => {
