@@ -66,6 +66,44 @@ export async function recordActivity(
   return { member, leveledUp: newLevel > prevLevel, newLevel };
 }
 
+/** Record a game win: +XP and +1 gamesWon (no message count). */
+export async function recordGameWin(
+  chatId: number | bigint,
+  user: { id: number; username?: string; first_name?: string },
+  xpGain: number,
+): Promise<XpResult> {
+  const cId = BigInt(chatId);
+  const uId = BigInt(user.id);
+  const existing = await prisma.member.findUnique({
+    where: { chatId_userId: { chatId: cId, userId: uId } },
+  });
+  const prevLevel = existing?.level ?? 0;
+  const newXp = (existing?.xp ?? 0) + xpGain;
+  const newLevel = levelFromXp(newXp);
+
+  const member = await prisma.member.upsert({
+    where: { chatId_userId: { chatId: cId, userId: uId } },
+    create: {
+      chatId: cId,
+      userId: uId,
+      username: user.username ?? null,
+      firstName: user.first_name ?? null,
+      xp: xpGain,
+      level: levelFromXp(xpGain),
+      gamesWon: 1,
+    },
+    update: {
+      username: user.username ?? undefined,
+      firstName: user.first_name ?? undefined,
+      xp: newXp,
+      level: newLevel,
+      gamesWon: { increment: 1 },
+      lastSeenAt: new Date(),
+    },
+  });
+  return { member, leveledUp: newLevel > prevLevel, newLevel };
+}
+
 export async function getMember(
   chatId: number | bigint,
   userId: number | bigint,

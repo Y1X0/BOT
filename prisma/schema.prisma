@@ -94,6 +94,8 @@ model Member {
   messageCount Int      @default(0)
   xp           Int      @default(0)
   level        Int      @default(0)
+  gamesWon     Int      @default(0)
+  title        String?  // equipped shop title, e.g. "👑 ملك الجروب"
   afkSince     DateTime? // set when the user goes AFK, null otherwise
   afkReason    String?
   lastSeenAt   DateTime @default(now())
@@ -175,6 +177,60 @@ model Note {
 
   @@unique([chatId, name])
   @@index([chatId])
+}
+
+/// Unlocked achievements per member.
+model Achievement {
+  id         Int      @id @default(autoincrement())
+  chatId     BigInt
+  userId     BigInt
+  code       String
+  unlockedAt DateTime @default(now())
+
+  @@unique([chatId, userId, code])
+  @@index([chatId, userId])
+}
+
+/// Items a member bought from the shop (titles / perks).
+model ShopPurchase {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  userId    BigInt
+  itemId    String
+  createdAt DateTime @default(now())
+
+  @@unique([chatId, userId, itemId])
+  @@index([chatId, userId])
+}
+
+/// Daily mission progress (resets per calendar day).
+model MissionProgress {
+  id              Int     @id @default(autoincrement())
+  chatId          BigInt
+  userId          BigInt
+  day             String  // YYYY-MM-DD
+  messages        Int     @default(0)
+  games           Int     @default(0)
+  claimedMessages Boolean @default(false)
+  claimedGames    Boolean @default(false)
+
+  @@unique([chatId, userId, day])
+  @@index([chatId, userId])
+}
+
+/// Daily scheduled messages (sent when server time matches HH:MM).
+model ScheduledMessage {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  text      String
+  time      String   // "HH:MM" 24h
+  enabled   Boolean  @default(true)
+  lastSent  String?  // last YYYY-MM-DD it fired (dedupe)
+  createdBy BigInt
+  createdAt DateTime @default(now())
+
+  @@index([chatId])
+  @@index([enabled])
 }
 
 /// Cache of downloaded YouTube audio: reuse Telegram file_id so a song is

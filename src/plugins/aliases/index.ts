@@ -80,6 +80,17 @@ const ALIASES: Alias[] = [
   { command: 'hijri', triggers: ['هجري', 'التاريخ الهجري', 'تاريخ هجري'] },
   { command: 'short', triggers: ['اختصر', 'اختصار', 'قصر الرابط'] },
   { command: 'mp3', triggers: ['حوله', 'صوت الفيديو', 'استخرج الصوت'] },
+  // Progression / economy
+  { command: 'shop', triggers: ['المتجر', 'متجر', 'المحل'] },
+  { command: 'buy', triggers: ['اشتري', 'شراء'] },
+  { command: 'title', triggers: ['لقب', 'القابي', 'العابي'] },
+  { command: 'achievements', triggers: ['انجازاتي', 'الانجازات', 'انجازات'] },
+  { command: 'missions', triggers: ['مهامي', 'المهام', 'مهام'] },
+  { command: 'claim', triggers: ['استلم', 'استلام'] },
+  { command: 'spin', triggers: ['عجله', 'عجله الحظ', 'دور'] },
+  { command: 'report', triggers: ['تقرير', 'تقرير الجروب'] },
+  { command: 'schedule', triggers: ['جدول', 'جدوله'] },
+  { command: 'schedules', triggers: ['المجدوله', 'الرسائل المجدوله'] },
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */

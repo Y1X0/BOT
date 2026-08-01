@@ -5,6 +5,7 @@ import {
   memberCount,
   totalMessages,
   topByMessages,
+  topByXp,
 } from '../../services/member.service';
 
 export const analyticsPlugin: Plugin = {
@@ -13,6 +14,7 @@ export const analyticsPlugin: Plugin = {
   commands: [
     { command: 'stats', description: '📈 إحصائيات الجروب' },
     { command: 'activetop', description: '🏆 الأكثر تفاعلاً' },
+    { command: 'report', description: '📊 تقرير الجروب' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -44,6 +46,27 @@ export const analyticsPlugin: Plugin = {
         .map((m, i) => `${medal(i)} ${m.firstName ?? m.username ?? m.userId} — ${m.messageCount} 💬`)
         .join('\n');
       await ctx.reply(t('leaderboard.header', { list }));
+    });
+
+    bot.command('report', async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const title = (ctx.chat as { title?: string }).title ?? 'الجروب';
+      const [members, messages, topMsg, topXp] = await Promise.all([
+        memberCount(ctx.chat.id),
+        totalMessages(ctx.chat.id),
+        topByMessages(ctx.chat.id, 3),
+        topByXp(ctx.chat.id, 1),
+      ]);
+      const name = (m?: { firstName?: string | null; username?: string | null; userId?: bigint }) =>
+        m?.firstName ?? m?.username ?? (m?.userId ? String(m.userId) : '-');
+      const activeList = topMsg.map((m, i) => `${medal(i)} ${name(m)} — ${m.messageCount} 💬`).join('\n') || '-';
+      await ctx.reply(
+        `📊 تقرير ${title}\n\n` +
+          `👥 الأعضاء المسجّلون: ${members}\n` +
+          `💬 إجمالي الرسائل: ${messages}\n\n` +
+          `🔥 الأكثر نشاطاً:\n${activeList}\n\n` +
+          `⬆️ الأعلى خبرة: ${name(topXp[0])} (${topXp[0]?.xp ?? 0} XP)`,
+      );
     });
   },
 };

@@ -3,7 +3,7 @@ import { Markup } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { recordActivity } from '../../services/member.service';
+import { awardGameWin } from '../../utils/progression';
 import { addCoins } from '../../services/economy.service';
 import { displayName, pickRandom } from '../../utils/format';
 import { QUIZ_QUESTIONS } from './quiz-data';
@@ -59,7 +59,7 @@ export const gamesPlugin: Plugin = {
       if (userChoice === botChoice) {
         text = t('games.rps_draw', { choice: userChoice });
       } else if (RPS_BEATS[userChoice] === botChoice) {
-        if (ctx.chat && ctx.from) await recordActivity(ctx.chat.id, ctx.from, 10);
+        if (ctx.chat && ctx.from) await awardGameWin(ctx, 10);
         text = t('games.rps_win', {
           user: displayName(ctx.from),
           choice: userChoice,
@@ -119,8 +119,8 @@ export const gamesPlugin: Plugin = {
         clearTimeout(quiz.timer);
         quizGames.delete(key);
         if (ctx.from) {
-          await recordActivity(chat.id, ctx.from, 20);
           if (ctx.state.settings?.economyEnabled) await addCoins(chat.id, ctx.from.id, 50);
+          await awardGameWin(ctx, 20);
         }
         await ctx.reply(t('games.quiz_win', { name: displayName(ctx.from), xp: 20, coins: 50 }));
         return; // consumed
@@ -133,8 +133,8 @@ export const gamesPlugin: Plugin = {
         if (n === guess.number) {
           guessGames.delete(key);
           if (ctx.from) {
-            await recordActivity(chat.id, ctx.from, 15);
             if (ctx.state.settings?.economyEnabled) await addCoins(chat.id, ctx.from.id, 30);
+            await awardGameWin(ctx, 15);
           }
           await ctx.reply(
             t('games.guess_win', { name: displayName(ctx.from), number: guess.number, xp: 15, coins: 30 }),

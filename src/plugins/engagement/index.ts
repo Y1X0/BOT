@@ -3,6 +3,8 @@ import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { recordActivity, getMember, topByXp } from '../../services/member.service';
+import { incMissionMessages } from '../../services/missions.service';
+import { announceAchievements } from '../../utils/progression';
 import { displayName } from '../../utils/format';
 
 const XP_PER_MESSAGE = 5;
@@ -36,11 +38,18 @@ export const engagementPlugin: Plugin = {
         ctx.state.settings?.xpEnabled
       ) {
         const result = await recordActivity(chat.id, from, XP_PER_MESSAGE);
+        if (ctx.state.settings?.economyEnabled) {
+          await incMissionMessages(chat.id, from.id).catch(() => undefined);
+        }
         if (result.leveledUp) {
           const t = ctx.state.t!;
           await ctx
             .reply(t('xp.levelup', { name: displayName(from), level: result.newLevel }))
             .catch(() => undefined);
+        }
+        // Throttled achievement check (on level-up or every 20 messages).
+        if (result.leveledUp || result.member.messageCount % 20 === 0) {
+          await announceAchievements(ctx);
         }
       }
       return next();

@@ -4,6 +4,7 @@ import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { recordActivity } from '../../services/member.service';
+import { awardGameWin } from '../../utils/progression';
 import { displayName, pickRandom } from '../../utils/format';
 
 // ---------------- Tic-Tac-Toe (XO) ----------------
@@ -101,7 +102,7 @@ export const moreGamesPlugin: Plugin = {
       const win = xoWinner(g.board);
       if (win) {
         xoGames.delete(key);
-        if (ctx.chat && ctx.from) await recordActivity(ctx.chat.id, ctx.from, 15);
+        if (ctx.chat && ctx.from) await awardGameWin(ctx, 15);
         await ctx.editMessageText(`⭕️❌ فاز ${CELL[win]}! 🎉\n\n${boardText(g)}`).catch(() => undefined);
         return;
       }

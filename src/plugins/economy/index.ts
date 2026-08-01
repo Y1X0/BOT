@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { getBalance, claimDaily, topBalances, transfer } from '../../services/economy.service';
+import { getBalance, claimDaily, topBalances, transfer, addCoins } from '../../services/economy.service';
 import { displayName, resolveTarget } from '../../utils/format';
 
 export const economyPlugin: Plugin = {
@@ -12,6 +12,7 @@ export const economyPlugin: Plugin = {
     { command: 'daily', description: '🎁 المكافأة اليومية' },
     { command: 'top', description: '🏆 الأغنى في الجروب' },
     { command: 'give', description: '💸 تحويل عملات لعضو (بالرد)' },
+    { command: 'spin', description: '🎡 عجلة الحظ: /spin 50' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -66,6 +67,33 @@ export const economyPlugin: Plugin = {
         return;
       }
       await ctx.reply(t('economy.give_ok', { amount, name: displayName(target) }));
+    });
+
+    // 🎡 Wheel of fortune — gamble coins on a random multiplier.
+    bot.command('spin', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const bet = Number(ctx.message.text.split(/\s+/)[1] ?? '50');
+      if (!Number.isInteger(bet) || bet <= 0) return void ctx.reply('🎡 استخدم: /spin 50');
+      if (bet > 100000) return void ctx.reply('🎡 الحد الأقصى للرهان 100000.');
+      const balance = await getBalance(ctx.chat.id, ctx.from.id);
+      if (balance < bet) return void ctx.reply('❌ رصيدك لا يكفي لهذا الرهان.');
+
+      const roll = Math.random();
+      let mult: number;
+      let label: string;
+      if (roll < 0.45) { mult = 0; label = '💨 خسارة!'; }
+      else if (roll < 0.7) { mult = 1.5; label = '✨ ربح x1.5'; }
+      else if (roll < 0.9) { mult = 2; label = '🎉 ربح x2'; }
+      else if (roll < 0.98) { mult = 3; label = '🔥 ربح x3'; }
+      else { mult = 5; label = '💎 جاكبوت x5!'; }
+
+      const payout = Math.floor(bet * mult);
+      const net = payout - bet;
+      await addCoins(ctx.chat.id, ctx.from.id, net);
+      const newBal = await getBalance(ctx.chat.id, ctx.from.id);
+      await ctx.reply(
+        `🎡 عجلة الحظ\nالرهان: ${bet} 💰\nالنتيجة: ${label}\n${net >= 0 ? `ربحت ${net}` : `خسرت ${-net}`} 💰\nرصيدك: ${newBal} 💰`,
+      );
     });
   },
 };

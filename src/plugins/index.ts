@@ -26,6 +26,8 @@ import { managementPlugin } from './management';
 import { moreGamesPlugin } from './moregames';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
+import { progressionPlugin } from './progression';
+import { scheduledPlugin } from './scheduled';
 import { aiPlugin } from './ai';
 
 /**
@@ -65,6 +67,8 @@ allPlugins.push(
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,
+  progressionPlugin,
+  scheduledPlugin,
   engagementPlugin, // passive: XP, calls next()
   afkPlugin, // passive: AFK return/mention, calls next()
   gamesPlugin, // passive: game answers, calls next() when not consumed
