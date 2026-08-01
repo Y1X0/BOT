@@ -20,6 +20,10 @@ import { whisperPlugin } from './whisper';
 import { youtubePlugin } from './youtube';
 import { downloaderPlugin } from './downloader';
 import { voiceChatPlugin } from './voicechat';
+import { islamicPlugin } from './islamic';
+import { toolboxPlugin } from './toolbox';
+import { managementPlugin } from './management';
+import { moreGamesPlugin } from './moregames';
 import { aiPlugin } from './ai';
 
 /**
@@ -43,7 +47,11 @@ allPlugins.push(
   moderationPlugin,
   welcomePlugin,
   voiceChatPlugin,
+  managementPlugin, // includes service-message cleanup (before analytics)
   analyticsPlugin,
+  islamicPlugin,
+  toolboxPlugin,
+  moreGamesPlugin, // passive: word-chain, calls next()
   extrasPlugin,
   decoratePlugin,
   funPlugin,

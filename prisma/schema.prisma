@@ -69,6 +69,12 @@ model ChatSettings {
   // AI
   aiEnabled           Boolean  @default(false)
 
+  // Night mode (auto lock/unlock by hour) + service-message cleanup
+  nightModeEnabled    Boolean  @default(false)
+  nightStartHour      Int      @default(0)
+  nightEndHour        Int      @default(6)
+  cleanServiceEnabled Boolean  @default(false)
+
   // Rules
   rules               String?
 

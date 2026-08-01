@@ -54,6 +54,25 @@ const ALIASES: Alias[] = [
   { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه'] },
   { command: 'yt', triggers: ['يوت', 'يوتيوب', 'اغنيه', 'صوت', 'yt'] },
   { command: 'dl', triggers: ['نزل', 'حمل', 'تنزيل', 'نزلها', 'dl'] },
+  // Islamic
+  { command: 'prayer', triggers: ['صلاه', 'مواقيت', 'وقت الصلاه', 'الصلاه'] },
+  { command: 'ayah', triggers: ['ايه', 'آيه', 'ايه عشوائيه'] },
+  { command: 'hadith', triggers: ['حديث', 'حديث شريف'] },
+  { command: 'thikr', triggers: ['ذكر', 'ذكرني بالله'] },
+  { command: 'athkar', triggers: ['اذكار', 'أذكار'] },
+  { command: 'tasbeeh', triggers: ['تسبيح', 'سبح', 'مسبحه'] },
+  // Toolbox
+  { command: 'tr', triggers: ['ترجم', 'ترجمه', 'translate'] },
+  { command: 'qr', triggers: ['باركود', 'كيو ار', 'qr'] },
+  { command: 'currency', triggers: ['دولار', 'عمله', 'اسعار العملات', 'صرف'] },
+  { command: 'crypto', triggers: ['بيتكوين', 'عمله رقميه', 'كريبتو'] },
+  { command: 'remind', triggers: ['ذكرني', 'تذكير', 'ذكرني بعد'] },
+  // Management / games
+  { command: 'all', triggers: ['منشن', 'الكل', 'نداء'] },
+  { command: 'admins', triggers: ['المشرفين', 'الادمن', 'الاداره'] },
+  { command: 'xo', triggers: ['اكس او', 'xo', 'اكسو'] },
+  { command: 'riddle', triggers: ['فزوره', 'لغز', 'فزورة'] },
+  { command: 'wordchain', triggers: ['سلسله كلمات', 'سلسله', 'كلمات متسلسله'] },
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */
