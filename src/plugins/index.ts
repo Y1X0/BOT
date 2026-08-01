@@ -17,6 +17,7 @@ import { notesPlugin } from './notes';
 import { afkPlugin } from './afk';
 import { toolsPlugin } from './tools';
 import { whisperPlugin } from './whisper';
+import { youtubePlugin } from './youtube';
 import { aiPlugin } from './ai';
 
 /**
@@ -45,6 +46,7 @@ allPlugins.push(
   funPlugin,
   toolsPlugin,
   whisperPlugin,
+  youtubePlugin,
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,
   engagementPlugin, // passive: XP, calls next()

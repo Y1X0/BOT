@@ -65,6 +65,15 @@ const envSchema = z.object({
   // Rate limiting (global per-user command throttle)
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(2000),
   RATE_LIMIT_MAX: z.coerce.number().default(5),
+
+  // YouTube audio search/download (requires yt-dlp + ffmpeg in the image)
+  YT_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false'),
+  YTDLP_PATH: z.string().default('yt-dlp'),
+  YT_MAX_DURATION_SEC: z.coerce.number().default(1200), // 20 min
+  YT_COOLDOWN_SEC: z.coerce.number().default(20), // per-user cooldown
 });
 
 const parsed = envSchema.safeParse(process.env);
