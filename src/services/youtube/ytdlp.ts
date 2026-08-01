@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { env } from '../../config/env';
@@ -7,6 +8,37 @@ import { createLogger } from '../../core/logger';
 import { youtubeConfig } from './config';
 
 const log = createLogger('youtube:ytdlp');
+
+/** Resolve a cookies file once: from YT_COOKIES content or YT_COOKIES_FILE path. */
+let cookiesPath: string | null | undefined;
+function getCookiesPath(): string | null {
+  if (cookiesPath !== undefined) return cookiesPath;
+  cookiesPath = null;
+  try {
+    if (env.YT_COOKIES && env.YT_COOKIES.trim()) {
+      const p = join(tmpdir(), 'yt-cookies.txt');
+      // Support both real newlines and literal "\n" pasted into an env var.
+      writeFileSync(p, env.YT_COOKIES.replace(/\\n/g, '\n'), 'utf8');
+      cookiesPath = p;
+    } else if (env.YT_COOKIES_FILE && existsSync(env.YT_COOKIES_FILE)) {
+      cookiesPath = env.YT_COOKIES_FILE;
+    }
+  } catch (err) {
+    log.warn({ err }, 'Failed to prepare cookies file');
+    cookiesPath = null;
+  }
+  return cookiesPath;
+}
+
+/** Args applied to every yt-dlp call to improve reliability on server IPs. */
+function commonArgs(): string[] {
+  const a = ['--no-warnings', '--geo-bypass'];
+  if (env.YT_FORCE_IPV4) a.push('--force-ipv4');
+  const cp = getCookiesPath();
+  if (cp) a.push('--cookies', cp);
+  if (env.YT_PLAYER_CLIENT) a.push('--extractor-args', `youtube:player_client=${env.YT_PLAYER_CLIENT}`);
+  return a;
+}
 
 const SEARCH_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 600_000; // 10 min — long videos allowed
@@ -69,7 +101,7 @@ function classifyError(stderr: string): YtError {
  */
 export async function search(query: string, limit: number): Promise<SearchItem[] | { error: YtError }> {
   const args = [
-    '--no-warnings',
+    ...commonArgs(),
     '--no-playlist',
     '--flat-playlist',
     '--skip-download',
@@ -108,6 +140,7 @@ export async function downloadAudio(
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
 
   const args = [
+    ...commonArgs(),
     '-x',
     '--audio-format',
     'mp3',
@@ -118,7 +151,6 @@ export async function downloadAudio(
     `${outBase}.%(ext)s`,
     '--print',
     '%(title)s',
-    '--no-warnings',
     '--no-progress',
   ];
   if (youtubeConfig.maxDuration != null) {

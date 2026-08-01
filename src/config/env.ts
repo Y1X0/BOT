@@ -78,6 +78,14 @@ const envSchema = z.object({
   YT_MAX_SIZE_MB: z.coerce.number().default(0),
   YT_MAX_RESULTS: z.coerce.number().default(10),
   YT_CONCURRENCY_PER_GROUP: z.coerce.number().default(1),
+  // Anti-block: YouTube blocks datacenter IPs. Provide cookies to fix it.
+  YT_COOKIES: z.string().optional(), // full Netscape cookies.txt content
+  YT_COOKIES_FILE: z.string().optional(), // or a path to a cookies file
+  YT_PLAYER_CLIENT: z.string().default(''), // e.g. "android", "web_safari", "tv"
+  YT_FORCE_IPV4: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false'),
 });
 
 const parsed = envSchema.safeParse(process.env);
