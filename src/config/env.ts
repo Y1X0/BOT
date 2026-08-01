@@ -125,6 +125,17 @@ const envSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   MESSAGE_LOG_RETENTION_DAYS: z.coerce.number().default(7),
+
+  // Fun Image Editor (needs an image-generation API key to actually run)
+  IMAGE_AI_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  IMAGE_PROVIDER: z.enum(['openai']).default('openai'),
+  IMAGE_API_KEY: z.string().optional(),
+  IMAGE_MODEL: z.string().default('gpt-image-1'),
+  IMAGE_SIZE: z.string().default('1024x1024'),
+  IMAGE_DAILY_LIMIT: z.coerce.number().default(30), // per chat
 });
 
 const parsed = envSchema.safeParse(process.env);

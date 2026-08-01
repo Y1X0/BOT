@@ -93,6 +93,9 @@ const ALIASES: Alias[] = [
   { command: 'schedules', triggers: ['المجدوله', 'الرسائل المجدوله'] },
   { command: 'quizstart', triggers: ['مسابقه', 'مسابقه مباشره', 'ابدا مسابقه'] },
   { command: 'mafia', triggers: ['مافيا', 'لعبه المافيا'] },
+  // Fun image editor
+  { command: 'edit', triggers: ['تعديل', 'عدل الصوره', 'فن', 'محرر الصور'] },
+  { command: 'imagine', triggers: ['تخيل', 'ولد صوره', 'ارسم', 'انشئ صوره'] },
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */

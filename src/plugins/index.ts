@@ -30,6 +30,7 @@ import { progressionPlugin } from './progression';
 import { scheduledPlugin } from './scheduled';
 import { liveQuizPlugin } from './livequiz';
 import { mafiaPlugin } from './mafia';
+import { imageEditorPlugin } from './imageeditor';
 import { aiPlugin } from './ai';
 
 /**
@@ -62,6 +63,7 @@ allPlugins.push(
   moreGamesPlugin, // passive: word-chain, calls next()
   liveQuizPlugin, // passive: live-quiz answers, calls next()
   mafiaPlugin,
+  imageEditorPlugin,
   extrasPlugin,
   decoratePlugin,
   funPlugin,
