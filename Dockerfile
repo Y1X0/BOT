@@ -35,5 +35,6 @@ COPY --from=builder /app/dist ./dist
 RUN mkdir -p /app/data
 EXPOSE 3000
 
-# Set provider, run migrations (fall back to db push for SQLite), then start.
-CMD ["sh", "-c", "node scripts/set-db-provider.mjs && (npx prisma migrate deploy 2>/dev/null || npx prisma db push --skip-generate); node dist/index.js"]
+# On start: set provider from env, (re)generate client for that provider,
+# sync the schema (creates missing tables — idempotent), then launch.
+CMD ["sh", "-c", "node scripts/set-db-provider.mjs && npx prisma generate && npx prisma db push --accept-data-loss --skip-generate && node dist/index.js"]
