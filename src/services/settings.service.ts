@@ -70,6 +70,7 @@ export const TOGGLEABLE_SETTINGS = [
   'weeklyReportEnabled',
   'qotdEnabled',
   'athkarEnabled',
+  'dailyAyahEnabled',
 ] as const;
 
 export type ToggleableSetting = (typeof TOGGLEABLE_SETTINGS)[number];

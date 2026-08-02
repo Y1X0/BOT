@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slotForHour, slotTag } from '../src/plugins/islamic/schedule';
+import { slotForHour, slotTag, dailyAyahNumber } from '../src/plugins/islamic/schedule';
 import { MORNING_ATHKAR, EVENING_ATHKAR } from '../src/plugins/islamic/data';
 
 describe('athkar scheduling', () => {
@@ -17,6 +17,21 @@ describe('athkar scheduling', () => {
     expect(slotTag(now, 'm')).toBe('2026-08-02:m');
     expect(slotTag(now, 'e')).toBe('2026-08-02:e');
     expect(slotTag(new Date('2026-08-03T04:00:00Z'), 'm')).toBe('2026-08-03:m');
+  });
+});
+
+describe('dailyAyahNumber', () => {
+  it('is in the valid verse range 1..6236', () => {
+    for (const d of ['2026-08-02', '2026-01-01', '2026-12-31']) {
+      const n = dailyAyahNumber(new Date(`${d}T09:00:00Z`));
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(6236);
+    }
+  });
+  it('is stable per day and varies across days', () => {
+    const a = dailyAyahNumber(new Date('2026-08-02T09:00:00Z'));
+    expect(dailyAyahNumber(new Date('2026-08-02T20:00:00Z'))).toBe(a);
+    expect(dailyAyahNumber(new Date('2026-08-03T09:00:00Z'))).not.toBe(a);
   });
 });
 

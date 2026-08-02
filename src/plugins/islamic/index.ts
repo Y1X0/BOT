@@ -9,7 +9,8 @@ import { createLogger } from '../../core/logger';
 import { getJson } from '../../utils/http';
 import { pickRandom } from '../../utils/format';
 import { AYAT, AHADITH, ATHKAR, TASBEEH_PHRASES, MORNING_ATHKAR, EVENING_ATHKAR } from './data';
-import { slotForHour, slotTag, type AthkarSlot } from './schedule';
+import { slotForHour, slotTag, dailyAyahNumber, type AthkarSlot } from './schedule';
+import { dayKey } from '../social/logic';
 
 const log = createLogger('plugin:islamic');
 
@@ -24,6 +25,27 @@ function athkarMessage(slot: AthkarSlot): string {
   const header = slot === 'm' ? '🌅 أذكار الصباح' : '🌇 أذكار المساء';
   const list = (slot === 'm' ? MORNING_ATHKAR : EVENING_ATHKAR).join('\n\n');
   return `${header}\n\n${list}\n\n🤍 تقبّل الله`;
+}
+
+interface Edition {
+  text?: string;
+  numberInSurah?: number;
+  surah?: { name?: string };
+  edition?: { identifier?: string };
+}
+
+/** Fetch a verse (Uthmani) + its simple tafsir (التفسير الميسّر) for verse #n. */
+async function ayahWithTafsir(n: number): Promise<string | null> {
+  const d = await getJson<{ data?: Edition[] }>(
+    `https://api.alquran.cloud/v1/ayah/${n}/editions/quran-uthmani,ar.muyassar`,
+  );
+  const arr = d?.data;
+  if (!arr?.length) return null;
+  const q = arr.find((e) => e.edition?.identifier === 'quran-uthmani');
+  const tafsir = arr.find((e) => e.edition?.identifier === 'ar.muyassar')?.text;
+  if (!q?.text) return null;
+  const ref = q.surah?.name ? `\n[${q.surah.name}: ${q.numberInSurah}]` : '';
+  return `📖 آية اليوم\n\n﴿ ${q.text} ﴾${ref}${tafsir ? `\n\n📝 التفسير الميسّر:\n${tafsir}` : ''}`;
 }
 
 /** Per-message tasbeeh counters. */
@@ -60,7 +82,9 @@ export const islamicPlugin: Plugin = {
     { command: 'sabah', description: '🌅 أذكار الصباح' },
     { command: 'masa', description: '🌇 أذكار المساء' },
     { command: 'tasbeeh', description: '📿 عدّاد التسبيح' },
+    { command: 'ayahtafsir', description: '📖 آية اليوم مع تفسير' },
     { command: 'athkarauto', description: '⚙️ تفعيل/إيقاف الأذكار التلقائية', staffOnly: true },
+    { command: 'dailyayah', description: '⚙️ تفعيل/إيقاف آية اليوم التلقائية', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -97,6 +121,25 @@ export const islamicPlugin: Plugin = {
     bot.command('sabah', async (ctx) => void ctx.reply(athkarMessage('m')));
     bot.command('masa', async (ctx) => void ctx.reply(athkarMessage('e')));
 
+    // Today's ayah + simple tafsir (same verse for everyone that day).
+    bot.command('ayahtafsir', async (ctx) => {
+      const msg = await ayahWithTafsir(dailyAyahNumber(new Date())).catch(() => null);
+      await ctx.reply(msg ?? '❌ تعذّر جلب آية اليوم، حاول لاحقاً.');
+    });
+
+    bot.command('dailyayah', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
+      const on = arg === 'on' || arg === 'تفعيل';
+      const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف';
+      if (!on && !off) {
+        const cur = ctx.state.settings?.dailyAyahEnabled ? 'مفعّلة ✅' : 'متوقفة ❌';
+        return void ctx.reply(`📖 آية اليوم التلقائية: ${cur}\nتُرسل يومياً ٩ص.\nاستخدم: /dailyayah on  أو  /dailyayah off`);
+      }
+      await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { dailyAyahEnabled: on } });
+      await ctx.reply(on ? '📖 تم تفعيل آية اليوم التلقائية (٩ص).' : '📖 تم إيقاف آية اليوم التلقائية.');
+    });
+
     // Toggle the automatic morning/evening athkar for this group.
     bot.command('athkarauto', requireRole('admin'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
@@ -111,8 +154,11 @@ export const islamicPlugin: Plugin = {
       await ctx.reply(on ? '🕌 تم تفعيل الأذكار التلقائية (٧ص و ٦م).' : '🕌 تم إيقاف الأذكار التلقائية في هذا الجروب.');
     });
 
-    // Hourly ticker → send morning (7) / evening (18) athkar to enabled groups.
-    const interval = setInterval(() => void tickAthkar(bot), 60 * 60 * 1000);
+    // Hourly ticker → athkar (7/18) and the daily ayah (9) to enabled groups.
+    const interval = setInterval(() => {
+      void tickAthkar(bot);
+      void tickDailyAyah(bot);
+    }, 60 * 60 * 1000);
     interval.unref?.();
 
     // Interactive tasbeeh counter.
@@ -170,6 +216,28 @@ async function tickAthkar(bot: Telegraf<BotContext>): Promise<void> {
     }
   } catch (err) {
     log.warn({ err }, 'athkar tick failed');
+  }
+}
+
+async function tickDailyAyah(bot: Telegraf<BotContext>): Promise<void> {
+  try {
+    if (hourInTz(env.DEFAULT_TIMEZONE) !== 9) return;
+    const now = new Date();
+    const tag = dayKey(now);
+    const chats = await prisma.chat.findMany({
+      where: { type: { in: ['group', 'supergroup'] }, settings: { dailyAyahEnabled: true } },
+      include: { settings: true },
+    });
+    const pending = chats.filter((c) => c.settings?.lastDailyAyah !== tag);
+    if (!pending.length) return;
+    const msg = await ayahWithTafsir(dailyAyahNumber(now)); // one fetch, shared by all
+    if (!msg) return;
+    for (const chat of pending) {
+      await bot.telegram.sendMessage(Number(chat.id), msg).catch(() => undefined);
+      await prisma.chatSettings.update({ where: { chatId: chat.id }, data: { lastDailyAyah: tag } }).catch(() => undefined);
+    }
+  } catch (err) {
+    log.warn({ err }, 'daily ayah tick failed');
   }
 }
 
