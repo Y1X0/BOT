@@ -13,6 +13,21 @@ interface AladhanResponse {
   data?: { timings?: Record<string, string> };
 }
 
+interface AyahResponse {
+  data?: { text?: string; numberInSurah?: number; surah?: { name?: string } };
+}
+
+/** Fetch a random ayah from the full Qur'an (6236 verses), accurate Uthmani text. */
+async function randomAyah(): Promise<string | null> {
+  const n = 1 + Math.floor(Math.random() * 6236);
+  const d = await getJson<AyahResponse>(`https://api.alquran.cloud/v1/ayah/${n}/quran-uthmani`);
+  const text = d?.data?.text;
+  if (!text) return null;
+  const surah = d.data?.surah?.name;
+  const num = d.data?.numberInSurah;
+  return `📖 ﴿ ${text} ﴾${surah ? `\n[${surah}: ${num}]` : ''}`;
+}
+
 export const islamicPlugin: Plugin = {
   name: 'islamic',
   description: 'Prayer times, ayah, hadith, athkar, tasbeeh counter',
@@ -45,7 +60,10 @@ export const islamicPlugin: Plugin = {
       );
     });
 
-    bot.command('ayah', async (ctx) => void ctx.reply(pickRandom(AYAT)));
+    bot.command('ayah', async (ctx) => {
+      const ayah = (await randomAyah().catch(() => null)) ?? pickRandom(AYAT);
+      await ctx.reply(ayah);
+    });
     bot.command('hadith', async (ctx) => void ctx.reply(pickRandom(AHADITH)));
     bot.command('thikr', async (ctx) => void ctx.reply(pickRandom(ATHKAR)));
     bot.command('athkar', async (ctx) => {
