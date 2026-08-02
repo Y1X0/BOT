@@ -75,6 +75,9 @@ model ChatSettings {
   nightEndHour        Int      @default(6)
   cleanServiceEnabled Boolean  @default(false)
 
+  // Anti-raid: detect sudden mass joins and lock the group
+  antiRaidEnabled     Boolean  @default(false)
+
   // AI moderation
   moderationEnabled   Boolean  @default(false)
   moderationAction    String   @default("delete") // delete | warn | mute | ban

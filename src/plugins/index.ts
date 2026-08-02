@@ -4,6 +4,7 @@ import { createGeneralPlugin } from './general';
 import { infoPlugin } from './info';
 import { adminPlugin } from './admin';
 import { moderationPlugin } from './moderation';
+import { protectionPlugin } from './protection';
 import { welcomePlugin } from './welcome';
 import { engagementPlugin } from './engagement';
 import { gamesPlugin } from './games';
@@ -52,6 +53,7 @@ allPlugins.push(
   infoPlugin,
   adminPlugin,
   moderationPlugin,
+  protectionPlugin, // anti-raid: must run before welcome on new_chat_members
   welcomePlugin,
   voiceChatPlugin,
   managementPlugin, // includes service-message cleanup (before analytics)
