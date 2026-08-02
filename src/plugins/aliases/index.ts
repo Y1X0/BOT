@@ -73,6 +73,9 @@ const ALIASES: Alias[] = [
   { command: 'xo', triggers: ['اكس او', 'xo', 'اكسو'] },
   { command: 'riddle', triggers: ['فزوره', 'لغز', 'فزورة'] },
   { command: 'wordchain', triggers: ['سلسله كلمات', 'سلسله', 'كلمات متسلسله'] },
+  { command: 'emoji', triggers: ['خمن الايموجي', 'ايموجي', 'لعبه الايموجي'] },
+  { command: 'flag', triggers: ['خمن العلم', 'علم', 'اعلام', 'لعبه الاعلام'] },
+  { command: 'hangman', triggers: ['حبل المشنقه', 'المشنقه', 'خمن الكلمه'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
