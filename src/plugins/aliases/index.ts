@@ -106,6 +106,7 @@ const ALIASES: Alias[] = [
   { command: 'myrank', triggers: ['مرتبتي', 'رتبتي الحاليه'] },
   // Giveaway (avoid bare "سحب" — it's the economy withdraw alias)
   { command: 'giveaway', triggers: ['قرعه', 'سحب على', 'مسابقه سحب', 'هديه'] },
+  { command: 'qotd', triggers: ['سؤال اليوم', 'سوال اليوم', 'سؤال نقاش'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },

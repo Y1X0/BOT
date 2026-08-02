@@ -82,6 +82,10 @@ model ChatSettings {
   weeklyReportEnabled Boolean  @default(false)
   lastWeeklyReportAt  DateTime?
 
+  // Question of the day
+  qotdEnabled         Boolean  @default(false)
+  lastQotdAt          DateTime?
+
   // AI moderation
   moderationEnabled   Boolean  @default(false)
   moderationAction    String   @default("delete") // delete | warn | mute | ban
