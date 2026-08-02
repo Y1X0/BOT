@@ -1,7 +1,18 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { getBalance, claimDaily, topBalances, transfer, addCoins } from '../../services/economy.service';
+import {
+  getBalance,
+  claimDaily,
+  topBalances,
+  transfer,
+  addCoins,
+  getAccountSummary,
+  deposit,
+  withdraw,
+  rob,
+} from '../../services/economy.service';
+import { spinSlots } from '../../services/economy-logic';
 import { displayName, resolveTarget } from '../../utils/format';
 
 export const economyPlugin: Plugin = {
@@ -13,6 +24,11 @@ export const economyPlugin: Plugin = {
     { command: 'top', description: '🏆 الأغنى في الجروب' },
     { command: 'give', description: '💸 تحويل عملات لعضو (بالرد)' },
     { command: 'spin', description: '🎡 عجلة الحظ: /spin 50' },
+    { command: 'bank', description: '🏦 عرض المحفظة والبنك' },
+    { command: 'deposit', description: '🏦 إيداع في البنك: /deposit 100' },
+    { command: 'withdraw', description: '🏦 سحب من البنك: /withdraw 100' },
+    { command: 'rob', description: '🥷 سرقة عضو (بالرد)' },
+    { command: 'slots', description: '🎰 ماكينة الحظ: /slots 50' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -95,8 +111,76 @@ export const economyPlugin: Plugin = {
         `🎡 عجلة الحظ\nالرهان: ${bet} 💰\nالنتيجة: ${label}\n${net >= 0 ? `ربحت ${net}` : `خسرت ${-net}`} 💰\nرصيدك: ${newBal} 💰`,
       );
     });
+
+    // 🏦 Bank summary.
+    bot.command('bank', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const s = await getAccountSummary(ctx.chat.id, ctx.from.id);
+      await ctx.reply(`🏦 ${displayName(ctx.from)}\n💵 المحفظة: ${s.balance} 💰\n🔒 البنك: ${s.bank} 💰\n(الأموال في البنك آمنة من السرقة)`);
+    });
+
+    // 🏦 Deposit / withdraw (support "all"/"الكل").
+    bot.command('deposit', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const s = await getAccountSummary(ctx.chat.id, ctx.from.id);
+      const amount = parseAmount(ctx.message.text, s.balance);
+      if (amount === null) return void ctx.reply('🏦 استخدم: /deposit 100  أو  /deposit الكل');
+      const r = await deposit(ctx.chat.id, ctx.from.id, amount);
+      if (!r.ok) return void ctx.reply('❌ رصيد المحفظة لا يكفي.');
+      await ctx.reply(`🏦 أودعت ${amount} 💰\n💵 المحفظة: ${r.balance} | 🔒 البنك: ${r.bank}`);
+    });
+
+    bot.command('withdraw', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const s = await getAccountSummary(ctx.chat.id, ctx.from.id);
+      const amount = parseAmount(ctx.message.text, s.bank);
+      if (amount === null) return void ctx.reply('🏦 استخدم: /withdraw 100  أو  /withdraw الكل');
+      const r = await withdraw(ctx.chat.id, ctx.from.id, amount);
+      if (!r.ok) return void ctx.reply('❌ رصيد البنك لا يكفي.');
+      await ctx.reply(`🏦 سحبت ${amount} 💰\n💵 المحفظة: ${r.balance} | 🔒 البنك: ${r.bank}`);
+    });
+
+    // 🥷 Rob another member (reply to them).
+    bot.command('rob', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const target = resolveTarget(ctx);
+      if (!target) return void ctx.reply('🥷 ردّ على رسالة العضو الذي تريد سرقته.');
+      const r = await rob(ctx.chat.id, ctx.from.id, target.id);
+      switch (r.outcome) {
+        case 'self': return void ctx.reply('🤦 لا يمكنك سرقة نفسك.');
+        case 'cooldown': return void ctx.reply(`⏳ انتظر ${r.hoursLeft} ساعة قبل محاولة سرقة أخرى.`);
+        case 'empty': return void ctx.reply('💸 محفظة الضحية شبه فارغة — لا شيء لتسرقه.');
+        case 'success': return void ctx.reply(`🥷 نجحت السرقة! أخذت ${r.amount} 💰 من ${displayName(target)} 😈`);
+        case 'caught': return void ctx.reply(`🚨 تم ضبطك! دفعت غرامة ${r.amount} 💰 لـ ${displayName(target)} 😅`);
+      }
+    });
+
+    // 🎰 Slot machine.
+    bot.command('slots', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const bet = Number(ctx.message.text.split(/\s+/)[1] ?? '50');
+      if (!Number.isInteger(bet) || bet <= 0) return void ctx.reply('🎰 استخدم: /slots 50');
+      if (bet > 100000) return void ctx.reply('🎰 الحد الأقصى للرهان 100000.');
+      const balance = await getBalance(ctx.chat.id, ctx.from.id);
+      if (balance < bet) return void ctx.reply('❌ رصيدك لا يكفي لهذا الرهان.');
+      const { reels, mult } = spinSlots(Math.random);
+      const net = Math.floor(bet * mult) - bet;
+      await addCoins(ctx.chat.id, ctx.from.id, net);
+      const newBal = await getBalance(ctx.chat.id, ctx.from.id);
+      const verdict = mult >= 5 ? '💎 جاكبوت!' : mult > 1 ? '🎉 ربح!' : mult === 1.5 ? '✨ زوج!' : '💨 خسارة';
+      await ctx.reply(`🎰 [ ${reels.join(' | ')} ]\n${verdict}\n${net >= 0 ? `ربحت ${net}` : `خسرت ${-net}`} 💰\nرصيدك: ${newBal} 💰`);
+    });
   },
 };
+
+/** Parse a coin amount from a command, supporting "all"/"الكل"/"كامل". */
+function parseAmount(text: string, max: number): number | null {
+  const raw = text.split(/\s+/)[1]?.trim();
+  if (!raw) return null;
+  if (['all', 'الكل', 'كامل', 'كله'].includes(raw)) return max > 0 ? max : null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
 
 function enabled(ctx: BotContext): boolean {
   if (!ctx.chat || ctx.chat.type === 'private') return false;

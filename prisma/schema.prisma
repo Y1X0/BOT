@@ -121,7 +121,9 @@ model EconomyAccount {
   chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
   balance     Int      @default(0)
+  bank        Int      @default(0) // safe from robbery
   lastDailyAt DateTime?
+  lastRobAt   DateTime?
 
   @@unique([chatId, userId])
   @@index([chatId, balance])

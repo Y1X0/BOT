@@ -1,8 +1,11 @@
 import type { EconomyAccount } from '@prisma/client';
 import { prisma } from '../core/database';
+import { robOutcome } from './economy-logic';
 
 const DAILY_REWARD = 100;
 const DAILY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const ROB_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const ROB_MIN_WALLET = 50; // victim must carry at least this in wallet
 
 async function ensureAccount(
   chatId: bigint,
@@ -110,4 +113,99 @@ export async function topBalances(
     orderBy: { balance: 'desc' },
     take: limit,
   });
+}
+
+// ---- Bank (wallet <-> bank; bank is safe from robbery) ----
+export async function getAccountSummary(
+  chatId: number | bigint,
+  userId: number | bigint,
+): Promise<{ balance: number; bank: number }> {
+  const acc = await ensureAccount(BigInt(chatId), BigInt(userId));
+  return { balance: acc.balance, bank: acc.bank };
+}
+
+export interface BankResult {
+  ok: boolean;
+  balance?: number;
+  bank?: number;
+}
+
+export async function deposit(
+  chatId: number | bigint,
+  userId: number | bigint,
+  amount: number,
+): Promise<BankResult> {
+  const cId = BigInt(chatId);
+  const uId = BigInt(userId);
+  const acc = await ensureAccount(cId, uId);
+  if (amount <= 0 || acc.balance < amount) return { ok: false };
+  const u = await prisma.economyAccount.update({
+    where: { chatId_userId: { chatId: cId, userId: uId } },
+    data: { balance: { decrement: amount }, bank: { increment: amount } },
+  });
+  return { ok: true, balance: u.balance, bank: u.bank };
+}
+
+export async function withdraw(
+  chatId: number | bigint,
+  userId: number | bigint,
+  amount: number,
+): Promise<BankResult> {
+  const cId = BigInt(chatId);
+  const uId = BigInt(userId);
+  const acc = await ensureAccount(cId, uId);
+  if (amount <= 0 || acc.bank < amount) return { ok: false };
+  const u = await prisma.economyAccount.update({
+    where: { chatId_userId: { chatId: cId, userId: uId } },
+    data: { bank: { decrement: amount }, balance: { increment: amount } },
+  });
+  return { ok: true, balance: u.balance, bank: u.bank };
+}
+
+// ---- Robbery ----
+export interface RobResult {
+  outcome: 'success' | 'caught' | 'cooldown' | 'empty' | 'self';
+  amount?: number;
+  hoursLeft?: number;
+}
+
+export async function rob(
+  chatId: number | bigint,
+  robberId: number | bigint,
+  victimId: number | bigint,
+  now: Date = new Date(),
+  rand: () => number = Math.random,
+): Promise<RobResult> {
+  const cId = BigInt(chatId);
+  const rId = BigInt(robberId);
+  const vId = BigInt(victimId);
+  if (rId === vId) return { outcome: 'self' };
+
+  const robber = await ensureAccount(cId, rId);
+  if (robber.lastRobAt) {
+    const elapsed = now.getTime() - robber.lastRobAt.getTime();
+    if (elapsed < ROB_COOLDOWN_MS) {
+      return { outcome: 'cooldown', hoursLeft: Math.ceil((ROB_COOLDOWN_MS - elapsed) / (60 * 60 * 1000)) };
+    }
+  }
+
+  const victim = await ensureAccount(cId, vId);
+  if (victim.balance < ROB_MIN_WALLET) return { outcome: 'empty' };
+
+  const decision = robOutcome(victim.balance, robber.balance, rand);
+  if (decision.success) {
+    const amount = Math.min(decision.amount, victim.balance);
+    await prisma.$transaction([
+      prisma.economyAccount.update({ where: { chatId_userId: { chatId: cId, userId: vId } }, data: { balance: { decrement: amount } } }),
+      prisma.economyAccount.update({ where: { chatId_userId: { chatId: cId, userId: rId } }, data: { balance: { increment: amount }, lastRobAt: now } }),
+    ]);
+    return { outcome: 'success', amount };
+  }
+
+  const fine = Math.min(decision.amount, robber.balance);
+  await prisma.$transaction([
+    prisma.economyAccount.update({ where: { chatId_userId: { chatId: cId, userId: rId } }, data: { balance: { decrement: fine }, lastRobAt: now } }),
+    prisma.economyAccount.update({ where: { chatId_userId: { chatId: cId, userId: vId } }, data: { balance: { increment: fine } } }),
+  ]);
+  return { outcome: 'caught', amount: fine };
 }
