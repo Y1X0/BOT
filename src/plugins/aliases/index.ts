@@ -110,6 +110,8 @@ const ALIASES: Alias[] = [
   // Decision tools
   { command: '8ball', triggers: ['الكره السحريه', 'اسال الكره', 'كره سحريه'] },
   { command: 'choose', triggers: ['اختر', 'اختار', 'اختر لي', 'خير'] },
+  // Countdown events
+  { command: 'events', triggers: ['المناسبات', 'الفعاليات', 'العد التنازلي'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },

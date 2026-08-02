@@ -224,6 +224,18 @@ model MessageLog {
   @@index([flagged])
 }
 
+/// Countdown events: the bot counts down and announces on the day.
+model CountdownEvent {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  name      String
+  targetAt  DateTime // UTC midnight of the event day
+  announced Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([chatId])
+}
+
 /// Support tickets (complaints/suggestions) opened by members for admins.
 model Ticket {
   id        Int      @id @default(autoincrement())

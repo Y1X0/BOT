@@ -36,6 +36,7 @@ import { ranksPlugin } from './ranks';
 import { giveawayPlugin } from './giveaway';
 import { qotdPlugin } from './qotd';
 import { decidePlugin } from './decide';
+import { countdownPlugin } from './countdown';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -85,6 +86,7 @@ allPlugins.push(
   giveawayPlugin,
   qotdPlugin,
   decidePlugin,
+  countdownPlugin,
   liveQuizPlugin, // passive: live-quiz answers, calls next()
   mafiaPlugin,
   imageEditorPlugin,
