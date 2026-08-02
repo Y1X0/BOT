@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, extname } from 'node:path';
 import { env } from '../config/env';
 import { createLogger } from '../core/logger';
+import { cobaltConfigured, cobaltDownload } from './cobalt';
 
 const log = createLogger('downloader');
 
@@ -35,6 +36,24 @@ function extractReason(stderr: string): string | undefined {
  * Reels, X/Twitter, Facebook, etc.). Fixed argv — no shell. Never throws.
  */
 export async function downloadVideo(
+  url: string,
+): Promise<DlResult | { error: DlError; reason?: string }> {
+  const primary = await ytDlpDownloadVideo(url);
+  if (!('error' in primary)) return primary;
+  // Fallback to a (self-hosted) Cobalt instance for block-like failures — it
+  // downloads from its own IP, so it can succeed where our IP is blocked.
+  if (cobaltConfigured() && ['failed', 'private', 'timeout'].includes(primary.error)) {
+    const c = await cobaltDownload(url, false);
+    if (!('error' in c)) {
+      const isVideo = VIDEO_EXTS.includes(extname(c.filePath).toLowerCase());
+      log.info('link download resolved via cobalt');
+      return { filePath: c.filePath, title: c.title, isVideo, cleanup: c.cleanup };
+    }
+  }
+  return primary;
+}
+
+async function ytDlpDownloadVideo(
   url: string,
 ): Promise<DlResult | { error: DlError; reason?: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'dl-'));

@@ -3,10 +3,11 @@ import { createLogger } from '../../core/logger';
 import { search as ytSearch, downloadAudio as ytDownload, type DownloadResult, type SearchItem, type YtError } from './ytdlp';
 import { pipedSearch, pipedDownload } from './piped';
 import { invidiousSearch, invidiousDownload } from './invidious';
+import { cobaltConfigured, cobaltDownload } from '../cobalt';
 
 const log = createLogger('youtube:resolver');
 
-export type Engine = 'yt-dlp' | 'piped' | 'invidious';
+export type Engine = 'cobalt' | 'yt-dlp' | 'piped' | 'invidious';
 
 /**
  * Try each extraction engine in order until one succeeds:
@@ -31,6 +32,17 @@ export async function resolveDownload(
   videoId: string,
   onEngineTry?: (engine: Engine) => void,
 ): Promise<DownloadResult | { error: YtError }> {
+  // Cobalt first when configured: it downloads from its own IP, bypassing the
+  // datacenter block that usually defeats direct yt-dlp.
+  if (cobaltConfigured()) {
+    onEngineTry?.('cobalt');
+    const c = await cobaltDownload(`https://www.youtube.com/watch?v=${videoId}`, true);
+    if (!('error' in c)) {
+      log.info({ engine: 'cobalt' }, 'download resolved');
+      return c;
+    }
+  }
+
   onEngineTry?.('yt-dlp');
   const yt = await ytDownload(videoId);
   if (!('error' in yt)) {

@@ -102,6 +102,11 @@ const envSchema = z.object({
     .transform((v) => v !== 'false'),
   YT_INVIDIOUS_INSTANCES: z.string().optional(),
 
+  // Cobalt backend (self-hosted → own IP → bypasses YouTube's datacenter block).
+  // Deploy Cobalt on Railway and put its API URL here, e.g. https://xxx.up.railway.app
+  COBALT_API_URL: z.string().optional(),
+  COBALT_API_KEY: z.string().optional(), // if the instance sets API_AUTH_REQUIRED
+
   // Generic link downloader (TikTok, Instagram Reels, X, Facebook, ...)
   DL_ENABLED: z
     .string()
