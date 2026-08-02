@@ -35,6 +35,7 @@ import { ticketsPlugin } from './tickets';
 import { ranksPlugin } from './ranks';
 import { giveawayPlugin } from './giveaway';
 import { qotdPlugin } from './qotd';
+import { decidePlugin } from './decide';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -83,6 +84,7 @@ allPlugins.push(
   ranksPlugin,
   giveawayPlugin,
   qotdPlugin,
+  decidePlugin,
   liveQuizPlugin, // passive: live-quiz answers, calls next()
   mafiaPlugin,
   imageEditorPlugin,

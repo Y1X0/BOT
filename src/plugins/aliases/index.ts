@@ -107,6 +107,9 @@ const ALIASES: Alias[] = [
   // Giveaway (avoid bare "سحب" — it's the economy withdraw alias)
   { command: 'giveaway', triggers: ['قرعه', 'سحب على', 'مسابقه سحب', 'هديه'] },
   { command: 'qotd', triggers: ['سؤال اليوم', 'سوال اليوم', 'سؤال نقاش'] },
+  // Decision tools
+  { command: '8ball', triggers: ['الكره السحريه', 'اسال الكره', 'كره سحريه'] },
+  { command: 'choose', triggers: ['اختر', 'اختار', 'اختر لي', 'خير'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
