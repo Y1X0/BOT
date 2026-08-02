@@ -29,6 +29,7 @@ const ALIASES: Alias[] = [
   { command: 'rules', triggers: ['القوانين', 'قوانين', 'الشروط'] },
   { command: 'help', triggers: ['مساعده', 'المساعده'] },
   { command: 'menu', triggers: ['القائمه', 'قائمه', 'الاوامر', 'اوامر', 'المنيو', 'الاقسام'] },
+  { command: 'find', triggers: ['بحث', 'ابحث', 'دور على'] },
   { command: 'joke', triggers: ['نكته', 'اضحكني', 'نكت', 'نكته جديده'] },
   { command: 'quote', triggers: ['حكمه', 'اقتباس', 'حكمه اليوم'] },
   { command: 'fact', triggers: ['معلومه', 'معلومات', 'معلومه جديده'] },

@@ -1,6 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
+import { HOME_TEXT, homeKeyboard } from '../menu';
 
 /**
  * Core /start and /help. Help is generated at call time from the registered
@@ -21,7 +22,9 @@ export function createGeneralPlugin(getPlugins: () => Plugin[]): Plugin {
         // plugins' start handlers — pass through instead of showing the menu.
         if (ctx.startPayload) return next();
         const t = ctx.state.t!;
-        await ctx.reply(t('start.private'));
+        await ctx.reply(t('start.private')).catch(() => undefined);
+        // Show the organized menu right away on first contact.
+        await ctx.reply(HOME_TEXT, { parse_mode: 'HTML', ...homeKeyboard() }).catch(() => undefined);
       });
 
       bot.command('help', async (ctx) => {
