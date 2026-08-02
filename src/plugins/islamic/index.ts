@@ -8,9 +8,12 @@ import { requireRole } from '../../utils/permissions';
 import { createLogger } from '../../core/logger';
 import { getJson } from '../../utils/http';
 import { pickRandom } from '../../utils/format';
+import { to12h } from '../../utils/time';
 import { AYAT, AHADITH, ATHKAR, TASBEEH_PHRASES, MORNING_ATHKAR, EVENING_ATHKAR } from './data';
-import { slotForHour, slotTag, dailyAyahNumber, type AthkarSlot } from './schedule';
+import { slotForHour, slotTag, dailyAyahNumber, matchPrayer, type AthkarSlot } from './schedule';
 import { dayKey } from '../social/logic';
+
+const DEFAULT_PRAYER_CITY = 'Amman,Jordan';
 
 const log = createLogger('plugin:islamic');
 
@@ -85,6 +88,7 @@ export const islamicPlugin: Plugin = {
     { command: 'ayahtafsir', description: '📖 آية اليوم مع تفسير' },
     { command: 'athkarauto', description: '⚙️ تفعيل/إيقاف الأذكار التلقائية', staffOnly: true },
     { command: 'dailyayah', description: '⚙️ تفعيل/إيقاف آية اليوم التلقائية', staffOnly: true },
+    { command: 'prayernotify', description: '🕌 تنبيه أوقات الصلاة: /prayernotify on Amman', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -98,12 +102,12 @@ export const islamicPlugin: Plugin = {
       if (!t) return void ctx.reply('❌ تعذّر جلب المواقيت لهذه المدينة.');
       await ctx.reply(
         `🕌 مواقيت الصلاة — ${city}\n\n` +
-          `الفجر: ${t.Fajr}\n` +
-          `الشروق: ${t.Sunrise}\n` +
-          `الظهر: ${t.Dhuhr}\n` +
-          `العصر: ${t.Asr}\n` +
-          `المغرب: ${t.Maghrib}\n` +
-          `العشاء: ${t.Isha}`,
+          `الفجر: ${to12h(t.Fajr)}\n` +
+          `الشروق: ${to12h(t.Sunrise)}\n` +
+          `الظهر: ${to12h(t.Dhuhr)}\n` +
+          `العصر: ${to12h(t.Asr)}\n` +
+          `المغرب: ${to12h(t.Maghrib)}\n` +
+          `العشاء: ${to12h(t.Isha)}`,
       );
     });
 
@@ -154,12 +158,40 @@ export const islamicPlugin: Plugin = {
       await ctx.reply(on ? '🕌 تم تفعيل الأذكار التلقائية (٧ص و ٦م).' : '🕌 تم إيقاف الأذكار التلقائية في هذا الجروب.');
     });
 
+    // Enable/disable prayer-time announcements (with optional city).
+    bot.command('prayernotify', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const parts = ctx.message.text.split(/\s+/).slice(1);
+      const arg = parts[0]?.toLowerCase();
+      const on = arg === 'on' || arg === 'تفعيل';
+      const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف';
+      if (!on && !off) {
+        const s = ctx.state.settings;
+        const cur = s?.prayerNotifyEnabled ? 'مفعّلة ✅' : 'متوقفة ❌';
+        return void ctx.reply(`🕌 تنبيه أوقات الصلاة: ${cur}\nالمدينة: ${s?.prayerCity ?? DEFAULT_PRAYER_CITY}\nاستخدم: /prayernotify on عمّان   أو   /prayernotify off`);
+      }
+      const city = parts.slice(1).join(' ').trim() || undefined;
+      await prisma.chatSettings.update({
+        where: { chatId: BigInt(ctx.chat.id) },
+        data: { prayerNotifyEnabled: on, ...(city ? { prayerCity: city } : {}) },
+      });
+      await ctx.reply(
+        on
+          ? `🕌 تم تفعيل تنبيه أوقات الصلاة لمدينة «${city ?? ctx.state.settings?.prayerCity ?? DEFAULT_PRAYER_CITY}». سيُعلن البوت عند دخول كل صلاة.`
+          : '🕌 تم إيقاف تنبيه أوقات الصلاة.',
+      );
+    });
+
     // Hourly ticker → athkar (7/18) and the daily ayah (9) to enabled groups.
     const interval = setInterval(() => {
       void tickAthkar(bot);
       void tickDailyAyah(bot);
     }, 60 * 60 * 1000);
     interval.unref?.();
+
+    // Per-minute ticker → announce each prayer at its exact time.
+    const prayerInterval = setInterval(() => void tickPrayer(bot), 60 * 1000);
+    prayerInterval.unref?.();
 
     // Interactive tasbeeh counter.
     bot.command('tasbeeh', async (ctx) => {
@@ -238,6 +270,72 @@ async function tickDailyAyah(bot: Telegraf<BotContext>): Promise<void> {
     }
   } catch (err) {
     log.warn({ err }, 'daily ayah tick failed');
+  }
+}
+
+interface TimingsResponse {
+  data?: { timings?: Record<string, string>; meta?: { timezone?: string } };
+}
+interface CachedTimings {
+  day: string;
+  timings: Record<string, string>;
+  tz: string;
+}
+const timingsCache = new Map<string, CachedTimings>();
+
+/** Today's prayer timings for a city (cached once per day per city). */
+async function getTimings(city: string): Promise<CachedTimings | null> {
+  const today = new Date().toISOString().slice(0, 10);
+  const cached = timingsCache.get(city);
+  if (cached && cached.day === today) return cached;
+  const d = await getJson<TimingsResponse>(
+    `https://api.aladhan.com/v1/timingsByAddress?address=${encodeURIComponent(city)}&method=4`,
+  );
+  const timings = d?.data?.timings;
+  if (!timings) return null;
+  const entry: CachedTimings = { day: today, timings, tz: d?.data?.meta?.timezone ?? env.DEFAULT_TIMEZONE };
+  timingsCache.set(city, entry);
+  return entry;
+}
+
+/** Current minutes-since-midnight in a timezone. */
+function minutesInTz(tz: string): number {
+  const hhmm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }).format(new Date());
+  const [h, m] = hhmm.split(':').map(Number);
+  return (h % 24) * 60 + m;
+}
+
+async function tickPrayer(bot: Telegraf<BotContext>): Promise<void> {
+  try {
+    const chats = await prisma.chat.findMany({
+      where: { type: { in: ['group', 'supergroup'] }, settings: { prayerNotifyEnabled: true } },
+      include: { settings: true },
+    });
+    if (!chats.length) return;
+
+    // Group chats by city to share one API call & timings per city.
+    const byCity = new Map<string, typeof chats>();
+    for (const c of chats) {
+      const city = c.settings?.prayerCity || DEFAULT_PRAYER_CITY;
+      (byCity.get(city) ?? byCity.set(city, []).get(city)!).push(c);
+    }
+
+    for (const [city, cityChats] of byCity) {
+      const data = await getTimings(city);
+      if (!data) continue;
+      const prayer = matchPrayer(minutesInTz(data.tz), data.timings);
+      if (!prayer) continue;
+      const dayTz = new Intl.DateTimeFormat('en-CA', { timeZone: data.tz }).format(new Date()); // YYYY-MM-DD
+      const tag = `${dayTz}:${prayer.key}`;
+      const msg = `🕌 حان الآن موعد صلاة ${prayer.ar}\nحيّ على الصلاة 🤍`;
+      for (const c of cityChats) {
+        if (c.settings?.lastPrayerAnnounced === tag) continue;
+        await bot.telegram.sendMessage(Number(c.id), msg).catch(() => undefined);
+        await prisma.chatSettings.update({ where: { chatId: c.id }, data: { lastPrayerAnnounced: tag } }).catch(() => undefined);
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, 'prayer tick failed');
   }
 }
 

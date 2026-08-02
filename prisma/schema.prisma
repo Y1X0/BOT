@@ -94,6 +94,11 @@ model ChatSettings {
   dailyAyahEnabled    Boolean  @default(true)
   lastDailyAyah       String?  // "YYYY-MM-DD" — de-dupes daily send
 
+  // Prayer-time announcements
+  prayerNotifyEnabled Boolean  @default(false)
+  prayerCity          String?  // e.g. "Amman,Jordan" (defaults applied in code)
+  lastPrayerAnnounced String?  // "YYYY-MM-DD:Dhuhr" — de-dupes per prayer
+
   // AI moderation
   moderationEnabled   Boolean  @default(false)
   moderationAction    String   @default("delete") // delete | warn | mute | ban

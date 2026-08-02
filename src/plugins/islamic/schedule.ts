@@ -19,3 +19,27 @@ export function slotTag(now: Date, slot: AthkarSlot): string {
 export function dailyAyahNumber(now: Date): number {
   return (hashStr(`ayah:${dayKey(now)}`) % 6236) + 1;
 }
+
+// ---- Prayer notifications ----
+export const PRAYERS: { key: string; ar: string }[] = [
+  { key: 'Fajr', ar: 'الفجر' },
+  { key: 'Dhuhr', ar: 'الظهر' },
+  { key: 'Asr', ar: 'العصر' },
+  { key: 'Maghrib', ar: 'المغرب' },
+  { key: 'Isha', ar: 'العشاء' },
+];
+
+/** "HH:MM" (possibly with a suffix) → minutes since midnight, or null. */
+export function parseHHMM(s: string | undefined): number | null {
+  const m = s?.match(/(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/** Which prayer (if any) falls exactly at `currentMinutes`. */
+export function matchPrayer(currentMinutes: number, timings: Record<string, string>): { key: string; ar: string } | null {
+  for (const p of PRAYERS) {
+    if (parseHHMM(timings[p.key]) === currentMinutes) return p;
+  }
+  return null;
+}

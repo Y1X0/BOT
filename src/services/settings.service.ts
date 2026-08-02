@@ -71,6 +71,7 @@ export const TOGGLEABLE_SETTINGS = [
   'qotdEnabled',
   'athkarEnabled',
   'dailyAyahEnabled',
+  'prayerNotifyEnabled',
 ] as const;
 
 export type ToggleableSetting = (typeof TOGGLEABLE_SETTINGS)[number];
