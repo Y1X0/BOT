@@ -220,6 +220,20 @@ model MessageLog {
   @@index([flagged])
 }
 
+/// Support tickets (complaints/suggestions) opened by members for admins.
+model Ticket {
+  id        Int      @id @default(autoincrement())
+  chatId    BigInt
+  userId    BigInt
+  userName  String?
+  message   String
+  status    String   @default("open") // open | closed
+  reply     String?
+  createdAt DateTime @default(now())
+
+  @@index([chatId, status])
+}
+
 /// Audit trail of actions performed through the owner dashboard.
 model DashboardAudit {
   id        Int      @id @default(autoincrement())

@@ -98,6 +98,9 @@ const ALIASES: Alias[] = [
   { command: 'rep', triggers: ['سمعه', 'احترام', 'نقطه احترام'] },
   { command: 'myrep', triggers: ['سمعتي', 'احترامي'] },
   { command: 'reptop', triggers: ['الاكثر احتراما', 'توب السمعه', 'المحترمين'] },
+  // Support tickets
+  { command: 'ticket', triggers: ['تذكره', 'شكوى', 'اقتراح', 'شكوه'] },
+  { command: 'tickets', triggers: ['التذاكر', 'الشكاوى', 'الاقتراحات'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
