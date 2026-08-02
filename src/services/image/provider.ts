@@ -17,6 +17,16 @@ export interface ImageProvider {
 
 const TIMEOUT_MS = 120_000;
 
+// Last low-level failure reason, surfaced to the bot owner for debugging.
+let lastImageError = '';
+export function getLastImageError(): string {
+  return lastImageError;
+}
+function setError(reason: string): null {
+  lastImageError = reason;
+  return null;
+}
+
 /** OpenAI images (gpt-image-1): /v1/images/edits and /v1/images/generations. */
 class OpenAIImageProvider implements ImageProvider {
   readonly name = 'openai';
@@ -55,20 +65,21 @@ class OpenAIImageProvider implements ImageProvider {
         signal: controller.signal,
       });
       if (!res.ok) {
-        log.warn({ status: res.status, body: (await res.text()).slice(0, 200) }, 'image api error');
-        return null;
+        const body = (await res.text()).slice(0, 300);
+        log.warn({ status: res.status, body }, 'image api error');
+        return setError(`HTTP ${res.status}: ${body}`);
       }
       const data = (await res.json()) as { data?: Array<{ b64_json?: string; url?: string }> };
       const item = data.data?.[0];
       if (item?.b64_json) return Buffer.from(item.b64_json, 'base64');
       if (item?.url) {
         const img = await fetch(item.url);
-        return img.ok ? Buffer.from(await img.arrayBuffer()) : null;
+        return img.ok ? Buffer.from(await img.arrayBuffer()) : setError('image url fetch failed');
       }
-      return null;
+      return setError('no image in response');
     } catch (err) {
       log.warn({ err }, 'image request failed');
-      return null;
+      return setError(`request failed: ${String((err as Error)?.message ?? err).slice(0, 150)}`);
     } finally {
       clearTimeout(timer);
     }
@@ -117,12 +128,17 @@ class GeminiImageProvider implements ImageProvider {
           'content-type': 'application/json',
           'x-goog-api-key': env.IMAGE_API_KEY ?? '',
         },
-        body: JSON.stringify({ contents: [{ parts }] }),
+        // Image models must be told to return an image, or they reply with text.
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
         signal: controller.signal,
       });
       if (!res.ok) {
-        log.warn({ status: res.status, body: (await res.text()).slice(0, 200) }, 'gemini image api error');
-        return null;
+        const body = (await res.text()).slice(0, 300);
+        log.warn({ status: res.status, body }, 'gemini image api error');
+        return setError(`HTTP ${res.status}: ${body}`);
       }
       const data = (await res.json()) as {
         candidates?: Array<{
@@ -130,20 +146,28 @@ class GeminiImageProvider implements ImageProvider {
             parts?: Array<{
               inlineData?: { data?: string };
               inline_data?: { data?: string };
+              text?: string;
             }>;
           };
+          finishReason?: string;
         }>;
+        promptFeedback?: { blockReason?: string };
       };
-      const outParts = data.candidates?.[0]?.content?.parts ?? [];
+      const cand = data.candidates?.[0];
+      const outParts = cand?.content?.parts ?? [];
       for (const part of outParts) {
         const b64 = part.inlineData?.data ?? part.inline_data?.data;
         if (b64) return Buffer.from(b64, 'base64');
       }
-      log.warn('gemini returned no image part');
-      return null;
+      log.warn({ finishReason: cand?.finishReason, block: data.promptFeedback?.blockReason }, 'gemini returned no image part');
+      return setError(
+        data.promptFeedback?.blockReason
+          ? `blocked: ${data.promptFeedback.blockReason}`
+          : `no image (finishReason: ${cand?.finishReason ?? 'unknown'}, model: ${this.model()})`,
+      );
     } catch (err) {
       log.warn({ err }, 'gemini image request failed');
-      return null;
+      return setError(`request failed: ${String((err as Error)?.message ?? err).slice(0, 150)}`);
     } finally {
       clearTimeout(timer);
     }

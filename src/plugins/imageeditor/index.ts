@@ -3,9 +3,10 @@ import { Input, Markup } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
-import { getImageProvider } from '../../services/image/provider';
+import { getImageProvider, getLastImageError } from '../../services/image/provider';
 import { EFFECTS, EFFECT_GROUPS, findEffect } from '../../services/image/effects';
 import { isPromptAllowed, PG_SUFFIX } from '../../services/image/safety';
+import { isBotOwner } from '../../utils/permissions';
 import { QueueManager } from '../../services/youtube/queue';
 import { createLogger } from '../../core/logger';
 
@@ -33,6 +34,22 @@ function bump(chatId: number): void {
   const u = usage.get(key);
   if (!u || u.day !== today()) usage.set(key, { day: today(), n: 1 });
   else u.n++;
+}
+
+/**
+ * Turn the provider's last low-level error into a clear Arabic message.
+ * Quota (HTTP 429) is the common case on free tiers — call it out plainly.
+ * The raw technical reason is appended only for the bot owner (for debugging).
+ */
+function failureMessage(baseMsg: string, requesterId: number): string {
+  const raw = getLastImageError();
+  if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(raw)) {
+    return '🚦 انتهت حصّتك المجانية من مزوّد الصور (Quota). جرّب لاحقاً أو فعّل الفوترة لرفع الحد.';
+  }
+  if (/\b(401|403)\b|API key|permission|PERMISSION_DENIED|invalid/i.test(raw)) {
+    return '🔑 مشكلة في مفتاح مزوّد الصور — تأكد من صحة IMAGE_API_KEY و IMAGE_PROVIDER.';
+  }
+  return isBotOwner(requesterId) && raw ? `${baseMsg}\n🛠 (${raw.slice(0, 200)})` : baseMsg;
 }
 
 function photoOf(msg: unknown): { fileId: string; fileUniqueId: string } | null {
@@ -136,7 +153,7 @@ export const imageEditorPlugin: Plugin = {
           const buf = Buffer.from(await imgRes.arrayBuffer());
 
           const out = await getImageProvider().edit(buf, effect.prompt);
-          if (!out) return void edit(telegram, chatId, status, '⚠️ تعذّر التعديل الآن، حاول لاحقاً.');
+          if (!out) return void edit(telegram, chatId, status, failureMessage('⚠️ تعذّر التعديل الآن، حاول لاحقاً.', p.requesterId));
 
           bump(chatId);
           const sentPhoto = await telegram.sendPhoto(chatId, Input.fromBuffer(out, 'result.png'), {
@@ -165,11 +182,12 @@ export const imageEditorPlugin: Plugin = {
       }
       if (!ctx.chat || !canUse(ctx.chat.id)) return void ctx.reply('🚦 تم بلوغ الحد اليومي.');
       const chatId = ctx.chat.id;
+      const requesterId = ctx.from?.id ?? 0;
       const telegram = ctx.telegram;
       const status = await ctx.reply('⏳ جاري توليد الصورة...').catch(() => undefined);
       imageQueue.enqueue(chatId, async () => {
         const out = await getImageProvider().generate(prompt + PG_SUFFIX);
-        if (!out) return void edit(telegram, chatId, status, '⚠️ تعذّر التوليد.');
+        if (!out) return void edit(telegram, chatId, status, failureMessage('⚠️ تعذّر التوليد.', requesterId));
         bump(chatId);
         await telegram.sendPhoto(chatId, Input.fromBuffer(out, 'img.png'), { caption: `🖼 ${prompt.slice(0, 100)}` }).catch(() => undefined);
         if (status) await telegram.deleteMessage(chatId, status.message_id).catch(() => undefined);
