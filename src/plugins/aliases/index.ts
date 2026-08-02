@@ -81,6 +81,11 @@ const ALIASES: Alias[] = [
   { command: 'emoji', triggers: ['خمن الايموجي', 'ايموجي', 'لعبه الايموجي'] },
   { command: 'flag', triggers: ['خمن العلم', 'علم', 'اعلام', 'لعبه الاعلام'] },
   { command: 'hangman', triggers: ['حبل المشنقه', 'المشنقه', 'خمن الكلمه'] },
+  // Social / fun
+  { command: 'compliment', triggers: ['مجامله', 'جاملني', 'قول شي حلو'] },
+  { command: 'fortune', triggers: ['حظي', 'حظك اليوم', 'حظي اليوم', 'طالعي'] },
+  { command: 'persona', triggers: ['من انا اليوم', 'شخصيتي اليوم', 'من انت اليوم'] },
+  { command: 'soulmate', triggers: ['توام الروح', 'توام روحي', 'نصيبي'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
