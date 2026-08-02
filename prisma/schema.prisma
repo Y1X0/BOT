@@ -86,6 +86,10 @@ model ChatSettings {
   qotdEnabled         Boolean  @default(false)
   lastQotdAt          DateTime?
 
+  // Automatic morning/evening athkar
+  athkarEnabled       Boolean  @default(true)
+  lastAthkarSlot      String?  // "YYYY-MM-DD:m" or ":e" — de-dupes sends
+
   // AI moderation
   moderationEnabled   Boolean  @default(false)
   moderationAction    String   @default("delete") // delete | warn | mute | ban

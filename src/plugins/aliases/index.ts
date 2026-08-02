@@ -67,6 +67,8 @@ const ALIASES: Alias[] = [
   { command: 'hadith', triggers: ['حديث', 'حديث شريف'] },
   { command: 'thikr', triggers: ['ذكر', 'ذكرني بالله'] },
   { command: 'athkar', triggers: ['اذكار', 'أذكار'] },
+  { command: 'sabah', triggers: ['اذكار الصباح', 'أذكار الصباح', 'ذكر الصباح'] },
+  { command: 'masa', triggers: ['اذكار المساء', 'أذكار المساء', 'ذكر المساء'] },
   { command: 'tasbeeh', triggers: ['تسبيح', 'سبح', 'مسبحه'] },
   // Toolbox
   { command: 'tr', triggers: ['ترجم', 'ترجمه', 'translate'] },
