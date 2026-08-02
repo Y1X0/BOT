@@ -77,7 +77,9 @@ const envSchema = z.object({
   YT_MAX_DURATION_SEC: z.coerce.number().default(0),
   YT_MAX_SIZE_MB: z.coerce.number().default(0),
   YT_MAX_RESULTS: z.coerce.number().default(10),
-  YT_CONCURRENCY_PER_GROUP: z.coerce.number().default(1),
+  // How many downloads run at once *per group* — so two members sending links
+  // download in parallel instead of waiting in line. Higher = more CPU/RAM.
+  YT_CONCURRENCY_PER_GROUP: z.coerce.number().default(3),
   // Anti-block: YouTube blocks datacenter IPs. Provide cookies to fix it.
   YT_COOKIES: z.string().optional(), // full Netscape cookies.txt content
   YT_COOKIES_FILE: z.string().optional(), // or a path to a cookies file
