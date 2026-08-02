@@ -7,6 +7,7 @@ import { rateLimitMiddleware } from '../middlewares/rateLimit.middleware';
 import { antispamMiddleware } from '../middlewares/antispam.middleware';
 import { loggingMiddleware } from '../middlewares/logging.middleware';
 import { moderationMiddleware } from '../middlewares/moderation.middleware';
+import { logOutgoing } from '../services/logging.service';
 import { recordError } from './errors';
 import { registerPlugins, type Plugin } from './plugin';
 import { allPlugins } from '../plugins';
@@ -45,6 +46,15 @@ export async function createBot(): Promise<{
   bot.use(moderationMiddleware);
 
   const plugins = await registerPlugins(bot, allPlugins);
+
+  // Log the bot's own outgoing DMs so per-user conversations show both sides.
+  if (env.MESSAGE_LOG_ENABLED) {
+    const originalSend = bot.telegram.sendMessage.bind(bot.telegram);
+    bot.telegram.sendMessage = ((chatId: number | string, text: string, extra?: unknown) => {
+      if (typeof chatId === 'number' && typeof text === 'string') void logOutgoing(chatId, text);
+      return originalSend(chatId, text, extra as never);
+    }) as typeof bot.telegram.sendMessage;
+  }
 
   log.info({ count: plugins.length }, 'Bot created');
   return { bot, plugins };

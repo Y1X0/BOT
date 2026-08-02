@@ -177,8 +177,23 @@ export function createDashboardApi(telegram: Telegram): express.Router {
 
   router.get('/users/:id/conversation', async (req, res) => {
     const q = req.query as Record<string, string>;
-    const rows = await userConversation(req.params.id, q.chatId, q.before ? Number(q.before) : undefined, Number(q.limit) || 200);
+    const rows = await userConversation(req.params.id, q.chatId, q.before ? Number(q.before) : undefined, Number(q.limit) || 200, q.q || undefined);
     json(res, rows);
+  });
+
+  // Owner replies to a user *from the bot* in DM. Telegram only allows this if
+  // the user has previously started the bot in a private chat.
+  router.post('/users/:id/message', async (req: AuthedRequest, res) => {
+    const { text } = (req.body ?? {}) as { text?: string };
+    if (!text?.trim()) return json(res, { error: 'bad_input' }, 400);
+    try {
+      await telegram.sendMessage(Number(req.params.id), text.trim());
+      await audit(req.userId, 'dm', `user=${req.params.id}`);
+      json(res, { ok: true });
+    } catch {
+      // 403 = user never started the bot / blocked it.
+      json(res, { error: 'cannot_message', hint: 'المستخدم لم يبدأ محادثة البوت أو حظره.' }, 502);
+    }
   });
 
   router.get('/media', async (req, res) => {

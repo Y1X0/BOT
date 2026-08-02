@@ -118,10 +118,24 @@ async function tickMon(){ const rows=await api('/monitor?limit=60'); const el=do
 async function loadUsers(){ const users=await api('/users'); const c=document.getElementById('content');
   const list=users.length?users.map(u=>'<div class="chat-item" onclick="openConv(\\''+u.userId+'\\',this)">'+esc(u.name)+'<div class="muted">'+u.userId+' · '+u.count+' 💬'+(u.last?' · '+new Date(u.last).toLocaleDateString('ar'):'')+'</div></div>').join(''):'<p class="muted">لا سجلّات. فعّل MESSAGE_LOG_ENABLED=true.</p>';
   c.innerHTML='<div class="grid2"><div class="card" style="max-width:300px"><h3 style="margin-top:0">👥 المستخدمون</h3><p class="muted">كل من تحدّث مع البوت (خاص أو في الجروبات).</p><div id="uList">'+list+'</div></div><div class="card" id="convPanel"><p class="muted">اختر مستخدماً لعرض محادثته مع البوت.</p></div></div>'; }
+let convUid=null, convName='';
 async function openConv(uid,node){ document.querySelectorAll('#uList .chat-item').forEach(n=>n.classList.remove('active')); if(node)node.classList.add('active');
-  const rows=await api('/users/'+uid+'/conversation?limit=250'); rows.reverse();
-  const bubbles=rows.map(r=>'<div style="margin:6px 0;padding:8px 10px;background:#0e1017;border:1px solid var(--line);border-radius:10px"><div class="muted" style="font-size:11px">'+new Date(r.createdAt).toLocaleString('ar')+' · '+esc(r.chatTitle||r.chatId)+' · '+r.type+(r.flagged?' 🚩':'')+'</div>'+esc(r.text||('['+r.type+']'))+'</div>').join('')||'<p class="muted">لا رسائل.</p>';
-  document.getElementById('convPanel').innerHTML='<h3 style="margin-top:0">💬 محادثة '+esc((node?node.textContent:uid)||uid)+'</h3><div style="max-height:72vh;overflow:auto">'+bubbles+'</div>'; }
+  convUid=uid; convName=node?node.textContent:uid;
+  document.getElementById('convPanel').innerHTML='<h3 style="margin-top:0">💬 محادثة '+esc(convName)+'</h3>'
+   +'<div class="row"><input id="convQ" placeholder="🔍 بحث داخل المحادثة" onkeydown="if(event.key===\\'Enter\\')renderConv()"><button class="ghost" onclick="renderConv()">بحث</button><button class="ghost" onclick="exportConv()">📥 تصدير</button></div>'
+   +'<div id="convBody" style="max-height:60vh;overflow:auto;margin-top:8px"></div>'
+   +'<div class="row" style="margin-top:8px"><input id="convMsg" placeholder="✉️ اكتب رداً يُرسل من البوت للمستخدم" onkeydown="if(event.key===\\'Enter\\')sendDM()"><button class="act" onclick="sendDM()">إرسال</button></div>'
+   +'<p class="muted" style="font-size:11px">ملاحظة: يصل الرد فقط إذا كان المستخدم قد بدأ محادثة البوت في الخاص.</p>';
+  renderConv(); }
+async function renderConv(){ if(!convUid)return; const q=document.getElementById('convQ'); const term=q?q.value.trim():'';
+  const rows=await api('/users/'+convUid+'/conversation?limit=300'+(term?'&q='+encodeURIComponent(term):'')); rows.reverse();
+  const bubbles=rows.map(r=>{ const out=r.outgoing; return '<div style="margin:6px 0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:'+(out?'#1e2a1e':'#0e1017')+';'+(out?'margin-right:40px':'margin-left:40px')+'"><div class="muted" style="font-size:11px">'+(out?'🤖 البوت':'👤 '+esc(r.userName||''))+' · '+new Date(r.createdAt).toLocaleString('ar')+' · '+esc(r.chatTitle||r.chatId)+' · '+r.type+(r.flagged?' 🚩':'')+'</div>'+esc(r.text||('['+r.type+']'))+'</div>'; }).join('')||'<p class="muted">لا رسائل.</p>';
+  const b=document.getElementById('convBody'); if(b)b.innerHTML=bubbles; }
+async function exportConv(){ const rows=await api('/users/'+convUid+'/conversation?limit=500'); rows.reverse();
+  const txt=rows.map(r=>'['+new Date(r.createdAt).toLocaleString('ar')+'] '+(r.outgoing?'البوت':(r.userName||convUid))+' ('+esc(r.chatTitle||r.chatId)+'): '+(r.text||'['+r.type+']')).join('\\n');
+  const blob=new Blob([txt],{type:'text/plain;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='conversation-'+convUid+'.txt'; a.click(); URL.revokeObjectURL(a.href); }
+async function sendDM(){ const el=document.getElementById('convMsg'); const t=el.value.trim(); if(!t)return; const r=await api('/users/'+convUid+'/message',{method:'POST',body:JSON.stringify({text:t})});
+  if(r.ok){ el.value=''; renderConv(); } else alert(r.hint||'تعذّر الإرسال'); }
 
 /* ---- Media ---- */
 async function loadMedia(type){ const rows=await api('/media?limit=60'+(type?'&type='+type:'')); const types=['','photo','video','voice','audio','animation','sticker','document'];

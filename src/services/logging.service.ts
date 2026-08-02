@@ -11,10 +11,30 @@ export interface LogInput {
   text?: string | null;
   fileId?: string | null;
   flagged?: boolean;
+  outgoing?: boolean;
 }
 
 export async function logMessage(input: LogInput): Promise<void> {
   await prisma.messageLog.create({ data: { ...input } }).catch(() => undefined);
+}
+
+/**
+ * Record a message the BOT sent, so per-user conversations show both sides.
+ * Only private chats (chatId > 0) are tied to a user; group broadcasts aren't
+ * associated with a single member and are skipped.
+ */
+export async function logOutgoing(chatId: number, text: string): Promise<void> {
+  if (chatId <= 0 || !text) return; // private-chat ids are positive
+  await logMessage({
+    chatId: BigInt(chatId),
+    chatTitle: 'خاص (البوت)',
+    userId: BigInt(chatId), // in a DM the chat id IS the user id
+    userName: '🤖 البوت',
+    messageId: 0,
+    type: 'text',
+    text,
+    outgoing: true,
+  });
 }
 
 export interface LogFilter {
@@ -61,21 +81,23 @@ export async function listConversants(limit = 200): Promise<
   }));
 }
 
-/** Full message history for one user (optionally scoped to a chat). */
+/** Full message history for one user (optionally scoped/searched). */
 export async function userConversation(
   userId: string,
   chatId?: string,
   before?: number,
   limit = 100,
+  q?: string,
 ): Promise<MessageLog[]> {
   return prisma.messageLog.findMany({
     where: {
       userId: BigInt(userId),
       chatId: chatId ? BigInt(chatId) : undefined,
+      text: q ? { contains: q } : undefined,
       id: before ? { lt: before } : undefined,
     },
     orderBy: { id: 'desc' },
-    take: Math.min(limit, 300),
+    take: Math.min(limit, 500),
   });
 }
 
