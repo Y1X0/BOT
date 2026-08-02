@@ -33,6 +33,7 @@ import { marriagePlugin } from './marriage';
 import { reputationPlugin } from './reputation';
 import { ticketsPlugin } from './tickets';
 import { ranksPlugin } from './ranks';
+import { giveawayPlugin } from './giveaway';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -79,6 +80,7 @@ allPlugins.push(
   reputationPlugin, // passive: thanks → rep, calls next()
   ticketsPlugin,
   ranksPlugin,
+  giveawayPlugin,
   liveQuizPlugin, // passive: live-quiz answers, calls next()
   mafiaPlugin,
   imageEditorPlugin,

@@ -104,6 +104,8 @@ const ALIASES: Alias[] = [
   // Ranks
   { command: 'ranks', triggers: ['الرتب', 'قائمه الرتب', 'رتب الجروب'] },
   { command: 'myrank', triggers: ['مرتبتي', 'رتبتي الحاليه'] },
+  // Giveaway (avoid bare "سحب" — it's the economy withdraw alias)
+  { command: 'giveaway', triggers: ['قرعه', 'سحب على', 'مسابقه سحب', 'هديه'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
