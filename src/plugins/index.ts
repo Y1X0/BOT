@@ -29,6 +29,7 @@ import { newGamesPlugin } from './newgames';
 import { socialPlugin } from './social';
 import { birthdayPlugin } from './birthday';
 import { reportsPlugin } from './reports';
+import { marriagePlugin } from './marriage';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -71,6 +72,7 @@ allPlugins.push(
   socialPlugin,
   birthdayPlugin,
   reportsPlugin,
+  marriagePlugin,
   liveQuizPlugin, // passive: live-quiz answers, calls next()
   mafiaPlugin,
   imageEditorPlugin,

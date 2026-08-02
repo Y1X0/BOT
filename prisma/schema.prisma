@@ -112,6 +112,8 @@ model Member {
   afkReason    String?
   birthDay     Int?      // 1-31
   birthMonth   Int?      // 1-12
+  partnerId    BigInt?   // in-group "marriage" partner (fun feature)
+  marriedAt    DateTime?
   lastSeenAt   DateTime @default(now())
   joinedAt     DateTime @default(now())
 

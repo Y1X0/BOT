@@ -89,6 +89,11 @@ const ALIASES: Alias[] = [
   { command: 'setbirthday', triggers: ['ميلادي', 'سجل ميلادي', 'عيد ميلادي'] },
   { command: 'birthdays', triggers: ['اعياد الميلاد', 'المواليد', 'الاعياد'] },
   { command: 'weekly', triggers: ['تقرير اسبوعي', 'التقرير الاسبوعي', 'احصائيات الاسبوع'] },
+  // Marriage
+  { command: 'marry', triggers: ['زواج', 'اتزوج', 'تزوجني', 'اطلب الزواج'] },
+  { command: 'divorce', triggers: ['طلاق', 'طلقني', 'انفصال'] },
+  { command: 'marriage', triggers: ['زواجي', 'حالتي الاجتماعيه', 'شريكي'] },
+  { command: 'couples', triggers: ['الازواج', 'ازواج الجروب', 'المتزوجين'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
