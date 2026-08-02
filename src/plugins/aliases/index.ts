@@ -59,7 +59,8 @@ const ALIASES: Alias[] = [
   { command: 'poll', triggers: ['تصويت', 'استفتاء'] },
   { command: 'decorate', triggers: ['زخرفه', 'زخرف', 'زخرفه كلمه'] },
   { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه'] },
-  { command: 'yt', triggers: ['يوت', 'يوتيوب', 'اغنيه', 'صوت', 'yt'] },
+  { command: 'yt', triggers: ['يوت', 'يوتيوب', 'yt'] },
+  { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
   { command: 'dl', triggers: ['نزل', 'حمل', 'تنزيل', 'نزلها', 'dl'] },
   // Islamic
   { command: 'prayer', triggers: ['صلاه', 'مواقيت', 'وقت الصلاه', 'الصلاه'] },

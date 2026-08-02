@@ -38,6 +38,7 @@ import { giveawayPlugin } from './giveaway';
 import { qotdPlugin } from './qotd';
 import { decidePlugin } from './decide';
 import { countdownPlugin } from './countdown';
+import { soundcloudPlugin } from './soundcloud';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -98,6 +99,7 @@ allPlugins.push(
   toolsPlugin,
   whisperPlugin,
   youtubePlugin,
+  soundcloudPlugin,
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,
