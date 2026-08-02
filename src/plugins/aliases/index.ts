@@ -101,6 +101,9 @@ const ALIASES: Alias[] = [
   // Support tickets
   { command: 'ticket', triggers: ['تذكره', 'شكوى', 'اقتراح', 'شكوه'] },
   { command: 'tickets', triggers: ['التذاكر', 'الشكاوى', 'الاقتراحات'] },
+  // Ranks
+  { command: 'ranks', triggers: ['الرتب', 'قائمه الرتب', 'رتب الجروب'] },
+  { command: 'myrank', triggers: ['مرتبتي', 'رتبتي الحاليه'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },

@@ -6,6 +6,7 @@ import { recordActivity, getMember, topByXp } from '../../services/member.servic
 import { incMissionMessages } from '../../services/missions.service';
 import { announceAchievements } from '../../utils/progression';
 import { displayName } from '../../utils/format';
+import { crossedRank } from '../ranks/logic';
 
 const XP_PER_MESSAGE = 5;
 
@@ -46,6 +47,13 @@ export const engagementPlugin: Plugin = {
           await ctx
             .reply(t('xp.levelup', { name: displayName(from), level: result.newLevel }))
             .catch(() => undefined);
+          // Announce a rank promotion when a level-up crosses a rank threshold.
+          const promoted = crossedRank(result.newLevel - 1, result.newLevel);
+          if (promoted) {
+            await ctx
+              .reply(`🎖 ترقّى ${displayName(from)} إلى رتبة ${promoted.emoji} ${promoted.name}! مبروك 🎉`)
+              .catch(() => undefined);
+          }
         }
         // Throttled achievement check (on level-up or every 20 messages).
         if (result.leveledUp || result.member.messageCount % 20 === 0) {
