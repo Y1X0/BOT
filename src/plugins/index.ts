@@ -1,6 +1,7 @@
 import type { Plugin } from '../core/plugin';
 import { aliasesPlugin } from './aliases';
 import { createGeneralPlugin } from './general';
+import { menuPlugin } from './menu';
 import { infoPlugin } from './info';
 import { adminPlugin } from './admin';
 import { moderationPlugin } from './moderation';
@@ -62,6 +63,7 @@ const generalPlugin = createGeneralPlugin(() => allPlugins);
 allPlugins.push(
   aliasesPlugin, // MUST be first: rewrites Arabic words → /commands
   generalPlugin,
+  menuPlugin,
   infoPlugin,
   adminPlugin,
   moderationPlugin,

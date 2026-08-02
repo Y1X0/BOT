@@ -1,0 +1,169 @@
+/** Curated, categorized command menu shown via inline buttons. */
+export interface MenuItem {
+  ar: string; // Arabic trigger (no slash)
+  cmd: string; // slash command
+  desc: string;
+}
+export interface MenuCategory {
+  key: string; // short callback key
+  emoji: string;
+  title: string;
+  note?: string; // e.g. admin-only hint
+  items: MenuItem[];
+}
+
+export const MENU: MenuCategory[] = [
+  {
+    key: 'games',
+    emoji: '🎮',
+    title: 'الألعاب',
+    items: [
+      { ar: 'سؤال', cmd: 'quiz', desc: 'سؤال ثقافي' },
+      { ar: 'خمن', cmd: 'guess', desc: 'خمّن الرقم' },
+      { ar: 'حجر ورقه مقص', cmd: 'rps', desc: 'حجرة ورقة مقص' },
+      { ar: 'اكس او', cmd: 'xo', desc: 'إكس-أو (شخصين)' },
+      { ar: 'فزوره', cmd: 'riddle', desc: 'فزّورة' },
+      { ar: 'سلسله', cmd: 'wordchain', desc: 'سلسلة كلمات' },
+      { ar: 'خمن الايموجي', cmd: 'emoji', desc: 'خمّن من الإيموجي' },
+      { ar: 'خمن العلم', cmd: 'flag', desc: 'خمّن الدولة' },
+      { ar: 'حبل المشنقه', cmd: 'hangman', desc: 'خمّن الكلمة حرفاً' },
+      { ar: 'صراحه', cmd: 'truth', desc: 'سؤال صراحة' },
+      { ar: 'تحدي', cmd: 'dare', desc: 'تحدٍّ' },
+    ],
+  },
+  {
+    key: 'econ',
+    emoji: '💰',
+    title: 'الاقتصاد والبنك',
+    items: [
+      { ar: 'رصيدي', cmd: 'balance', desc: 'رصيدك' },
+      { ar: 'يومي', cmd: 'daily', desc: 'مكافأة يومية' },
+      { ar: 'الاغنياء', cmd: 'top', desc: 'الأغنى' },
+      { ar: 'تحويل', cmd: 'give', desc: 'حوّل لعضو (بالرد)' },
+      { ar: 'البنك', cmd: 'bank', desc: 'محفظتك وبنكك' },
+      { ar: 'ايداع', cmd: 'deposit', desc: 'إيداع في البنك' },
+      { ar: 'سحب', cmd: 'withdraw', desc: 'سحب من البنك' },
+      { ar: 'سرقه', cmd: 'rob', desc: 'اسرق عضواً (بالرد)' },
+      { ar: 'عجله', cmd: 'spin', desc: 'عجلة الحظ' },
+      { ar: 'سلوت', cmd: 'slots', desc: 'ماكينة الحظ' },
+    ],
+  },
+  {
+    key: 'levels',
+    emoji: '🏆',
+    title: 'المستويات والرتب',
+    items: [
+      { ar: 'نقاطي', cmd: 'rank', desc: 'مستواك وخبرتك' },
+      { ar: 'المستويات', cmd: 'levels', desc: 'توب المستويات' },
+      { ar: 'رتبتي', cmd: 'myrank', desc: 'رتبتك الحالية' },
+      { ar: 'الرتب', cmd: 'ranks', desc: 'قائمة الرتب' },
+      { ar: 'سمعه', cmd: 'rep', desc: 'امنح سمعة (بالرد)' },
+      { ar: 'سمعتي', cmd: 'myrep', desc: 'سمعتك' },
+      { ar: 'الاكثر احتراما', cmd: 'reptop', desc: 'توب السمعة' },
+      { ar: 'انجازاتي', cmd: 'achievements', desc: 'إنجازاتك' },
+      { ar: 'مهامي', cmd: 'missions', desc: 'المهام اليومية' },
+    ],
+  },
+  {
+    key: 'social',
+    emoji: '😄',
+    title: 'الترفيه والاجتماعي',
+    items: [
+      { ar: 'مجامله', cmd: 'compliment', desc: 'مجاملة (بالرد أو لك)' },
+      { ar: 'حظك اليوم', cmd: 'fortune', desc: 'طالِعك' },
+      { ar: 'من انت اليوم', cmd: 'persona', desc: 'شخصيتك اليوم' },
+      { ar: 'توام الروح', cmd: 'soulmate', desc: 'توأم روحك' },
+      { ar: 'زواج', cmd: 'marry', desc: 'اطلب الزواج (بالرد)' },
+      { ar: 'طلاق', cmd: 'divorce', desc: 'طلاق' },
+      { ar: 'الازواج', cmd: 'couples', desc: 'أزواج الجروب' },
+      { ar: 'الكره السحريه', cmd: '8ball', desc: 'كرة سحرية' },
+      { ar: 'اختر', cmd: 'choose', desc: 'اختيار عشوائي' },
+      { ar: 'زخرفه', cmd: 'decorate', desc: 'زخرفة نص' },
+      { ar: 'نكته', cmd: 'joke', desc: 'نكتة' },
+    ],
+  },
+  {
+    key: 'islamic',
+    emoji: '🕌',
+    title: 'إسلامي',
+    items: [
+      { ar: 'صلاه', cmd: 'prayer', desc: 'مواقيت الصلاة' },
+      { ar: 'ايه', cmd: 'ayah', desc: 'آية عشوائية' },
+      { ar: 'حديث', cmd: 'hadith', desc: 'حديث شريف' },
+      { ar: 'ذكر', cmd: 'thikr', desc: 'ذكر' },
+      { ar: 'اذكار', cmd: 'athkar', desc: 'أذكار' },
+      { ar: 'تسبيح', cmd: 'tasbeeh', desc: 'مسبحة' },
+    ],
+  },
+  {
+    key: 'tools',
+    emoji: '🛠',
+    title: 'أدوات',
+    items: [
+      { ar: 'ترجم', cmd: 'tr', desc: 'ترجمة' },
+      { ar: 'باركود', cmd: 'qr', desc: 'باركود QR' },
+      { ar: 'عمله', cmd: 'currency', desc: 'أسعار العملات' },
+      { ar: 'كريبتو', cmd: 'crypto', desc: 'عملات رقمية' },
+      { ar: 'ذكرني', cmd: 'remind', desc: 'تذكير' },
+      { ar: 'احسب', cmd: 'calc', desc: 'حاسبة' },
+      { ar: 'حول', cmd: 'convert', desc: 'تحويل وحدات' },
+      { ar: 'باسورد', cmd: 'password', desc: 'كلمة سر قوية' },
+      { ar: 'هجري', cmd: 'hijri', desc: 'التاريخ الهجري' },
+      { ar: 'اختصر', cmd: 'short', desc: 'اختصار رابط' },
+      { ar: 'الطقس', cmd: 'weather', desc: 'الطقس' },
+    ],
+  },
+  {
+    key: 'media',
+    emoji: '🎬',
+    title: 'وسائط',
+    items: [
+      { ar: 'يوت', cmd: 'yt', desc: 'صوت من يوتيوب' },
+      { ar: 'نزل', cmd: 'dl', desc: 'تنزيل من رابط' },
+      { ar: 'حوله', cmd: 'mp3', desc: 'فيديو → صوت (بالرد)' },
+      { ar: 'تعديل', cmd: 'edit', desc: 'تعديل صورة (بالرد)' },
+      { ar: 'تخيل', cmd: 'imagine', desc: 'توليد صورة من نص' },
+    ],
+  },
+  {
+    key: 'events',
+    emoji: '🎉',
+    title: 'الفعاليات',
+    items: [
+      { ar: 'قرعه', cmd: 'giveaway', desc: 'سحب على جائزة' },
+      { ar: 'سؤال اليوم', cmd: 'qotd', desc: 'سؤال نقاش' },
+      { ar: 'المناسبات', cmd: 'events', desc: 'العدّ التنازلي' },
+      { ar: 'اعياد الميلاد', cmd: 'birthdays', desc: 'الأعياد القادمة' },
+      { ar: 'ميلادي', cmd: 'setbirthday', desc: 'سجّل ميلادك' },
+      { ar: 'تصويت', cmd: 'poll', desc: 'استفتاء' },
+      { ar: 'شكوى', cmd: 'ticket', desc: 'افتح تذكرة' },
+    ],
+  },
+  {
+    key: 'info',
+    emoji: '📊',
+    title: 'معلومات وإحصائيات',
+    items: [
+      { ar: 'احصائيات', cmd: 'stats', desc: 'إحصائيات الجروب' },
+      { ar: 'النشطين', cmd: 'activetop', desc: 'الأكثر تفاعلاً' },
+      { ar: 'تقرير', cmd: 'groupreport', desc: 'تقرير كامل' },
+      { ar: 'تقرير اسبوعي', cmd: 'weekly', desc: 'تقرير الأسبوع' },
+      { ar: 'ايدي', cmd: 'id', desc: 'معلوماتك' },
+    ],
+  },
+  {
+    key: 'admin',
+    emoji: '🛡',
+    title: 'الإدارة',
+    note: '👮 هذه الأوامر للمشرفين فقط.',
+    items: [
+      { ar: 'قفل الجروب', cmd: 'lockdown', desc: 'منع الكتابة' },
+      { ar: 'فتح الجروب', cmd: 'unlock', desc: 'فتح الكتابة' },
+      { ar: 'مكافحة الغارات', cmd: 'antiraid', desc: 'حماية من الاقتحام' },
+      { ar: 'منشن', cmd: 'all', desc: 'منادة الجميع' },
+      { ar: 'المشرفين', cmd: 'admins', desc: 'قائمة المشرفين' },
+      { ar: 'وضع الليل', cmd: 'nightmode', desc: 'قفل ليلي تلقائي' },
+      { ar: 'التذاكر', cmd: 'tickets', desc: 'إدارة التذاكر' },
+    ],
+  },
+];
