@@ -105,6 +105,8 @@ model Member {
   title        String?  // equipped shop title, e.g. "👑 ملك الجروب"
   afkSince     DateTime? // set when the user goes AFK, null otherwise
   afkReason    String?
+  birthDay     Int?      // 1-31
+  birthMonth   Int?      // 1-12
   lastSeenAt   DateTime @default(now())
   joinedAt     DateTime @default(now())
 

@@ -86,6 +86,8 @@ const ALIASES: Alias[] = [
   { command: 'fortune', triggers: ['حظي', 'حظك اليوم', 'حظي اليوم', 'طالعي'] },
   { command: 'persona', triggers: ['من انا اليوم', 'شخصيتي اليوم', 'من انت اليوم'] },
   { command: 'soulmate', triggers: ['توام الروح', 'توام روحي', 'نصيبي'] },
+  { command: 'setbirthday', triggers: ['ميلادي', 'سجل ميلادي', 'عيد ميلادي'] },
+  { command: 'birthdays', triggers: ['اعياد الميلاد', 'المواليد', 'الاعياد'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },
