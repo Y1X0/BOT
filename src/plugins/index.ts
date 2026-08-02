@@ -28,6 +28,7 @@ import { moreGamesPlugin } from './moregames';
 import { newGamesPlugin } from './newgames';
 import { socialPlugin } from './social';
 import { birthdayPlugin } from './birthday';
+import { reportsPlugin } from './reports';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -69,6 +70,7 @@ allPlugins.push(
   newGamesPlugin, // passive: emoji/flag/hangman answers, calls next()
   socialPlugin,
   birthdayPlugin,
+  reportsPlugin,
   liveQuizPlugin, // passive: live-quiz answers, calls next()
   mafiaPlugin,
   imageEditorPlugin,

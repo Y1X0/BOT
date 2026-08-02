@@ -78,6 +78,10 @@ model ChatSettings {
   // Anti-raid: detect sudden mass joins and lock the group
   antiRaidEnabled     Boolean  @default(false)
 
+  // Weekly auto-report
+  weeklyReportEnabled Boolean  @default(false)
+  lastWeeklyReportAt  DateTime?
+
   // AI moderation
   moderationEnabled   Boolean  @default(false)
   moderationAction    String   @default("delete") // delete | warn | mute | ban
@@ -99,6 +103,7 @@ model Member {
   firstName    String?
   role         String   @default("member") // owner | admin | moderator | member
   messageCount Int      @default(0)
+  weeklyMessages Int    @default(0) // reset when the weekly report is posted
   xp           Int      @default(0)
   level        Int      @default(0)
   gamesWon     Int      @default(0)

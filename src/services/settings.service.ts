@@ -67,6 +67,7 @@ export const TOGGLEABLE_SETTINGS = [
   'cleanServiceEnabled',
   'moderationEnabled',
   'antiRaidEnabled',
+  'weeklyReportEnabled',
 ] as const;
 
 export type ToggleableSetting = (typeof TOGGLEABLE_SETTINGS)[number];
