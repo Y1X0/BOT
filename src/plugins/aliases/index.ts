@@ -94,6 +94,10 @@ const ALIASES: Alias[] = [
   { command: 'divorce', triggers: ['طلاق', 'طلقني', 'انفصال'] },
   { command: 'marriage', triggers: ['زواجي', 'حالتي الاجتماعيه', 'شريكي'] },
   { command: 'couples', triggers: ['الازواج', 'ازواج الجروب', 'المتزوجين'] },
+  // Reputation
+  { command: 'rep', triggers: ['سمعه', 'احترام', 'نقطه احترام'] },
+  { command: 'myrep', triggers: ['سمعتي', 'احترامي'] },
+  { command: 'reptop', triggers: ['الاكثر احتراما', 'توب السمعه', 'المحترمين'] },
   // Utilities
   { command: 'calc', triggers: ['احسب', 'حاسبه', 'calc'] },
   { command: 'convert', triggers: ['حول', 'تحويل وحده'] },

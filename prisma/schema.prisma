@@ -107,6 +107,7 @@ model Member {
   xp           Int      @default(0)
   level        Int      @default(0)
   gamesWon     Int      @default(0)
+  rep          Int      @default(0) // reputation / thanks points
   title        String?  // equipped shop title, e.g. "👑 ملك الجروب"
   afkSince     DateTime? // set when the user goes AFK, null otherwise
   afkReason    String?

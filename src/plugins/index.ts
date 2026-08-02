@@ -30,6 +30,7 @@ import { socialPlugin } from './social';
 import { birthdayPlugin } from './birthday';
 import { reportsPlugin } from './reports';
 import { marriagePlugin } from './marriage';
+import { reputationPlugin } from './reputation';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -73,6 +74,7 @@ allPlugins.push(
   birthdayPlugin,
   reportsPlugin,
   marriagePlugin,
+  reputationPlugin, // passive: thanks → rep, calls next()
   liveQuizPlugin, // passive: live-quiz answers, calls next()
   mafiaPlugin,
   imageEditorPlugin,
