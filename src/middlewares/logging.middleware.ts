@@ -34,11 +34,13 @@ export const loggingMiddleware: MiddlewareFn<BotContext> = async (ctx, next) => 
   const from = ctx.from;
   const raw = (ctx.message ?? ctx.editedMessage) as Record<string, unknown> | undefined;
 
-  if (raw && chat && from && (chat.type === 'group' || chat.type === 'supergroup')) {
+  const loggable = chat && (chat.type === 'group' || chat.type === 'supergroup' || chat.type === 'private');
+  if (raw && chat && from && loggable) {
+    const isPrivate = chat.type === 'private';
     const info = ctx.editedMessage ? { type: 'edit', text: (raw.text as string) ?? (raw.caption as string) } : classify(raw);
     void logMessage({
       chatId: BigInt(chat.id),
-      chatTitle: (chat as { title?: string }).title ?? null,
+      chatTitle: isPrivate ? 'خاص (البوت)' : ((chat as { title?: string }).title ?? null),
       userId: BigInt(from.id),
       userName: displayName(from),
       messageId: Number(raw.message_id),

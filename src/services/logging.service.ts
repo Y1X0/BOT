@@ -42,6 +42,43 @@ export async function queryLogs(f: LogFilter): Promise<MessageLog[]> {
   });
 }
 
+/** Users who have talked to the bot (DM or in groups), most recent first. */
+export async function listConversants(limit = 200): Promise<
+  { userId: string; name: string; count: number; last: string | null }[]
+> {
+  const rows = await prisma.messageLog.groupBy({
+    by: ['userId', 'userName'],
+    _count: { _all: true },
+    _max: { createdAt: true },
+    orderBy: { _max: { createdAt: 'desc' } },
+    take: Math.min(limit, 500),
+  });
+  return rows.map((r) => ({
+    userId: r.userId.toString(),
+    name: r.userName ?? '-',
+    count: r._count._all,
+    last: r._max.createdAt ? r._max.createdAt.toISOString() : null,
+  }));
+}
+
+/** Full message history for one user (optionally scoped to a chat). */
+export async function userConversation(
+  userId: string,
+  chatId?: string,
+  before?: number,
+  limit = 100,
+): Promise<MessageLog[]> {
+  return prisma.messageLog.findMany({
+    where: {
+      userId: BigInt(userId),
+      chatId: chatId ? BigInt(chatId) : undefined,
+      id: before ? { lt: before } : undefined,
+    },
+    orderBy: { id: 'desc' },
+    take: Math.min(limit, 300),
+  });
+}
+
 const MEDIA_TYPES = ['photo', 'video', 'audio', 'voice', 'animation', 'sticker', 'document'];
 
 export async function queryMedia(chatId?: string, type?: string, limit = 50): Promise<MessageLog[]> {

@@ -65,7 +65,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 <script>
 const api=(p,o={})=>fetch('/api'+p,{credentials:'include',headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
+const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
 let current=null, tab='groups', monTimer=null;
 
 async function boot(){ const me=await api('/me');
@@ -74,7 +74,7 @@ async function boot(){ const me=await api('/me');
 
 function renderNav(){ document.getElementById('nav').innerHTML=TABS.map(([k,l])=>'<button id="t-'+k+'" class="'+(k===tab?'active':'')+'" onclick="showTab(\\''+k+'\\')">'+l+'</button>').join(''); }
 function showTab(t){ tab=t; if(monTimer){clearInterval(monTimer);monTimer=null;} renderNav();
-  ({groups:loadGroups,monitor:loadMonitor,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
+  ({groups:loadGroups,monitor:loadMonitor,users:loadUsers,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
 
 async function showLogin(){ document.getElementById('login').style.display='block'; const c=await api('/config');
   if(!c.botUsername){document.getElementById('loginNote').textContent='⚠️ BOT_USERNAME غير مضبوط.';return;}
@@ -113,6 +113,15 @@ function refreshChat(){ const n=document.querySelector('.chat-item.active'); if(
 async function loadMonitor(){ document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">📡 المراقبة المباشرة</h3><p class="muted">آخر الرسائل (تحديث تلقائي كل 5 ثوان). يتطلب MESSAGE_LOG_ENABLED=true.</p><div id="mon"></div></div>'; await tickMon(); monTimer=setInterval(tickMon,5000); }
 async function tickMon(){ const rows=await api('/monitor?limit=60'); const el=document.getElementById('mon'); if(!el)return;
   el.innerHTML='<table><tr><th>الوقت</th><th>الجروب</th><th>المستخدم</th><th>النوع</th><th>الرسالة</th></tr>'+rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleTimeString('ar')+'</td><td>'+esc(r.chatTitle||r.chatId)+'</td><td>'+esc(r.userName)+'<br><span class="muted">'+r.userId+'</span></td><td>'+r.type+'</td><td>'+esc((r.text||'').slice(0,80))+'</td></tr>').join('')+'</table>'+(rows.length?'':'<p class="muted">لا سجلّات بعد.</p>'); }
+
+/* ---- Users / Conversations ---- */
+async function loadUsers(){ const users=await api('/users'); const c=document.getElementById('content');
+  const list=users.length?users.map(u=>'<div class="chat-item" onclick="openConv(\\''+u.userId+'\\',this)">'+esc(u.name)+'<div class="muted">'+u.userId+' · '+u.count+' 💬'+(u.last?' · '+new Date(u.last).toLocaleDateString('ar'):'')+'</div></div>').join(''):'<p class="muted">لا سجلّات. فعّل MESSAGE_LOG_ENABLED=true.</p>';
+  c.innerHTML='<div class="grid2"><div class="card" style="max-width:300px"><h3 style="margin-top:0">👥 المستخدمون</h3><p class="muted">كل من تحدّث مع البوت (خاص أو في الجروبات).</p><div id="uList">'+list+'</div></div><div class="card" id="convPanel"><p class="muted">اختر مستخدماً لعرض محادثته مع البوت.</p></div></div>'; }
+async function openConv(uid,node){ document.querySelectorAll('#uList .chat-item').forEach(n=>n.classList.remove('active')); if(node)node.classList.add('active');
+  const rows=await api('/users/'+uid+'/conversation?limit=250'); rows.reverse();
+  const bubbles=rows.map(r=>'<div style="margin:6px 0;padding:8px 10px;background:#0e1017;border:1px solid var(--line);border-radius:10px"><div class="muted" style="font-size:11px">'+new Date(r.createdAt).toLocaleString('ar')+' · '+esc(r.chatTitle||r.chatId)+' · '+r.type+(r.flagged?' 🚩':'')+'</div>'+esc(r.text||('['+r.type+']'))+'</div>').join('')||'<p class="muted">لا رسائل.</p>';
+  document.getElementById('convPanel').innerHTML='<h3 style="margin-top:0">💬 محادثة '+esc((node?node.textContent:uid)||uid)+'</h3><div style="max-height:72vh;overflow:auto">'+bubbles+'</div>'; }
 
 /* ---- Media ---- */
 async function loadMedia(type){ const rows=await api('/media?limit=60'+(type?'&type='+type:'')); const types=['','photo','video','voice','audio','animation','sticker','document'];

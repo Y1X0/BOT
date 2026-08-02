@@ -8,7 +8,7 @@ import { memberCount, totalMessages, topByMessages } from '../services/member.se
 import { addReply, deleteReply, listReplies } from '../services/replies.service';
 import { addFilter, deleteFilter, listFilters } from '../services/filters.service';
 import { TOGGLEABLE_SETTINGS } from '../services/settings.service';
-import { queryLogs, queryMedia, logAnalytics } from '../services/logging.service';
+import { queryLogs, queryMedia, logAnalytics, listConversants, userConversation } from '../services/logging.service';
 import { youtubeQueue } from '../services/youtube/queue';
 import { recentErrors, clearErrors } from '../core/errors';
 import {
@@ -169,6 +169,15 @@ export function createDashboardApi(telegram: Telegram): express.Router {
       limit: Number(q.limit) || 60,
       before: q.before ? Number(q.before) : undefined,
     });
+    json(res, rows);
+  });
+
+  // Per-user conversation view: who talked to the bot, and each user's history.
+  router.get('/users', async (_req, res) => json(res, await listConversants(300)));
+
+  router.get('/users/:id/conversation', async (req, res) => {
+    const q = req.query as Record<string, string>;
+    const rows = await userConversation(req.params.id, q.chatId, q.before ? Number(q.before) : undefined, Number(q.limit) || 200);
     json(res, rows);
   });
 
