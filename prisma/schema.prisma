@@ -94,8 +94,8 @@ model ChatSettings {
   dailyAyahEnabled    Boolean  @default(true)
   lastDailyAyah       String?  // "YYYY-MM-DD" — de-dupes daily send
 
-  // Prayer-time announcements
-  prayerNotifyEnabled Boolean  @default(false)
+  // Prayer-time announcements (on by default; city defaults to Amman,Jordan)
+  prayerNotifyEnabled Boolean  @default(true)
   prayerCity          String?  // e.g. "Amman,Jordan" (defaults applied in code)
   lastPrayerAnnounced String?  // "YYYY-MM-DD:Dhuhr" — de-dupes per prayer
 
@@ -235,6 +235,12 @@ model MessageLog {
   @@index([userId])
   @@index([type])
   @@index([flagged])
+}
+
+/// Simple key/value store for one-time migrations & app-wide flags.
+model AppState {
+  key   String @id
+  value String
 }
 
 /// Countdown events: the bot counts down and announces on the day.

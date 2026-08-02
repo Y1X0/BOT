@@ -189,6 +189,9 @@ export const islamicPlugin: Plugin = {
     }, 60 * 60 * 1000);
     interval.unref?.();
 
+    // Enable prayer notifications on groups that predate this feature (once).
+    void backfillPrayerDefault();
+
     // Per-minute ticker → announce each prayer at its exact time.
     const prayerInterval = setInterval(() => void tickPrayer(bot), 60 * 1000);
     prayerInterval.unref?.();
@@ -303,6 +306,19 @@ function minutesInTz(tz: string): number {
   const hhmm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }).format(new Date());
   const [h, m] = hhmm.split(':').map(Number);
   return (h % 24) * 60 + m;
+}
+
+/** One-time: turn prayer notifications on for chats created before the feature. */
+async function backfillPrayerDefault(): Promise<void> {
+  try {
+    const done = await prisma.appState.findUnique({ where: { key: 'prayerBackfill' } });
+    if (done) return;
+    const res = await prisma.chatSettings.updateMany({ where: { prayerNotifyEnabled: false }, data: { prayerNotifyEnabled: true } });
+    await prisma.appState.create({ data: { key: 'prayerBackfill', value: String(res.count) } });
+    log.info({ count: res.count }, 'prayer-notify backfill applied');
+  } catch (err) {
+    log.warn({ err }, 'prayer backfill failed');
+  }
 }
 
 async function tickPrayer(bot: Telegraf<BotContext>): Promise<void> {
