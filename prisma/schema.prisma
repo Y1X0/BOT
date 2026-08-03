@@ -243,6 +243,30 @@ model AppState {
   value String
 }
 
+/// Anonymous "musaraha" messages (persisted for reply routing + owner oversight).
+model MusarahaMessage {
+  id             Int      @id @default(autoincrement())
+  senderId       BigInt
+  senderName     String?
+  recipientId    BigInt
+  text           String
+  deliveredMsgId Int? // message_id in the recipient's DM (for native replies)
+  isReply        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([recipientId, deliveredMsgId])
+  @@index([createdAt])
+}
+
+/// Per-owner block list for musaraha senders.
+model MusarahaBlock {
+  ownerId   BigInt
+  senderId  BigInt
+  createdAt DateTime @default(now())
+
+  @@id([ownerId, senderId])
+}
+
 /// Countdown events: the bot counts down and announces on the day.
 model CountdownEvent {
   id        Int      @id @default(autoincrement())

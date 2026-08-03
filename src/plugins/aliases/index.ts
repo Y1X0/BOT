@@ -3,7 +3,7 @@ import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { isAwaitingWhisper } from '../whisper/state';
-import { isAwaitingMusaraha, isMusarahaReply } from '../musaraha/state';
+import { isAwaitingMusaraha } from '../musaraha/state';
 
 /**
  * Natural-language command aliases: lets users trigger commands by typing
@@ -197,10 +197,12 @@ export const aliasesPlugin: Plugin = {
       // While a user is typing a whisper secret in DM, their text is data,
       // not a command — never rewrite it.
       if (ctx.from && (isAwaitingWhisper(ctx.from.id) || isAwaitingMusaraha(ctx.from.id))) return next();
-      // Don't rewrite a native reply to a received anonymous message (it's a
-      // musaraha reply/block, not a command).
-      const repliedId = (ctx.message as { reply_to_message?: { message_id?: number } }).reply_to_message?.message_id;
-      if (ctx.from && repliedId != null && isMusarahaReply(ctx.from.id, repliedId)) return next();
+      // In DM, a native reply to the bot's own message is an interaction
+      // (e.g. a musaraha reply/block), never a command — don't rewrite it.
+      if (ctx.chat?.type === 'private') {
+        const repliedFrom = (ctx.message as { reply_to_message?: { from?: { id?: number } } }).reply_to_message?.from?.id;
+        if (repliedFrom != null && ctx.botInfo?.id != null && repliedFrom === ctx.botInfo.id) return next();
+      }
 
       const rewritten = matchAlias(ctx.message.text);
       if (rewritten) {
