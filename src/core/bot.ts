@@ -25,6 +25,9 @@ export async function createBot(): Promise<{
 }> {
   const bot = new Telegraf<BotContext>(env.BOT_TOKEN, {
     handlerTimeout: 30_000,
+    // Point at a self-hosted Local Bot API server when provided (enables
+    // uploads up to 2000MB instead of the cloud API's 50MB cap).
+    ...(env.TELEGRAM_API_ROOT ? { telegram: { apiRoot: env.TELEGRAM_API_ROOT } } : {}),
   });
 
   // Global error boundary — never let a handler crash the process.

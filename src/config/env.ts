@@ -35,6 +35,14 @@ const envSchema = z.object({
   WEBHOOK_PATH: z.string().default('/telegraf'),
   WEBHOOK_SECRET: z.string().optional(),
 
+  // Optional self-hosted Local Bot API server root (e.g. http://127.0.0.1:8081).
+  // Required to upload files larger than 50MB — the cloud API caps bot uploads
+  // at 50MB, a local server raises that to 2000MB.
+  TELEGRAM_API_ROOT: z.string().optional(),
+  // Max size (MB) the bot will try to UPLOAD. Keep at 50 for the cloud API;
+  // raise it (e.g. 300) only when TELEGRAM_API_ROOT points at a local server.
+  MEDIA_UPLOAD_LIMIT_MB: z.coerce.number().default(50),
+
   // HTTP server
   PORT: z.coerce.number().default(3000),
 

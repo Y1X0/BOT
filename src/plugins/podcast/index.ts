@@ -3,6 +3,7 @@ import { Input, Markup } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { createLogger } from '../../core/logger';
+import { env } from '../../config/env';
 import { youtubeQueue } from '../../services/youtube/queue';
 import {
   searchPodcasts,
@@ -15,7 +16,9 @@ import {
 const log = createLogger('plugin:podcast');
 
 const URL_SEND_LIMIT = 20 * 1024 * 1024; // Telegram fetches URLs up to ~20MB
-const UPLOAD_LIMIT = 50 * 1024 * 1024; // bot upload cap ~50MB
+// Configurable upload cap: 50MB on the cloud API, up to 2000MB with a local
+// Bot API server (set MEDIA_UPLOAD_LIMIT_MB + TELEGRAM_API_ROOT).
+const UPLOAD_LIMIT = env.MEDIA_UPLOAD_LIMIT_MB * 1024 * 1024;
 
 // Short-lived selection state, keyed by `${chatId}:${messageId}`.
 const showState = new Map<string, PodcastShow[]>();
@@ -129,9 +132,10 @@ async function deliver(
   }
 
   // Too big to upload at all → hand over the direct link.
+  const limitMb = env.MEDIA_UPLOAD_LIMIT_MB;
   if (ep.sizeBytes != null && ep.sizeBytes > UPLOAD_LIMIT) {
     await tg
-      .sendMessage(chatId, `🎙 ${ep.title}\n\nالحلقة كبيرة (${Math.round(ep.sizeBytes / 1024 / 1024)}MB) وتتجاوز حد الرفع.\nرابط التحميل المباشر:\n${ep.audioUrl}`)
+      .sendMessage(chatId, `🎙 ${ep.title}\n\nالحلقة كبيرة (${Math.round(ep.sizeBytes / 1024 / 1024)}MB) وتتجاوز حد الرفع (${limitMb}MB).\nرابط التحميل المباشر:\n${ep.audioUrl}`)
       .catch(() => undefined);
     await clearStatus();
     return;
@@ -142,7 +146,7 @@ async function deliver(
   if ('error' in dl) {
     if (dl.error === 'toolarge') {
       await tg
-        .sendMessage(chatId, `🎙 ${ep.title}\n\nالحلقة أكبر من الحد المسموح للرفع (50MB).\nرابط التحميل المباشر:\n${ep.audioUrl}`)
+        .sendMessage(chatId, `🎙 ${ep.title}\n\nالحلقة أكبر من الحد المسموح للرفع (${limitMb}MB).\nرابط التحميل المباشر:\n${ep.audioUrl}`)
         .catch(() => undefined);
     } else {
       await tg.sendMessage(chatId, '⚠️ تعذّر تنزيل هذه الحلقة، جرّب واحدة أخرى.').catch(() => undefined);
