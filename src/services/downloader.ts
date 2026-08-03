@@ -35,30 +35,51 @@ function extractReason(stderr: string): string | undefined {
  * Download a video/media file from any yt-dlp-supported URL (TikTok, Instagram
  * Reels, X/Twitter, Facebook, etc.). Fixed argv — no shell. Never throws.
  */
+export type DlMode = 'video' | 'audio';
+
 export async function downloadVideo(
   url: string,
 ): Promise<DlResult | { error: DlError; reason?: string }> {
-  const primary = await ytDlpDownloadVideo(url);
+  return downloadMedia(url, 'video');
+}
+
+export async function downloadAudio(
+  url: string,
+): Promise<DlResult | { error: DlError; reason?: string }> {
+  return downloadMedia(url, 'audio');
+}
+
+async function downloadMedia(
+  url: string,
+  mode: DlMode,
+): Promise<DlResult | { error: DlError; reason?: string }> {
+  const primary = await ytDlpDownload(url, mode);
   if (!('error' in primary)) return primary;
   // Fallback to a (self-hosted) Cobalt instance for block-like failures — it
   // downloads from its own IP, so it can succeed where our IP is blocked.
   if (cobaltConfigured() && ['failed', 'private', 'timeout'].includes(primary.error)) {
-    const c = await cobaltDownload(url, false);
+    const c = await cobaltDownload(url, mode === 'audio');
     if (!('error' in c)) {
-      const isVideo = VIDEO_EXTS.includes(extname(c.filePath).toLowerCase());
-      log.info('link download resolved via cobalt');
+      const isVideo = mode === 'video' && VIDEO_EXTS.includes(extname(c.filePath).toLowerCase());
+      log.info({ mode }, 'link download resolved via cobalt');
       return { filePath: c.filePath, title: c.title, isVideo, cleanup: c.cleanup };
     }
   }
   return primary;
 }
 
-async function ytDlpDownloadVideo(
+async function ytDlpDownload(
   url: string,
+  mode: DlMode,
 ): Promise<DlResult | { error: DlError; reason?: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'dl-'));
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
   const maxMb = env.DL_MAX_SIZE_MB > 0 ? env.DL_MAX_SIZE_MB : 50;
+
+  const formatArgs =
+    mode === 'audio'
+      ? ['-x', '--audio-format', 'mp3', '--audio-quality', '0']
+      : ['-S', 'res:720,ext:mp4:m4a,br', '--merge-output-format', 'mp4'];
 
   const args = [
     '--no-warnings',
@@ -68,11 +89,7 @@ async function ytDlpDownloadVideo(
     ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
     '--max-filesize',
     `${maxMb}M`,
-    // Prefer ≤720p mp4 to keep files under Telegram's limit; accept any format.
-    '-S',
-    'res:720,ext:mp4:m4a,br',
-    '--merge-output-format',
-    'mp4',
+    ...formatArgs,
     '-o',
     `${join(dir, 'media')}.%(ext)s`,
     // Print the title but DON'T switch to simulate mode (--print implies it).
