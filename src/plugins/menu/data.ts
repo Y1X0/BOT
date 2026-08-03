@@ -122,6 +122,8 @@ export const MENU: MenuCategory[] = [
     title: 'وسائط',
     items: [
       { ar: 'اغنية', cmd: 'song', desc: 'أغنية من ساوندكلاود' },
+      { ar: 'بودكاست', cmd: 'podcast', desc: 'ابحث ونزّل بودكاست' },
+      { ar: 'قصص واقعيه', cmd: 'stories', desc: 'بودكاست قصص واقعية' },
       { ar: 'يوت', cmd: 'yt', desc: 'صوت من يوتيوب' },
       { ar: 'نزل', cmd: 'dl', desc: 'تنزيل من رابط' },
       { ar: 'حوله', cmd: 'mp3', desc: 'فيديو → صوت (بالرد)' },
