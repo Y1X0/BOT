@@ -69,10 +69,13 @@ const ALIASES: Alias[] = [
   { command: 'sticker', triggers: ['ملصق', 'ستيكر', 'حولها ملصق', 'sticker'] },
   { command: 'newpack', triggers: ['مجموعه جديده', 'انشئ مجموعه', 'مجموعه ملصقات'] },
   { command: 'newemoji', triggers: ['رموز مميزه', 'مجموعه رموز', 'ايموجي مميز'] },
+  { command: 'newvideo', triggers: ['مجموعه فيديو', 'ملصقات فيديو', 'فيديو ستيكر'] },
   { command: 'mypack', triggers: ['مجموعتي', 'ملصقاتي'] },
   { command: 'myemoji', triggers: ['رموزي', 'رموزي المميزه'] },
+  { command: 'myvideo', triggers: ['مجموعه الفيديو', 'ملصقاتي فيديو'] },
   { command: 'addsticker', triggers: ['اضف ملصق', 'اضف للمجموعه'] },
   { command: 'addemoji', triggers: ['اضف رمز', 'اضف ايموجي'] },
+  { command: 'addvideo', triggers: ['اضف فيديو', 'اضف ملصق فيديو'] },
   // Islamic
   { command: 'prayer', triggers: ['صلاه', 'مواقيت', 'وقت الصلاه', 'الصلاه'] },
   { command: 'ayah', triggers: ['ايه', 'آيه', 'ايه عشوائيه'] },
