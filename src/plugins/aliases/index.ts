@@ -52,6 +52,8 @@ const ALIASES: Alias[] = [
   { command: 'withdraw', triggers: ['سحب', 'اسحب', 'سحب فلوس'] },
   { command: 'rob', triggers: ['سرقه', 'اسرق', 'سرقة'] },
   { command: 'slots', triggers: ['سلوت', 'ماكينه', 'ماكينه الحظ'] },
+  { command: 'work', triggers: ['اشتغل', 'شغل', 'وظيفه', 'عمل'] },
+  { command: 'crime', triggers: ['جريمه', 'جريمة'] },
   { command: 'stats', triggers: ['الاحصائيات', 'احصائيات', 'احصائيه'] },
   { command: 'activetop', triggers: ['الاكثر تفاعلا', 'النشطين'] },
   { command: 'quiz', triggers: ['سؤال', 'مسابقه', 'سؤال ثقافي'] },

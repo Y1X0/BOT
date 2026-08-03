@@ -19,6 +19,7 @@ import {
   applyWarnAction,
 } from '../../utils/moderation-actions';
 import { displayName, resolveTarget } from '../../utils/format';
+import { parseDuration, formatDuration } from '../../utils/duration';
 
 export const moderationPlugin: Plugin = {
   name: 'moderation',
@@ -28,9 +29,11 @@ export const moderationPlugin: Plugin = {
     { command: 'unwarn', description: '✅ إزالة تحذير (بالرد)', staffOnly: true },
     { command: 'warns', description: '📊 عرض تحذيرات عضو (بالرد)', staffOnly: true },
     { command: 'mute', description: '🔇 كتم عضو (بالرد)', staffOnly: true },
+    { command: 'tmute', description: '⏳ كتم مؤقت: /tmute 30m (بالرد)', staffOnly: true },
     { command: 'unmute', description: '🔊 إلغاء كتم (بالرد)', staffOnly: true },
     { command: 'kick', description: '👢 طرد عضو (بالرد)', staffOnly: true },
     { command: 'ban', description: '🚫 حظر عضو (بالرد)', staffOnly: true },
+    { command: 'tban', description: '⏳ حظر مؤقت: /tban 2h (بالرد)', staffOnly: true },
     { command: 'unban', description: '✅ إلغاء حظر (بالرد)', staffOnly: true },
     { command: 'promote', description: '⬆️ ترقية عضو لمشرف (بالرد)', staffOnly: true },
     { command: 'addfilter', description: '🚫 إضافة كلمة ممنوعة', staffOnly: true },
@@ -89,6 +92,39 @@ export const moderationPlugin: Plugin = {
     bot.command('kick', requireRole('admin'), moderationAction('kick'));
     bot.command('ban', requireRole('admin'), moderationAction('ban'));
     bot.command('unban', requireRole('admin'), moderationAction('unban'));
+
+    // ⏳ Timed mute: /tmute 30m (reply). Auto-unmutes when the duration elapses.
+    bot.command('tmute', requireRole('moderator'), async (ctx) => {
+      const t = ctx.state.t!;
+      const target = resolveTarget(ctx);
+      if (!target) return void ctx.reply('⏳ ردّ على العضو واكتب المدة. مثال: /tmute 30m');
+      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
+      const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
+      if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
+      const until = Math.floor(Date.now() / 1000) + secs;
+      const ok = await muteUser(ctx, target.id, until);
+      if (!ok) return void ctx.reply(t('errors.generic'));
+      await logAction(ctx.chat.id, 'tmute', ctx.from.id, target.id, `${secs}s`);
+      await ctx.reply(`🔇 تم كتم ${displayName(target)} لمدة ${formatDuration(secs)}.`);
+    });
+
+    // ⏳ Timed ban: /tban 2h (reply). Telegram auto-unbans when it elapses.
+    bot.command('tban', requireRole('admin'), async (ctx) => {
+      const t = ctx.state.t!;
+      const target = resolveTarget(ctx);
+      if (!target) return void ctx.reply('⏳ ردّ على العضو واكتب المدة. مثال: /tban 2h');
+      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
+      const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
+      if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
+      const until = Math.floor(Date.now() / 1000) + secs;
+      const ok = await ctx.telegram
+        .banChatMember(ctx.chat.id, target.id, until)
+        .then(() => true)
+        .catch(() => false);
+      if (!ok) return void ctx.reply(t('errors.generic'));
+      await logAction(ctx.chat.id, 'tban', ctx.from.id, target.id, `${secs}s`);
+      await ctx.reply(`🚫 تم حظر ${displayName(target)} لمدة ${formatDuration(secs)}.`);
+    });
 
     // Promote to Telegram admin (owner/admin only).
     bot.command('promote', requireRole('admin'), async (ctx) => {

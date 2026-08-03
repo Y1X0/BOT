@@ -26,6 +26,9 @@ export const adminPlugin: Plugin = {
     { command: 'set', description: '🔧 ضبط إعداد: /set key on|off', staffOnly: true },
     { command: 'setrules', description: '📜 تحديد قوانين الجروب', staffOnly: true },
     { command: 'setwelcome', description: '👋 تحديد رسالة الترحيب', staffOnly: true },
+    { command: 'setwarns', description: '🔢 حد التحذيرات: /setwarns 3', staffOnly: true },
+    { command: 'warnaction', description: '⚙️ عقوبة التحذيرات: /warnaction mute|kick|ban', staffOnly: true },
+    { command: 'setflood', description: '🚦 ضبط التكرار: /setflood 7 10', staffOnly: true },
     { command: 'lang', description: '🌐 لغة الجروب: /lang ar|en', staffOnly: true },
   ],
 
@@ -79,6 +82,42 @@ export const adminPlugin: Plugin = {
       }
       await setLocale(ctx.chat.id, lang);
       await ctx.reply(lang === 'ar' ? '✅ تم ضبط اللغة إلى العربية.' : '✅ Language set to English.');
+    });
+
+    // 🔢 Set the warning limit before the escalation action fires.
+    bot.command('setwarns', requireRole('admin'), async (ctx) => {
+      const n = Number(ctx.message.text.split(/\s+/)[1]);
+      if (!Number.isInteger(n) || n < 1 || n > 20) {
+        return void ctx.reply('🔢 استخدم رقماً بين 1 و 20. مثال: /setwarns 3');
+      }
+      await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { maxWarnings: n } });
+      await ctx.reply(`✅ تم ضبط حد التحذيرات إلى ${n}.`);
+    });
+
+    // ⚙️ Set what happens when a member reaches the warning limit.
+    bot.command('warnaction', requireRole('admin'), async (ctx) => {
+      const action = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
+      if (action !== 'mute' && action !== 'kick' && action !== 'ban') {
+        return void ctx.reply('⚙️ استخدم: /warnaction mute  أو  kick  أو  ban');
+      }
+      await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { warnAction: action } });
+      const label = { mute: 'كتم 🔇', kick: 'طرد 👢', ban: 'حظر 🚫' }[action];
+      await ctx.reply(`✅ عند بلوغ حد التحذيرات ستكون العقوبة: ${label}.`);
+    });
+
+    // 🚦 Configure flood detection: max messages per window (seconds).
+    bot.command('setflood', requireRole('admin'), async (ctx) => {
+      const [, limitRaw, windowRaw] = ctx.message.text.split(/\s+/);
+      const limit = Number(limitRaw);
+      const windowSec = windowRaw === undefined ? 10 : Number(windowRaw);
+      if (!Number.isInteger(limit) || limit < 3 || limit > 50 || !Number.isInteger(windowSec) || windowSec < 3 || windowSec > 60) {
+        return void ctx.reply('🚦 استخدم: /setflood <عدد 3-50> <ثواني 3-60>\nمثال: /setflood 7 10');
+      }
+      await prisma.chatSettings.update({
+        where: { chatId: BigInt(ctx.chat.id) },
+        data: { floodLimit: limit, floodWindowSec: windowSec, floodEnabled: true },
+      });
+      await ctx.reply(`✅ تم ضبط مكافحة التكرار: ${limit} رسائل خلال ${windowSec} ثانية.`);
     });
 
     bot.command('setwelcome', requireRole('admin'), async (ctx) => {

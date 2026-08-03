@@ -1,11 +1,13 @@
 import type { EconomyAccount } from '@prisma/client';
 import { prisma } from '../core/database';
-import { robOutcome } from './economy-logic';
+import { robOutcome, workReward, crimeOutcome } from './economy-logic';
 
 const DAILY_REWARD = 100;
 const DAILY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const ROB_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 const ROB_MIN_WALLET = 50; // victim must carry at least this in wallet
+const WORK_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const CRIME_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 async function ensureAccount(
   chatId: bigint,
@@ -160,6 +162,80 @@ export async function withdraw(
     data: { bank: { decrement: amount }, balance: { increment: amount } },
   });
   return { ok: true, balance: u.balance, bank: u.bank };
+}
+
+// ---- Work (cooldown earner) ----
+export interface WorkResult {
+  ok: boolean;
+  amount?: number;
+  job?: string;
+  balance?: number;
+  minutesLeft?: number;
+}
+
+export async function claimWork(
+  chatId: number | bigint,
+  userId: number | bigint,
+  now: Date = new Date(),
+  rand: () => number = Math.random,
+): Promise<WorkResult> {
+  const cId = BigInt(chatId);
+  const uId = BigInt(userId);
+  const acc = await ensureAccount(cId, uId);
+
+  if (acc.lastWorkAt) {
+    const elapsed = now.getTime() - acc.lastWorkAt.getTime();
+    if (elapsed < WORK_COOLDOWN_MS) {
+      return { ok: false, minutesLeft: Math.ceil((WORK_COOLDOWN_MS - elapsed) / 60000) };
+    }
+  }
+
+  const { amount, job } = workReward(rand);
+  const updated = await prisma.economyAccount.update({
+    where: { chatId_userId: { chatId: cId, userId: uId } },
+    data: { balance: { increment: amount }, lastWorkAt: now },
+  });
+  return { ok: true, amount, job, balance: updated.balance };
+}
+
+// ---- Crime (risky cooldown earner) ----
+export interface CrimeResult {
+  outcome: 'success' | 'fail' | 'cooldown';
+  amount?: number;
+  story?: string;
+  balance?: number;
+  minutesLeft?: number;
+}
+
+export async function attemptCrime(
+  chatId: number | bigint,
+  userId: number | bigint,
+  now: Date = new Date(),
+  rand: () => number = Math.random,
+): Promise<CrimeResult> {
+  const cId = BigInt(chatId);
+  const uId = BigInt(userId);
+  const acc = await ensureAccount(cId, uId);
+
+  if (acc.lastCrimeAt) {
+    const elapsed = now.getTime() - acc.lastCrimeAt.getTime();
+    if (elapsed < CRIME_COOLDOWN_MS) {
+      return { outcome: 'cooldown', minutesLeft: Math.ceil((CRIME_COOLDOWN_MS - elapsed) / 60000) };
+    }
+  }
+
+  const decision = crimeOutcome(acc.balance, rand);
+  const delta = decision.success ? decision.amount : -Math.min(decision.amount, acc.balance);
+  const updated = await prisma.economyAccount.update({
+    where: { chatId_userId: { chatId: cId, userId: uId } },
+    data: { balance: { increment: delta }, lastCrimeAt: now },
+  });
+  return {
+    outcome: decision.success ? 'success' : 'fail',
+    amount: Math.abs(delta),
+    story: decision.story,
+    balance: updated.balance,
+  };
 }
 
 // ---- Robbery ----

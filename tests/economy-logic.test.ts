@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { robOutcome, spinSlots, SLOT_SYMBOLS } from '../src/services/economy-logic';
+import {
+  robOutcome,
+  spinSlots,
+  SLOT_SYMBOLS,
+  workReward,
+  crimeOutcome,
+  WORK_MIN,
+  WORK_MAX,
+  WORK_JOBS,
+  CRIME_SUCCESS_CHANCE,
+} from '../src/services/economy-logic';
 
 // Deterministic rand from a queue of values.
 function seq(values: number[]): () => number {
@@ -40,5 +50,36 @@ describe('spinSlots', () => {
   it('pays 0 for all-different reels', () => {
     const r = spinSlots(seq([0.01, 0.35, 0.7]));
     expect(r.mult).toBe(0);
+  });
+});
+
+describe('workReward', () => {
+  it('pays within the configured range and picks a real job', () => {
+    const r = workReward(seq([0, 0]));
+    expect(r.amount).toBeGreaterThanOrEqual(WORK_MIN);
+    expect(r.amount).toBeLessThanOrEqual(WORK_MAX);
+    expect(WORK_JOBS).toContain(r.job);
+  });
+  it('reaches the max payout at the top of the range', () => {
+    const r = workReward(seq([0, 0.9999]));
+    expect(r.amount).toBe(WORK_MAX);
+  });
+});
+
+describe('crimeOutcome', () => {
+  it('succeeds and pays a bounded reward below the success chance', () => {
+    const r = crimeOutcome(1000, seq([CRIME_SUCCESS_CHANCE - 0.01, 0, 0]));
+    expect(r.success).toBe(true);
+    expect(r.amount).toBeGreaterThanOrEqual(150);
+    expect(r.amount).toBeLessThanOrEqual(600);
+  });
+  it('fails and fines 20% of the wallet above the success chance', () => {
+    const r = crimeOutcome(1000, seq([0.99, 0]));
+    expect(r.success).toBe(false);
+    expect(r.amount).toBe(200);
+  });
+  it('applies a minimum fine of 50 for small wallets', () => {
+    const r = crimeOutcome(10, seq([0.99, 0]));
+    expect(r.amount).toBe(50);
   });
 });

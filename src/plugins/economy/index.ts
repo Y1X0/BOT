@@ -11,6 +11,8 @@ import {
   deposit,
   withdraw,
   rob,
+  claimWork,
+  attemptCrime,
 } from '../../services/economy.service';
 import { spinSlots } from '../../services/economy-logic';
 import { displayName, resolveTarget } from '../../utils/format';
@@ -29,6 +31,8 @@ export const economyPlugin: Plugin = {
     { command: 'withdraw', description: '🏦 سحب من البنك: /withdraw 100' },
     { command: 'rob', description: '🥷 سرقة عضو (بالرد)' },
     { command: 'slots', description: '🎰 ماكينة الحظ: /slots 50' },
+    { command: 'work', description: '💼 اشتغل واكسب عملات (كل ساعة)' },
+    { command: 'crime', description: '🦹 جريمة: ربح كبير بمخاطرة (كل 3 ساعات)' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -170,8 +174,36 @@ export const economyPlugin: Plugin = {
       const verdict = mult >= 5 ? '💎 جاكبوت!' : mult > 1 ? '🎉 ربح!' : mult === 1.5 ? '✨ زوج!' : '💨 خسارة';
       await ctx.reply(`🎰 [ ${reels.join(' | ')} ]\n${verdict}\n${net >= 0 ? `ربحت ${net}` : `خسرت ${-net}`} 💰\nرصيدك: ${newBal} 💰`);
     });
+
+    // 💼 Work — earn coins on a 1-hour cooldown.
+    bot.command('work', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const r = await claimWork(ctx.chat.id, ctx.from.id);
+      if (!r.ok) return void ctx.reply(`⏳ تعبت! ارتاح ${fmtWait(r.minutesLeft!)} قبل ما تشتغل مرة ثانية.`);
+      await ctx.reply(`💼 ${r.job}\nكسبت ${r.amount} 💰\nرصيدك: ${r.balance} 💰`);
+    });
+
+    // 🦹 Crime — high risk / high reward on a 3-hour cooldown.
+    bot.command('crime', async (ctx) => {
+      if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
+      const r = await attemptCrime(ctx.chat.id, ctx.from.id);
+      if (r.outcome === 'cooldown') return void ctx.reply(`⏳ الوضع حامي! اختبِ ${fmtWait(r.minutesLeft!)} قبل الجريمة القادمة.`);
+      if (r.outcome === 'success') {
+        await ctx.reply(`🦹 ${r.story}\n✅ نجحت! غنمت ${r.amount} 💰\nرصيدك: ${r.balance} 💰`);
+      } else {
+        await ctx.reply(`🚨 ${r.story}\n❌ فشلت! دفعت غرامة ${r.amount} 💰\nرصيدك: ${r.balance} 💰`);
+      }
+    });
   },
 };
+
+/** Format a wait in minutes as "X دقيقة" or "X ساعة و Y دقيقة". */
+function fmtWait(minutes: number): string {
+  if (minutes < 60) return `${minutes} دقيقة`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} ساعة و ${m} دقيقة` : `${h} ساعة`;
+}
 
 /** Parse a coin amount from a command, supporting "all"/"الكل"/"كامل". */
 function parseAmount(text: string, max: number): number | null {

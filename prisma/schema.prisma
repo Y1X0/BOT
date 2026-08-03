@@ -151,6 +151,8 @@ model EconomyAccount {
   bank        Int      @default(0) // safe from robbery
   lastDailyAt DateTime?
   lastRobAt   DateTime?
+  lastWorkAt  DateTime?
+  lastCrimeAt DateTime?
 
   @@unique([chatId, userId])
   @@index([chatId, balance])

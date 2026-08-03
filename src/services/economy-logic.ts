@@ -34,3 +34,62 @@ export function spinSlots(rand: () => number): SlotResult {
   }
   return { reels, mult };
 }
+
+/** Job flavours for /work; each pays within [WORK_MIN, WORK_MAX]. */
+export const WORK_JOBS = [
+  'برمجت تطبيقاً 💻',
+  'وصّلت طلبات ديليفري 🛵',
+  'صمّمت شعاراً 🎨',
+  'كتبت مقالاً ✍️',
+  'أصلحت سيارة 🔧',
+  'درّست طلاباً 📚',
+  'بعت قهوة ☕',
+  'صوّرت حفلة 📸',
+];
+export const WORK_MIN = 50;
+export const WORK_MAX = 250;
+
+export interface WorkReward {
+  amount: number;
+  job: string;
+}
+
+/** Pick a random job + payout for /work. `rand` injectable for tests. */
+export function workReward(rand: () => number): WorkReward {
+  const job = WORK_JOBS[Math.floor(rand() * WORK_JOBS.length)];
+  const amount = WORK_MIN + Math.floor(rand() * (WORK_MAX - WORK_MIN + 1));
+  return { job, amount };
+}
+
+export const CRIME_SUCCESS_CHANCE = 0.55;
+export const CRIME_WINS = [
+  'سطوت على بنك 🏦',
+  'سرقت متجراً 🏪',
+  'اخترقت حساباً 💳',
+  'هرّبت بضاعة 📦',
+];
+export const CRIME_FAILS = [
+  'أمسكت بك الشرطة 🚓',
+  'انطلق الإنذار 🚨',
+  'وشى بك شريكك 🤝',
+  'سقطت من النافذة 🪟',
+];
+
+export interface CrimeOutcome {
+  success: boolean;
+  amount: number; // reward (success) or fine (fail)
+  story: string;
+}
+
+/**
+ * Attempt a crime: on success win 150–600 coins, on failure pay a fine that is
+ * 20% of the current wallet (min 50). `rand` injectable for deterministic tests.
+ */
+export function crimeOutcome(wallet: number, rand: () => number): CrimeOutcome {
+  if (rand() < CRIME_SUCCESS_CHANCE) {
+    const amount = 150 + Math.floor(rand() * 451); // 150–600
+    return { success: true, amount, story: CRIME_WINS[Math.floor(rand() * CRIME_WINS.length)] };
+  }
+  const fine = Math.max(50, Math.floor(wallet * 0.2));
+  return { success: false, amount: fine, story: CRIME_FAILS[Math.floor(rand() * CRIME_FAILS.length)] };
+}

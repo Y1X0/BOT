@@ -1,6 +1,6 @@
 import { env } from './config/env';
 import { logger } from './core/logger';
-import { connectDatabase, disconnectDatabase } from './core/database';
+import { connectDatabase, disconnectDatabase, ensureSchema } from './core/database';
 import { createBot, publishCommands } from './core/bot';
 import { createServer, startServer } from './core/server';
 import type { Server } from 'http';
@@ -9,6 +9,7 @@ async function main(): Promise<void> {
   logger.info({ mode: env.BOT_MODE, env: env.NODE_ENV }, 'Starting Telegram bot');
 
   await connectDatabase();
+  await ensureSchema();
 
   const { bot, plugins } = await createBot();
   const app = createServer(bot);
