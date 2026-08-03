@@ -109,7 +109,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 <script>
 const api=(p,o={})=>fetch('/api'+p,{credentials:'include',headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
+const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
 let current=null, tab='groups', monTimer=null;
 
 async function boot(){ const me=await api('/me');
@@ -118,7 +118,7 @@ async function boot(){ const me=await api('/me');
 
 function renderNav(){ document.getElementById('nav').innerHTML=TABS.map(([k,l])=>'<button id="t-'+k+'" class="'+(k===tab?'active':'')+'" onclick="showTab(\\''+k+'\\')">'+l+'</button>').join(''); }
 function showTab(t){ tab=t; if(monTimer){clearInterval(monTimer);monTimer=null;} renderNav();
-  ({groups:loadGroups,monitor:loadMonitor,users:loadUsers,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
+  ({groups:loadGroups,monitor:loadMonitor,users:loadUsers,musaraha:loadMusaraha,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
 
 async function showLogin(){ document.getElementById('login').style.display='block'; const c=await api('/config');
   if(!c.botUsername){document.getElementById('loginNote').textContent='⚠️ BOT_USERNAME غير مضبوط.';return;}
@@ -190,6 +190,11 @@ async function exportConv(){ const rows=await api('/users/'+convUid+'/conversati
   const blob=new Blob([txt],{type:'text/plain;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='conversation-'+convUid+'.txt'; a.click(); URL.revokeObjectURL(a.href); }
 async function sendDM(){ const el=document.getElementById('convMsg'); const t=el.value.trim(); if(!t)return; const r=await api('/users/'+convUid+'/message',{method:'POST',body:JSON.stringify({text:t})});
   if(r.ok){ el.value=''; renderConv(); } else alert(r.hint||'تعذّر الإرسال (لم يبدأ المستخدم محادثة البوت).'); }
+
+/* ---- Musaraha (anonymous messages) ---- */
+async function loadMusaraha(){ const rows=await api('/musaraha?limit=100');
+  const body=rows.length?rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleString('ar')+'</td><td>'+esc(r.senderName||String(r.senderId))+'<br><span class="muted">'+r.senderId+'</span></td><td>'+r.recipientId+'</td><td>'+(r.isReply?'↩️ رد':'📩')+'</td><td>'+esc((r.text||'').slice(0,140))+'</td></tr>').join(''):'';
+  document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">💌 سجل المصارحة</h3><p class="muted">الرسائل المجهولة عبر البوت — هوية المرسِل مكشوفة لك كمالك فقط لأغراض الرقابة.</p><table><tr><th>الوقت</th><th>المرسِل</th><th>المستقبِل</th><th>النوع</th><th>النص</th></tr>'+body+'</table>'+(rows.length?'':'<p class="muted">لا رسائل بعد.</p>')+'</div>'; }
 
 /* ---- Media ---- */
 async function loadMedia(type){ const rows=await api('/media?limit=60'+(type?'&type='+type:'')); const types=['','photo','video','voice','audio','animation','sticker','document'];
