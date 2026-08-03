@@ -21,6 +21,20 @@ import {
 import { displayName, resolveTarget } from '../../utils/format';
 import { parseDuration, formatDuration } from '../../utils/duration';
 
+/** Full send permissions — used to lift a /restrict. */
+const FULL_SEND_PERMS = {
+  can_send_messages: true,
+  can_send_audios: true,
+  can_send_documents: true,
+  can_send_photos: true,
+  can_send_videos: true,
+  can_send_video_notes: true,
+  can_send_voice_notes: true,
+  can_send_polls: true,
+  can_send_other_messages: true,
+  can_add_web_page_previews: true,
+};
+
 export const moderationPlugin: Plugin = {
   name: 'moderation',
   description: 'Warnings, mute/kick/ban, word filters, promote',
@@ -36,6 +50,9 @@ export const moderationPlugin: Plugin = {
     { command: 'tban', description: '⏳ حظر مؤقت: /tban 2h (بالرد)', staffOnly: true },
     { command: 'unban', description: '✅ إلغاء حظر (بالرد)', staffOnly: true },
     { command: 'promote', description: '⬆️ ترقية عضو لمشرف (بالرد)', staffOnly: true },
+    { command: 'demote', description: '⬇️ تنزيل مشرف (بالرد)', staffOnly: true },
+    { command: 'restrict', description: '🔗 تقييد عضو (نص فقط، بالرد)', staffOnly: true },
+    { command: 'unrestrict', description: '✅ رفع التقييد (بالرد)', staffOnly: true },
     { command: 'addfilter', description: '🚫 إضافة كلمة ممنوعة', staffOnly: true },
     { command: 'delfilter', description: '➖ حذف كلمة ممنوعة', staffOnly: true },
     { command: 'filters', description: '📋 عرض الكلمات الممنوعة', staffOnly: true },
@@ -126,7 +143,8 @@ export const moderationPlugin: Plugin = {
       await ctx.reply(`🚫 تم حظر ${displayName(target)} لمدة ${formatDuration(secs)}.`);
     });
 
-    // Promote to Telegram admin (owner/admin only).
+    // Promote to Telegram admin (owner/admin only). Optional custom title:
+    // /promote اللقب (reply).
     bot.command('promote', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
@@ -137,12 +155,95 @@ export const moderationPlugin: Plugin = {
           can_restrict_members: true,
           can_pin_messages: true,
           can_invite_users: true,
+          can_manage_video_chats: true,
         });
-        await logAction(ctx.chat.id, 'promote', ctx.from.id, target.id);
-        await ctx.reply(t('mod.promoted', { name: displayName(target) }));
+        // Optional custom admin title (max 16 chars, Telegram limit).
+        const title = ctx.message.text.split(' ').slice(1).join(' ').trim().slice(0, 16);
+        if (title) {
+          await ctx.telegram
+            .setChatAdministratorCustomTitle(ctx.chat.id, target.id, title)
+            .catch(() => undefined);
+        }
+        await logAction(ctx.chat.id, 'promote', ctx.from.id, target.id, title || undefined);
+        await ctx.reply(
+          title
+            ? `⬆️ تمت ترقية ${displayName(target)} إلى مشرف بلقب «${title}».`
+            : t('mod.promoted', { name: displayName(target) }),
+        );
       } catch {
-        await ctx.reply(t('errors.generic'));
+        await ctx.reply('❌ تعذّرت الترقية. تأكد أن البوت مشرف ولديه صلاحية «إضافة مشرفين».');
       }
+    });
+
+    // Demote an admin back to a regular member (owner/admin only).
+    bot.command('demote', requireRole('admin'), async (ctx) => {
+      const t = ctx.state.t!;
+      const target = resolveTarget(ctx);
+      if (!target) return void ctx.reply(t('mod.need_reply'));
+      try {
+        await ctx.telegram.promoteChatMember(ctx.chat.id, target.id, {
+          can_change_info: false,
+          can_delete_messages: false,
+          can_restrict_members: false,
+          can_invite_users: false,
+          can_pin_messages: false,
+          can_promote_members: false,
+          can_manage_video_chats: false,
+          is_anonymous: false,
+        });
+        await logAction(ctx.chat.id, 'demote', ctx.from.id, target.id);
+        await ctx.reply(`⬇️ تم تنزيل ${displayName(target)} من الإشراف.`);
+      } catch {
+        await ctx.reply('❌ تعذّر التنزيل. لا يمكن تنزيل مشرف رقّاه شخص آخر أو مالك الجروب.');
+      }
+    });
+
+    // Restrict a member to text-only (no media/links/stickers). Optional
+    // duration: /restrict 2h (reply).
+    bot.command('restrict', requireRole('moderator'), async (ctx) => {
+      const t = ctx.state.t!;
+      const target = resolveTarget(ctx);
+      if (!target) return void ctx.reply('🔗 ردّ على العضو الذي تريد تقييده.');
+      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
+      const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
+      const until = secs ? Math.floor(Date.now() / 1000) + secs : undefined;
+      const ok = await ctx.telegram
+        .restrictChatMember(ctx.chat.id, target.id, {
+          permissions: {
+            can_send_messages: true,
+            can_send_audios: false,
+            can_send_documents: false,
+            can_send_photos: false,
+            can_send_videos: false,
+            can_send_video_notes: false,
+            can_send_voice_notes: false,
+            can_send_polls: false,
+            can_send_other_messages: false,
+            can_add_web_page_previews: false,
+          },
+          until_date: until,
+        })
+        .then(() => true)
+        .catch(() => false);
+      if (!ok) return void ctx.reply(t('errors.generic'));
+      await logAction(ctx.chat.id, 'restrict', ctx.from.id, target.id, secs ? `${secs}s` : undefined);
+      await ctx.reply(
+        `🔗 تم تقييد ${displayName(target)} (نص فقط — بدون وسائط أو روابط)${secs ? ` لمدة ${formatDuration(secs)}` : ''}.`,
+      );
+    });
+
+    // Remove restrictions — restore full sending permissions.
+    bot.command('unrestrict', requireRole('moderator'), async (ctx) => {
+      const t = ctx.state.t!;
+      const target = resolveTarget(ctx);
+      if (!target) return void ctx.reply(t('mod.need_reply'));
+      const ok = await ctx.telegram
+        .restrictChatMember(ctx.chat.id, target.id, { permissions: FULL_SEND_PERMS })
+        .then(() => true)
+        .catch(() => false);
+      if (!ok) return void ctx.reply(t('errors.generic'));
+      await logAction(ctx.chat.id, 'unrestrict', ctx.from.id, target.id);
+      await ctx.reply(`✅ تم رفع التقييد عن ${displayName(target)}.`);
     });
 
     // Word filters

@@ -24,6 +24,14 @@ describe('Arabic command aliases', () => {
     expect(matchAlias('لو خيروك')).toBe('/wyr');
   });
 
+  it('maps moderation triggers, preferring multi-word over the dl clash', () => {
+    expect(matchAlias('رفع ادمن')).toBe('/promote');
+    expect(matchAlias('تنزيل ادمن')).toBe('/demote'); // not /dl "ادمن"
+    expect(matchAlias('كتم')).toBe('/mute');
+    expect(matchAlias('تقييد')).toBe('/restrict');
+    expect(matchAlias('فك تقييد')).toBe('/unrestrict');
+  });
+
   it('ignores real slash commands and non-matches', () => {
     expect(matchAlias('/joke')).toBeNull();
     expect(matchAlias('كلام عادي ما يطابق شيء')).toBeNull();

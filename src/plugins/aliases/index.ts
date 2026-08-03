@@ -75,6 +75,16 @@ const ALIASES: Alias[] = [
   { command: 'myemoji', triggers: ['رموزي', 'رموزي المميزه'] },
   { command: 'addsticker', triggers: ['اضف ملصق', 'اضف للمجموعه'] },
   { command: 'addemoji', triggers: ['اضف رمز', 'اضف ايموجي'] },
+  // Moderation (reply-based staff actions)
+  { command: 'promote', triggers: ['رفع ادمن', 'رفع مشرف', 'ترقيه', 'ترقية', 'رقي'] },
+  { command: 'demote', triggers: ['تنزيل ادمن', 'تنزيل مشرف', 'نزل ادمن', 'نزل مشرف', 'تنزيل الادمن'] },
+  { command: 'mute', triggers: ['كتم', 'اكتم', 'كتمه'] },
+  { command: 'unmute', triggers: ['الغاء كتم', 'فك كتم', 'رفع كتم', 'الغاء الكتم'] },
+  { command: 'restrict', triggers: ['تقييد', 'قيد', 'قيده'] },
+  { command: 'unrestrict', triggers: ['الغاء تقييد', 'فك تقييد', 'رفع تقييد', 'الغاء التقييد'] },
+  { command: 'ban', triggers: ['حظر', 'احظر', 'حظره'] },
+  { command: 'unban', triggers: ['الغاء حظر', 'فك حظر', 'رفع حظر', 'الغاء الحظر'] },
+  { command: 'kick', triggers: ['طرد', 'اطرد', 'طرده'] },
   // Islamic
   { command: 'prayer', triggers: ['صلاه', 'مواقيت', 'وقت الصلاه', 'الصلاه'] },
   { command: 'ayah', triggers: ['ايه', 'آيه', 'ايه عشوائيه'] },
@@ -199,6 +209,19 @@ export function matchAlias(text: string): string | null {
   return null;
 }
 
+/** Commands whose Arabic triggers are common words — only fire them on a reply. */
+const REPLY_ONLY_COMMANDS = new Set([
+  '/promote',
+  '/demote',
+  '/mute',
+  '/unmute',
+  '/restrict',
+  '/unrestrict',
+  '/ban',
+  '/unban',
+  '/kick',
+]);
+
 export const aliasesPlugin: Plugin = {
   name: 'aliases',
   description: 'Arabic natural-language triggers for commands (no slash needed)',
@@ -220,6 +243,11 @@ export const aliasesPlugin: Plugin = {
       const rewritten = matchAlias(ctx.message.text);
       if (rewritten) {
         const commandText = rewritten.split(' ')[0]; // e.g. "/joke"
+        // Reply-only moderation triggers (كتم/حظر/طرد/تقييد…) are common Arabic
+        // words. Only rewrite them when the message is an actual reply, so a
+        // casual mention in chat never fires a staff action or a denial notice.
+        const isReply = Boolean((ctx.message as { reply_to_message?: unknown }).reply_to_message);
+        if (REPLY_ONLY_COMMANDS.has(commandText) && !isReply) return next();
         // Rewrite message so Telegraf's command handlers match it.
         const msg = ctx.message as { text: string; entities?: unknown[] };
         msg.text = rewritten;
