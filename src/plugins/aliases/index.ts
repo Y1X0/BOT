@@ -68,8 +68,11 @@ const ALIASES: Alias[] = [
   { command: 'dl', triggers: ['نزل', 'حمل', 'تنزيل', 'نزلها', 'dl'] },
   { command: 'sticker', triggers: ['ملصق', 'ستيكر', 'حولها ملصق', 'sticker'] },
   { command: 'newpack', triggers: ['مجموعه جديده', 'انشئ مجموعه', 'مجموعه ملصقات'] },
+  { command: 'newemoji', triggers: ['رموز مميزه', 'مجموعه رموز', 'ايموجي مميز'] },
   { command: 'mypack', triggers: ['مجموعتي', 'ملصقاتي'] },
+  { command: 'myemoji', triggers: ['رموزي', 'رموزي المميزه'] },
   { command: 'addsticker', triggers: ['اضف ملصق', 'اضف للمجموعه'] },
+  { command: 'addemoji', triggers: ['اضف رمز', 'اضف ايموجي'] },
   // Islamic
   { command: 'prayer', triggers: ['صلاه', 'مواقيت', 'وقت الصلاه', 'الصلاه'] },
   { command: 'ayah', triggers: ['ايه', 'آيه', 'ايه عشوائيه'] },

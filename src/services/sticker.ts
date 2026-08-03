@@ -20,6 +20,16 @@ export function photoToSticker(image: Buffer): Promise<Buffer | null> {
   return safe(() => sharp(image).resize(SIZE, SIZE, { fit: 'inside' }).webp({ quality: 90 }).toBuffer());
 }
 
+/** Photo → 100×100 WEBP for a custom-emoji set (transparent padding). */
+export function photoToEmoji(image: Buffer): Promise<Buffer | null> {
+  return safe(() =>
+    sharp(image)
+      .resize(100, 100, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .webp({ quality: 90 })
+      .toBuffer(),
+  );
+}
+
 /** White border frame, or circular crop with transparency. */
 export function applyEffect(image: Buffer, effect: StickerEffect): Promise<Buffer | null> {
   if (effect === 'border') {

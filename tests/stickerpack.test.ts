@@ -16,9 +16,9 @@ describe('pack state', () => {
   it('tracks the title-awaiting step for the aliases guard', () => {
     packState.clear();
     expect(isAwaitingPackTitle(7)).toBe(false);
-    packState.set(7, { step: 'title' });
+    packState.set(7, { step: 'title', kind: 'regular' });
     expect(isAwaitingPackTitle(7)).toBe(true);
-    packState.set(7, { step: 'image', title: 'x' });
+    packState.set(7, { step: 'image', title: 'x', kind: 'emoji' });
     expect(isAwaitingPackTitle(7)).toBe(false);
   });
 });

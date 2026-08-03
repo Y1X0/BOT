@@ -3,8 +3,8 @@ import { Input } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { photoToSticker } from '../../services/sticker';
-import { getPack, savePack } from '../../services/stickerpack.service';
+import { photoToSticker, photoToEmoji } from '../../services/sticker';
+import { getPack, savePack, type PackKind } from '../../services/stickerpack.service';
 import { largestPhoto } from '../sticker/logic';
 import { packState } from './state';
 import { packName } from './logic';
@@ -13,43 +13,58 @@ import { createLogger } from '../../core/logger';
 const log = createLogger('plugin:stickerpack');
 const DEFAULT_EMOJI = '😀';
 const ADD_RE = /أضف|اضف|addpack|للمجموع/i;
+const EMOJI_ADD_RE = /رمز|ايموجي|إيموجي|emoji/i;
 
-/** Create and manage a personal sticker set via the bot. */
+const KINDS: Record<PackKind, { label: string; addr: string; stickerType: 'regular' | 'custom_emoji'; convert: (b: Buffer) => Promise<Buffer | null> }> = {
+  regular: { label: 'ملصقات', addr: 'addstickers', stickerType: 'regular', convert: photoToSticker },
+  emoji: { label: 'رموز مميزة', addr: 'addemoji', stickerType: 'custom_emoji', convert: photoToEmoji },
+};
+const link = (kind: PackKind, name: string) => `https://t.me/${KINDS[kind].addr}/${name}`;
+
+/** Create/manage personal sticker sets and custom-emoji sets via the bot. */
 export const stickerPackPlugin: Plugin = {
   name: 'stickerpack',
-  description: 'Create a sticker set and add stickers to it',
+  description: 'Create sticker sets and custom-emoji (premium) sets',
   commands: [
     { command: 'newpack', description: '📦 أنشئ مجموعة ملصقات: /newpack الاسم' },
-    { command: 'addsticker', description: '➕ أضف ملصق لمجموعتك (بالرد على صورة)' },
-    { command: 'mypack', description: '🧷 رابط مجموعتك' },
+    { command: 'newemoji', description: '✨ أنشئ مجموعة رموز مميزة: /newemoji الاسم' },
+    { command: 'addsticker', description: '➕ أضف ملصق (بالرد على صورة)' },
+    { command: 'addemoji', description: '➕ أضف رمز مميز (بالرد على صورة)' },
+    { command: 'mypack', description: '🧷 رابط مجموعة الملصقات' },
+    { command: 'myemoji', description: '🧷 رابط مجموعة الرموز المميزة' },
   ],
 
   register(bot: Telegraf<BotContext>) {
-    bot.command('newpack', async (ctx) => {
+    const startNew = (kind: PackKind) => async (ctx: BotContext & { message: { text: string } }) => {
       if (!ctx.from) return;
       const title = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (title) {
-        packState.set(ctx.from.id, { step: 'image', title: title.slice(0, 64) });
-        return void ctx.reply(`📦 «${title}» — أرسل أول صورة للمجموعة 🖼️`);
+        packState.set(ctx.from.id, { step: 'image', title: title.slice(0, 64), kind });
+        return void ctx.reply(`${kind === 'emoji' ? '✨' : '📦'} «${title}» — أرسل أول صورة 🖼️`);
       }
-      packState.set(ctx.from.id, { step: 'title' });
-      await ctx.reply('📦 أرسل اسم المجموعة (العنوان):');
-    });
+      packState.set(ctx.from.id, { step: 'title', kind });
+      await ctx.reply(`${kind === 'emoji' ? '✨' : '📦'} أرسل اسم المجموعة (العنوان):`);
+    };
+    bot.command('newpack', startNew('regular'));
+    bot.command('newemoji', startNew('emoji'));
 
-    bot.command('mypack', async (ctx) => {
+    const showPack = (kind: PackKind) => async (ctx: BotContext) => {
       if (!ctx.from) return;
-      const p = await getPack(ctx.from.id);
-      if (!p) return void ctx.reply('📦 لا توجد لديك مجموعة. أنشئ واحدة بـ /newpack');
-      await ctx.reply(`🧷 مجموعتك «${p.title}»:\nhttps://t.me/addstickers/${p.name}`);
-    });
+      const p = await getPack(ctx.from.id, kind);
+      if (!p) return void ctx.reply(`لا توجد لديك ${KINDS[kind].label}. أنشئ بـ ${kind === 'emoji' ? '/newemoji' : '/newpack'}`);
+      await ctx.reply(`🧷 «${p.title}»:\n${link(kind, p.name)}`);
+    };
+    bot.command('mypack', showPack('regular'));
+    bot.command('myemoji', showPack('emoji'));
 
-    bot.command('addsticker', async (ctx) => {
-      if (!ctx.from) return;
+    const addCmd = (kind: PackKind) => async (ctx: BotContext) => {
       const replied = (ctx.message as { reply_to_message?: unknown }).reply_to_message;
       const src = largestPhoto(ctx.message) ?? largestPhoto(replied);
-      if (!src) return void ctx.reply('➕ ردّ على صورة بـ /addsticker، أو أرسل صورة مع كلمة «أضف».');
-      await addToPack(ctx, src.fileId);
-    });
+      if (!src) return void ctx.reply('➕ ردّ على صورة بهذا الأمر لإضافتها.');
+      await addToPack(ctx, src.fileId, kind);
+    };
+    bot.command('addsticker', addCmd('regular'));
+    bot.command('addemoji', addCmd('emoji'));
 
     // Pack-creation title step.
     bot.on(message('text'), async (ctx, next) => {
@@ -58,36 +73,36 @@ export const stickerPackPlugin: Plugin = {
       if (st?.step !== 'title') return next();
       const title = ctx.message.text.trim();
       if (!title || title.startsWith('/')) return void ctx.reply('❌ أرسل اسماً نصياً للمجموعة.');
-      packState.set(ctx.from.id, { step: 'image', title: title.slice(0, 64) });
-      await ctx.reply(`📦 «${title}» — أرسل أول صورة للمجموعة 🖼️`);
+      packState.set(ctx.from.id, { step: 'image', title: title.slice(0, 64), kind: st.kind });
+      await ctx.reply(`«${title}» — أرسل أول صورة 🖼️`);
     });
 
-    // Photos: first image of a new pack, or "add" to an existing pack.
+    // Photos: first image of a new set, or "add" to an existing one.
     bot.on(message('photo'), async (ctx, next) => {
       if (!ctx.from) return next();
       const st = packState.get(ctx.from.id);
       const src = largestPhoto(ctx.message);
       if (st?.step === 'image' && src) {
         packState.delete(ctx.from.id);
-        await createPack(ctx, src.fileId, st.title ?? 'ملصقاتي');
-        return; // consumed
+        await createPack(ctx, src.fileId, st.title ?? 'مجموعتي', st.kind);
+        return;
       }
       const caption = (ctx.message as { caption?: string }).caption;
       if (src && caption && ADD_RE.test(caption)) {
-        await addToPack(ctx, src.fileId);
-        return; // consumed
+        await addToPack(ctx, src.fileId, EMOJI_ADD_RE.test(caption) ? 'emoji' : 'regular');
+        return;
       }
       return next();
     });
   },
 };
 
-async function toStickerFileId(ctx: BotContext, fileId: string): Promise<string | null> {
-  const link = await ctx.telegram.getFileLink(fileId).catch(() => null);
-  if (!link) return null;
-  const res = await fetch(link.toString()).catch(() => null);
+async function toFileId(ctx: BotContext, fileId: string, kind: PackKind): Promise<string | null> {
+  const dlLink = await ctx.telegram.getFileLink(fileId).catch(() => null);
+  if (!dlLink) return null;
+  const res = await fetch(dlLink.toString()).catch(() => null);
   if (!res?.ok) return null;
-  const webp = await photoToSticker(Buffer.from(await res.arrayBuffer()));
+  const webp = await KINDS[kind].convert(Buffer.from(await res.arrayBuffer()));
   if (!webp) return null;
   const uploaded = await ctx.telegram
     .uploadStickerFile(ctx.from!.id, Input.fromBuffer(webp, 'sticker.webp'), 'static')
@@ -98,11 +113,11 @@ async function toStickerFileId(ctx: BotContext, fileId: string): Promise<string 
   return uploaded?.file_id ?? null;
 }
 
-async function createPack(ctx: BotContext, fileId: string, title: string): Promise<void> {
+async function createPack(ctx: BotContext, fileId: string, title: string, kind: PackKind): Promise<void> {
   const username = ctx.botInfo?.username;
   if (!username || !ctx.from) return void ctx.reply('⚠️ تعذّر التجهيز الآن، حاول لاحقاً.');
-  await ctx.reply('⏳ جاري إنشاء المجموعة...').catch(() => undefined);
-  const stickerId = await toStickerFileId(ctx, fileId);
+  await ctx.reply('⏳ جاري الإنشاء...').catch(() => undefined);
+  const stickerId = await toFileId(ctx, fileId, kind);
   if (!stickerId) return void ctx.reply('❌ تعذّر تجهيز الملصق من الصورة.');
 
   const name = packName(ctx.from.id, username, 10000 + Math.floor(Math.random() * 89999));
@@ -110,21 +125,22 @@ async function createPack(ctx: BotContext, fileId: string, title: string): Promi
     await ctx.telegram.createNewStickerSet(ctx.from.id, name, title, {
       stickers: [{ sticker: stickerId, emoji_list: [DEFAULT_EMOJI] }],
       sticker_format: 'static',
+      sticker_type: KINDS[kind].stickerType,
     });
   } catch (err) {
     log.warn({ err }, 'createNewStickerSet failed');
-    return void ctx.reply('⚠️ تعذّر إنشاء المجموعة. تأكد أنك بدأت محادثة البوت، وحاول باسم آخر.');
+    return void ctx.reply('⚠️ تعذّر إنشاء المجموعة. تأكد أنك بدأت محادثة البوت وحاول مجدداً.');
   }
-  await savePack(ctx.from.id, name, title);
-  await ctx.reply(`✅ تم إنشاء مجموعة «${title}»!\n🧷 https://t.me/addstickers/${name}\n\n➕ لإضافة ملصقات: أرسل صورة مع كلمة «أضف»، أو ردّ على صورة بـ /addsticker.`);
+  await savePack(ctx.from.id, kind, name, title);
+  await ctx.reply(`✅ تم إنشاء «${title}»!\n🧷 ${link(kind, name)}\n\n➕ للإضافة: أرسل صورة مع كلمة «${kind === 'emoji' ? 'أضف رمز' : 'أضف'}»، أو ردّ على صورة بـ ${kind === 'emoji' ? '/addemoji' : '/addsticker'}.`);
 }
 
-async function addToPack(ctx: BotContext, fileId: string): Promise<void> {
+async function addToPack(ctx: BotContext, fileId: string, kind: PackKind): Promise<void> {
   if (!ctx.from) return;
-  const pack = await getPack(ctx.from.id);
-  if (!pack) return void ctx.reply('📦 لا توجد لديك مجموعة بعد. أنشئ واحدة بـ /newpack');
+  const pack = await getPack(ctx.from.id, kind);
+  if (!pack) return void ctx.reply(`لا توجد لديك ${KINDS[kind].label}. أنشئ بـ ${kind === 'emoji' ? '/newemoji' : '/newpack'}`);
   await ctx.reply('⏳ جاري الإضافة...').catch(() => undefined);
-  const stickerId = await toStickerFileId(ctx, fileId);
+  const stickerId = await toFileId(ctx, fileId, kind);
   if (!stickerId) return void ctx.reply('❌ تعذّر تجهيز الملصق من الصورة.');
   try {
     await ctx.telegram.addStickerToSet(ctx.from.id, pack.name, {
@@ -132,7 +148,7 @@ async function addToPack(ctx: BotContext, fileId: string): Promise<void> {
     });
   } catch (err) {
     log.warn({ err }, 'addStickerToSet failed');
-    return void ctx.reply('⚠️ تعذّر إضافة الملصق (قد تكون المجموعة ممتلئة أو محذوفة).');
+    return void ctx.reply('⚠️ تعذّر الإضافة (قد تكون المجموعة ممتلئة أو محذوفة).');
   }
-  await ctx.reply(`✅ تمت إضافة الملصق لمجموعة «${pack.title}»!\n🧷 https://t.me/addstickers/${pack.name}`);
+  await ctx.reply(`✅ تمت الإضافة إلى «${pack.title}»!\n🧷 ${link(kind, pack.name)}`);
 }
