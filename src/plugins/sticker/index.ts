@@ -54,11 +54,7 @@ export const stickerPlugin: Plugin = {
       if (!buf) return void ctx.reply('❌ تعذّر جلب الصورة.');
       const out = await applyEffect(buf, ctx.match[1] as StickerEffect);
       if (!out) return void ctx.reply('⚠️ تعذّر تطبيق التعديل.');
-      try {
-        await ctx.replyWithSticker(Input.fromLocalFile(out.filePath));
-      } finally {
-        await out.cleanup();
-      }
+      await ctx.replyWithSticker(Input.fromBuffer(out, 'sticker.webp')).catch(() => ctx.reply('⚠️ تعذّر إرسال الملصق.'));
     });
 
     // Caption: ask for text, then draw it.
@@ -81,12 +77,8 @@ export const stickerPlugin: Plugin = {
       const buf = await fetchImage(ctx, fileId);
       if (!buf) return void ctx.reply('❌ تعذّر جلب الصورة.');
       const out = await addText(buf, text.slice(0, 60));
-      if (!out) return void ctx.reply('⚠️ تعذّر إضافة النص (قد لا يدعم الخادم الخطوط).');
-      try {
-        await ctx.replyWithSticker(Input.fromLocalFile(out.filePath));
-      } finally {
-        await out.cleanup();
-      }
+      if (!out) return void ctx.reply('⚠️ تعذّر إضافة النص.');
+      await ctx.replyWithSticker(Input.fromBuffer(out, 'sticker.webp')).catch(() => ctx.reply('⚠️ تعذّر إرسال الملصق.'));
     });
   },
 };
@@ -105,13 +97,11 @@ async function makeSticker(ctx: BotContext, fileId: string): Promise<void> {
   const stk = await photoToSticker(buf);
   if (!stk) return void ctx.reply('⚠️ تعذّر تحويل الصورة إلى ملصق، حاول بصورة أخرى.');
   try {
-    await ctx.replyWithSticker(Input.fromLocalFile(stk.filePath));
+    await ctx.replyWithSticker(Input.fromBuffer(stk, 'sticker.webp'));
     const prompt = await ctx.reply('🎨 عدّل الملصق:', editKeyboard());
     if (ctx.chat) editSources.set(`${ctx.chat.id}:${prompt.message_id}`, fileId);
   } catch (err) {
     log.warn({ err }, 'send sticker failed');
     await ctx.reply('⚠️ تعذّر إرسال الملصق.');
-  } finally {
-    await stk.cleanup();
   }
 }

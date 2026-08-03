@@ -1,97 +1,73 @@
-import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import sharp from 'sharp';
 import { createLogger } from '../core/logger';
 
 const log = createLogger('sticker');
+const SIZE = 512;
 
-export interface StickerResult {
-  filePath: string;
-  cleanup: () => Promise<void>;
-}
 export type StickerEffect = 'border' | 'circle';
 
-const FIT = 'scale=512:512:force_original_aspect_ratio=decrease';
+async function safe(fn: () => Promise<Buffer>): Promise<Buffer | null> {
+  try {
+    return await fn();
+  } catch (err) {
+    log.warn({ err }, 'sharp sticker op failed');
+    return null;
+  }
+}
 
-function runFfmpeg(args: string[]): Promise<boolean> {
-  return new Promise((resolve) => {
-    const p = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'ignore'] });
-    const timer = setTimeout(() => p.kill('SIGKILL'), 30_000);
-    p.on('error', () => {
-      clearTimeout(timer);
-      resolve(false);
-    });
-    p.on('close', (code) => {
-      clearTimeout(timer);
-      resolve(code === 0);
-    });
+/** Plain photo → 512-fit WEBP sticker. */
+export function photoToSticker(image: Buffer): Promise<Buffer | null> {
+  return safe(() => sharp(image).resize(SIZE, SIZE, { fit: 'inside' }).webp({ quality: 90 }).toBuffer());
+}
+
+/** White border frame, or circular crop with transparency. */
+export function applyEffect(image: Buffer, effect: StickerEffect): Promise<Buffer | null> {
+  if (effect === 'border') {
+    const b = 20;
+    return safe(() =>
+      sharp(image)
+        .resize(SIZE - 2 * b, SIZE - 2 * b, { fit: 'inside' })
+        .extend({ top: b, bottom: b, left: b, right: b, background: '#ffffff' })
+        .webp({ quality: 90 })
+        .toBuffer(),
+    );
+  }
+  const mask = Buffer.from(
+    `<svg width="${SIZE}" height="${SIZE}"><circle cx="${SIZE / 2}" cy="${SIZE / 2}" r="${SIZE / 2}" fill="#fff"/></svg>`,
+  );
+  return safe(() =>
+    sharp(image)
+      .resize(SIZE, SIZE, { fit: 'cover' })
+      .ensureAlpha()
+      .composite([{ input: mask, blend: 'dest-in' }])
+      .webp({ quality: 90 })
+      .toBuffer(),
+  );
+}
+
+/** Draw a caption at the bottom (meme style). Arabic + English via Pango. */
+export function addText(image: Buffer, text: string): Promise<Buffer | null> {
+  return safe(async () => {
+    const base = await sharp(image).resize(SIZE, SIZE, { fit: 'inside' }).png().toBuffer();
+    const meta = await sharp(base).metadata();
+    const w = meta.width ?? SIZE;
+    const h = meta.height ?? SIZE;
+    const fontSize = Math.round(w / 11) + 8;
+    const stroke = Math.max(3, Math.round(fontSize / 12));
+    const svg =
+      `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">` +
+      `<text x="50%" y="${h - 18}" text-anchor="middle" ` +
+      `font-family="Noto Naskh Arabic, DejaVu Sans, sans-serif" font-size="${fontSize}" font-weight="bold" ` +
+      `fill="white" stroke="black" stroke-width="${stroke}" paint-order="stroke">${escapeXml(text)}</text></svg>`;
+    return sharp(base).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).webp({ quality: 90 }).toBuffer();
   });
 }
 
-/** Encode `image` to a 512-fit WEBP sticker using a caller-built filter. */
-async function encodeWebp(
-  image: Buffer,
-  buildFilter: (dir: string) => Promise<string> | string,
-): Promise<StickerResult | null> {
-  const dir = await mkdtemp(join(tmpdir(), 'stk-'));
-  const input = join(dir, 'in');
-  const output = join(dir, 'sticker.webp');
-  const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
-  try {
-    await writeFile(input, image);
-    const filter = await buildFilter(dir);
-    const ok = await runFfmpeg(['-y', '-i', input, '-vf', filter, '-c:v', 'libwebp', '-q:v', '80', '-frames:v', '1', '-an', output]);
-    if (ok) {
-      const s = await stat(output).catch(() => null);
-      if (s && s.size > 0) return { filePath: output, cleanup };
-    }
-  } catch (err) {
-    log.warn({ err }, 'webp encode failed');
-  }
-  await cleanup();
-  return null;
-}
-
-/** Plain photo → sticker (fit within 512×512). */
-export function photoToSticker(image: Buffer): Promise<StickerResult | null> {
-  return encodeWebp(image, () => FIT);
-}
-
-/** Apply a visual effect: white border frame, or circular crop. */
-export function applyEffect(image: Buffer, effect: StickerEffect): Promise<StickerResult | null> {
-  const filter =
-    effect === 'circle'
-      ? "crop='min(iw,ih)':'min(iw,ih)',scale=512:512,format=rgba," +
-        "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte((X-256)*(X-256)+(Y-256)*(Y-256),256*256),255,0)'"
-      : `${FIT},drawbox=x=0:y=0:w=iw:h=ih:t=18:color=white`;
-  return encodeWebp(image, () => filter);
-}
-
-const FONTS = [
-  '/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-];
-function pickFont(): string | null {
-  return FONTS.find((f) => existsSync(f)) ?? null;
-}
-
-/** Draw a caption at the bottom of the sticker (meme style). */
-export async function addText(image: Buffer, text: string): Promise<StickerResult | null> {
-  const font = pickFont();
-  if (!font) {
-    log.warn('no font available for sticker text');
-    return null;
-  }
-  const build = (shaping: boolean) => async (dir: string) => {
-    const tf = join(dir, 'text.txt');
-    await writeFile(tf, text);
-    return (
-      `${FIT},drawtext=fontfile=${font}:textfile=${tf}:reload=0:fontcolor=white:fontsize=46:` +
-      `borderw=5:bordercolor=black:x=(w-text_w)/2:y=h-text_h-20${shaping ? ':text_shaping=1' : ''}`
-    );
-  };
-  // Try with Arabic shaping first; fall back if this ffmpeg build lacks it.
-  return (await encodeWebp(image, build(true))) ?? (await encodeWebp(image, build(false)));
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
