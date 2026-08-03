@@ -40,6 +40,7 @@ import { qotdPlugin } from './qotd';
 import { decidePlugin } from './decide';
 import { countdownPlugin } from './countdown';
 import { soundcloudPlugin } from './soundcloud';
+import { stickerPlugin } from './sticker';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -102,6 +103,7 @@ allPlugins.push(
   musarahaPlugin, // DM anonymous-message flow (after whisper)
   youtubePlugin,
   soundcloudPlugin,
+  stickerPlugin, // passive: photo → sticker
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,

@@ -123,6 +123,7 @@ export const MENU: MenuCategory[] = [
       { ar: 'يوت', cmd: 'yt', desc: 'صوت من يوتيوب' },
       { ar: 'نزل', cmd: 'dl', desc: 'تنزيل من رابط' },
       { ar: 'حوله', cmd: 'mp3', desc: 'فيديو → صوت (بالرد)' },
+      { ar: 'ملصق', cmd: 'sticker', desc: 'صورة → ملصق (بالرد)' },
       { ar: 'تعديل', cmd: 'edit', desc: 'تعديل صورة (بالرد)' },
       { ar: 'تخيل', cmd: 'imagine', desc: 'توليد صورة من نص' },
     ],
