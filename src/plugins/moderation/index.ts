@@ -51,7 +51,7 @@ export const moderationPlugin: Plugin = {
     { command: 'unban', description: '✅ إلغاء حظر (بالرد)', staffOnly: true },
     { command: 'promote', description: '⬆️ ترقية عضو لمشرف (بالرد)', staffOnly: true },
     { command: 'demote', description: '⬇️ تنزيل مشرف (بالرد)', staffOnly: true },
-    { command: 'restrict', description: '🔗 تقييد عضو (نص فقط، بالرد)', staffOnly: true },
+    { command: 'restrict', description: '🔗 تقييد كامل (منع كل شيء، بالرد)', staffOnly: true },
     { command: 'unrestrict', description: '✅ رفع التقييد (بالرد)', staffOnly: true },
     { command: 'addfilter', description: '🚫 إضافة كلمة ممنوعة', staffOnly: true },
     { command: 'delfilter', description: '➖ حذف كلمة ممنوعة', staffOnly: true },
@@ -198,8 +198,8 @@ export const moderationPlugin: Plugin = {
       }
     });
 
-    // Restrict a member to text-only (no media/links/stickers). Optional
-    // duration: /restrict 2h (reply).
+    // Fully restrict a member — nothing at all can be sent (text included).
+    // Optional duration: /restrict 2h (reply).
     bot.command('restrict', requireRole('moderator'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
@@ -210,7 +210,7 @@ export const moderationPlugin: Plugin = {
       const ok = await ctx.telegram
         .restrictChatMember(ctx.chat.id, target.id, {
           permissions: {
-            can_send_messages: true,
+            can_send_messages: false,
             can_send_audios: false,
             can_send_documents: false,
             can_send_photos: false,
@@ -228,7 +228,7 @@ export const moderationPlugin: Plugin = {
       if (!ok) return void ctx.reply(t('errors.generic'));
       await logAction(ctx.chat.id, 'restrict', ctx.from.id, target.id, secs ? `${secs}s` : undefined);
       await ctx.reply(
-        `🔗 تم تقييد ${displayName(target)} (نص فقط — بدون وسائط أو روابط)${secs ? ` لمدة ${formatDuration(secs)}` : ''}.`,
+        `🔗 تم تقييد ${displayName(target)} تقييداً كاملاً (ممنوع الكتابة أو إرسال أي شيء)${secs ? ` لمدة ${formatDuration(secs)}` : ''}.`,
       );
     });
 

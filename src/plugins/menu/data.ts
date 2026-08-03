@@ -171,7 +171,7 @@ export const MENU: MenuCategory[] = [
       { ar: 'رفع ادمن', cmd: 'promote', desc: 'ترقية عضو لمشرف (بالرد)' },
       { ar: 'تنزيل ادمن', cmd: 'demote', desc: 'تنزيل مشرف (بالرد)' },
       { ar: 'كتم', cmd: 'mute', desc: 'كتم عضو (بالرد)' },
-      { ar: 'تقييد', cmd: 'restrict', desc: 'نص فقط بدون وسائط (بالرد)' },
+      { ar: 'تقييد', cmd: 'restrict', desc: 'منع كامل حتى الكتابة (بالرد)' },
       { ar: 'رفع تقييد', cmd: 'unrestrict', desc: 'رفع التقييد (بالرد)' },
       { ar: 'كتم مؤقت', cmd: 'tmute', desc: 'كتم لمدة محددة (بالرد)' },
       { ar: 'حظر مؤقت', cmd: 'tban', desc: 'حظر لمدة محددة (بالرد)' },
