@@ -127,6 +127,7 @@ export const MENU: MenuCategory[] = [
       { ar: 'مجموعه جديده', cmd: 'newpack', desc: 'أنشئ مجموعة ملصقات' },
       { ar: 'رموز مميزه', cmd: 'newemoji', desc: 'أنشئ رموز مميزة (Premium)' },
       { ar: 'مجموعه فيديو', cmd: 'newvideo', desc: 'أنشئ ملصقات فيديو' },
+      { ar: 'رمز فيديو', cmd: 'newvideoemoji', desc: 'أنشئ رموز فيديو مميزة' },
       { ar: 'مجموعتي', cmd: 'mypack', desc: 'رابط مجموعتك' },
       { ar: 'تعديل', cmd: 'edit', desc: 'تعديل صورة (بالرد)' },
       { ar: 'تخيل', cmd: 'imagine', desc: 'توليد صورة من نص' },

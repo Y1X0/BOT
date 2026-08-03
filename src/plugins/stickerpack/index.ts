@@ -4,7 +4,7 @@ import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { photoToSticker, photoToEmoji } from '../../services/sticker';
-import { videoToSticker } from '../../services/videosticker';
+import { videoToSticker, videoToEmoji } from '../../services/videosticker';
 import { getPack, savePack, type PackKind } from '../../services/stickerpack.service';
 import { largestPhoto } from '../sticker/logic';
 import { packState } from './state';
@@ -30,6 +30,7 @@ const KINDS: Record<PackKind, KindCfg> = {
   regular: { label: 'ملصقات', addr: 'addstickers', stickerType: 'regular', format: 'static', media: 'photo', ext: 'webp', convert: photoToSticker },
   emoji: { label: 'رموز مميزة', addr: 'addemoji', stickerType: 'custom_emoji', format: 'static', media: 'photo', ext: 'webp', convert: photoToEmoji },
   video: { label: 'ملصقات فيديو', addr: 'addstickers', stickerType: 'regular', format: 'video', media: 'video', ext: 'webm', convert: videoToSticker },
+  videoemoji: { label: 'رموز فيديو مميزة', addr: 'addemoji', stickerType: 'custom_emoji', format: 'video', media: 'video', ext: 'webm', convert: videoToEmoji },
 };
 const link = (kind: PackKind, name: string) => `https://t.me/${KINDS[kind].addr}/${name}`;
 
@@ -60,6 +61,7 @@ export const stickerPackPlugin: Plugin = {
     bot.command('newpack', startNew('regular'));
     bot.command('newemoji', startNew('emoji'));
     bot.command('newvideo', startNew('video'));
+    bot.command('newvideoemoji', startNew('videoemoji'));
 
     const showPack = (kind: PackKind) => async (ctx: BotContext) => {
       if (!ctx.from) return;
@@ -70,6 +72,7 @@ export const stickerPackPlugin: Plugin = {
     bot.command('mypack', showPack('regular'));
     bot.command('myemoji', showPack('emoji'));
     bot.command('myvideo', showPack('video'));
+    bot.command('myvideoemoji', showPack('videoemoji'));
 
     const addCmd = (kind: PackKind) => async (ctx: BotContext) => {
       const replied = (ctx.message as { reply_to_message?: unknown }).reply_to_message;
@@ -81,6 +84,7 @@ export const stickerPackPlugin: Plugin = {
     bot.command('addsticker', addCmd('regular'));
     bot.command('addemoji', addCmd('emoji'));
     bot.command('addvideo', addCmd('video'));
+    bot.command('addvideoemoji', addCmd('videoemoji'));
 
     // Pack-creation title step.
     bot.on(message('text'), async (ctx, next) => {
@@ -109,7 +113,9 @@ export const stickerPackPlugin: Plugin = {
       }
       const caption = (ctx.message as { caption?: string }).caption;
       if (caption && ADD_RE.test(caption)) {
-        const kind: PackKind = src.type === 'video' ? 'video' : EMOJI_ADD_RE.test(caption) ? 'emoji' : 'regular';
+        const isEmoji = EMOJI_ADD_RE.test(caption);
+        const kind: PackKind =
+          src.type === 'video' ? (isEmoji ? 'videoemoji' : 'video') : isEmoji ? 'emoji' : 'regular';
         await addToPack(ctx, src.fileId, kind);
         return;
       }
