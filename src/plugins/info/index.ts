@@ -62,8 +62,9 @@ export const infoPlugin: Plugin = {
         (chat.type === 'group' || chat.type === 'supergroup') &&
         isTrigger
       ) {
-        const target = resolveTarget(ctx) ?? ctx.from;
-        if (target) await sendUserInfo(ctx, target);
+        // A bare "ا"/"id" always shows the SENDER's own card — never the person
+        // they happen to be replying to. Use /id (reply) to see someone else's.
+        if (ctx.from) await sendUserInfo(ctx, ctx.from);
       }
       return next();
     });
