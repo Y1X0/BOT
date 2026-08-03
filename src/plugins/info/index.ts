@@ -6,6 +6,8 @@ import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
 import { resolveTarget } from '../../utils/format';
 import { getSettings } from '../../services/settings.service';
+import { getMember } from '../../services/member.service';
+import { statLabel, interactionLabel, buildIdCard } from './card';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:info');
@@ -53,7 +55,8 @@ export const infoPlugin: Plugin = {
     bot.on(message('text'), async (ctx, next) => {
       const chat = ctx.chat;
       const t = ctx.message.text.trim().toLowerCase();
-      const isTrigger = t === 'id' || t === 'ايدي' || t === 'آيدي' || t === 'الايدي';
+      const isTrigger =
+        t === 'id' || t === 'ايدي' || t === 'آيدي' || t === 'الايدي' || t === 'ا' || t === 'أ';
       if (
         chat &&
         (chat.type === 'group' || chat.type === 'supergroup') &&
@@ -109,30 +112,31 @@ interface TargetUser {
 }
 
 /**
- * Build and send a profile card for `target`: profile photo (if any) with a
- * caption containing name, username, bio, and a copyable numeric ID.
- * Every Telegram call is guarded so a missing photo/bio never breaks the reply.
+ * Build and send a decorated profile ("id") card for `target`: profile photo
+ * (if any) plus name, username, group status, equipped title, interaction level
+ * and a copyable numeric ID. Every Telegram call is guarded so missing data
+ * never breaks the reply.
  */
 async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> {
-  // Try to enrich with bio via getChat (works for users the bot can see).
-  let bio = '';
-  try {
-    const chat = (await ctx.telegram.getChat(target.id)) as { bio?: string };
-    if (chat.bio) bio = chat.bio;
-  } catch {
-    /* bio unavailable — ignore */
-  }
-
   const fullName = [target.first_name, target.last_name].filter(Boolean).join(' ') || '—';
   const username = target.username ? `@${target.username}` : 'لا يوجد';
 
-  const caption =
-    `👤 <b>معلومات العضو</b>\n\n` +
-    `الاسم: ${escapeHtml(fullName)}\n` +
-    `اليوزر: ${escapeHtml(username)}\n` +
-    `الآيدي: <code>${target.id}</code>\n` +
-    `البايو: ${bio ? escapeHtml(bio) : 'لا يوجد'}` +
-    (target.is_bot ? '\nالنوع: 🤖 بوت' : '');
+  // Pull group-scoped stats (role, equipped title, message count) when in a group.
+  const member = ctx.chat ? await getMember(ctx.chat.id, target.id).catch(() => null) : null;
+  const role = target.is_bot ? 'member' : member?.role ?? 'member';
+  const messageCount = member?.messageCount ?? 0;
+  const stats = target.is_bot ? 'بوت 🤖' : statLabel(role, messageCount);
+  const title = member?.title ? escapeHtml(member.title) : 'لا يوجد';
+  const interaction = target.is_bot ? 'بوت 🤖' : interactionLabel(messageCount);
+
+  const caption = buildIdCard({
+    name: escapeHtml(fullName),
+    username: escapeHtml(username),
+    stats,
+    title,
+    interaction,
+    id: target.id,
+  });
 
   // Fetch the latest profile photo (largest size), if available.
   let photoFileId: string | undefined;
