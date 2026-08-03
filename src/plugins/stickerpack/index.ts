@@ -17,32 +17,29 @@ const ADD_RE = /أضف|اضف|addpack|للمجموع/i;
 const EMOJI_ADD_RE = /رمز|ايموجي|إيموجي|emoji/i;
 
 type MediaType = 'photo' | 'video';
-interface KindCfg {
-  label: string;
-  addr: string;
-  stickerType: 'regular' | 'custom_emoji';
-  format: 'static' | 'video';
-  media: MediaType;
-  ext: string;
-  convert: (b: Buffer) => Promise<Buffer | null>;
-}
-const KINDS: Record<PackKind, KindCfg> = {
-  regular: { label: 'ملصقات', addr: 'addstickers', stickerType: 'regular', format: 'static', media: 'photo', ext: 'webp', convert: photoToSticker },
-  emoji: { label: 'رموز مميزة', addr: 'addemoji', stickerType: 'custom_emoji', format: 'static', media: 'photo', ext: 'webp', convert: photoToEmoji },
-  video: { label: 'ملصقات فيديو', addr: 'addstickers', stickerType: 'regular', format: 'video', media: 'video', ext: 'webm', convert: videoToSticker },
-  videoemoji: { label: 'رموز فيديو مميزة', addr: 'addemoji', stickerType: 'custom_emoji', format: 'video', media: 'video', ext: 'webm', convert: videoToEmoji },
+
+// Two set kinds; each accepts BOTH photos and videos (mixed-format sets).
+const KINDS: Record<PackKind, { label: string; addr: string; stickerType: 'regular' | 'custom_emoji' }> = {
+  regular: { label: 'ملصقات', addr: 'addstickers', stickerType: 'regular' },
+  emoji: { label: 'رموز مميزة', addr: 'addemoji', stickerType: 'custom_emoji' },
 };
 const link = (kind: PackKind, name: string) => `https://t.me/${KINDS[kind].addr}/${name}`;
 
-/** Create/manage personal sticker sets and custom-emoji sets via the bot. */
+/** Choose the right converter for a kind + incoming media type. */
+function convert(kind: PackKind, media: MediaType, buf: Buffer): Promise<Buffer | null> {
+  if (kind === 'emoji') return media === 'video' ? videoToEmoji(buf) : photoToEmoji(buf);
+  return media === 'video' ? videoToSticker(buf) : photoToSticker(buf);
+}
+
+/** Create/manage personal sticker & custom-emoji sets (photos + videos mixed). */
 export const stickerPackPlugin: Plugin = {
   name: 'stickerpack',
-  description: 'Create sticker sets and custom-emoji (premium) sets',
+  description: 'Create sticker/custom-emoji sets that accept photos and videos',
   commands: [
-    { command: 'newpack', description: '📦 أنشئ مجموعة ملصقات: /newpack الاسم' },
-    { command: 'newemoji', description: '✨ أنشئ مجموعة رموز مميزة: /newemoji الاسم' },
-    { command: 'addsticker', description: '➕ أضف ملصق (بالرد على صورة)' },
-    { command: 'addemoji', description: '➕ أضف رمز مميز (بالرد على صورة)' },
+    { command: 'newpack', description: '📦 أنشئ مجموعة ملصقات (صور + فيديو): /newpack الاسم' },
+    { command: 'newemoji', description: '✨ أنشئ مجموعة رموز مميزة (صور + فيديو): /newemoji الاسم' },
+    { command: 'addsticker', description: '➕ أضف للمجموعة (بالرد على صورة/فيديو)' },
+    { command: 'addemoji', description: '➕ أضف رمزاً مميزاً (بالرد على صورة/فيديو)' },
     { command: 'mypack', description: '🧷 رابط مجموعة الملصقات' },
     { command: 'myemoji', description: '🧷 رابط مجموعة الرموز المميزة' },
   ],
@@ -51,17 +48,16 @@ export const stickerPackPlugin: Plugin = {
     const startNew = (kind: PackKind) => async (ctx: BotContext & { message: { text: string } }) => {
       if (!ctx.from) return;
       const title = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      const icon = kind === 'emoji' ? '✨' : '📦';
       if (title) {
         packState.set(ctx.from.id, { step: 'image', title: title.slice(0, 64), kind });
-        return void ctx.reply(`${kind === 'emoji' ? '✨' : '📦'} «${title}» — أرسل أول صورة 🖼️`);
+        return void ctx.reply(`${icon} «${title}» — أرسل أول صورة أو فيديو 🖼️🎬`);
       }
       packState.set(ctx.from.id, { step: 'title', kind });
-      await ctx.reply(`${kind === 'emoji' ? '✨' : '📦'} أرسل اسم المجموعة (العنوان):`);
+      await ctx.reply(`${icon} أرسل اسم المجموعة (العنوان):`);
     };
     bot.command('newpack', startNew('regular'));
     bot.command('newemoji', startNew('emoji'));
-    bot.command('newvideo', startNew('video'));
-    bot.command('newvideoemoji', startNew('videoemoji'));
 
     const showPack = (kind: PackKind) => async (ctx: BotContext) => {
       if (!ctx.from) return;
@@ -71,20 +67,15 @@ export const stickerPackPlugin: Plugin = {
     };
     bot.command('mypack', showPack('regular'));
     bot.command('myemoji', showPack('emoji'));
-    bot.command('myvideo', showPack('video'));
-    bot.command('myvideoemoji', showPack('videoemoji'));
 
     const addCmd = (kind: PackKind) => async (ctx: BotContext) => {
       const replied = (ctx.message as { reply_to_message?: unknown }).reply_to_message;
       const src = mediaOf(ctx.message) ?? mediaOf(replied);
-      if (!src) return void ctx.reply('➕ ردّ على الوسيط بهذا الأمر لإضافته.');
-      if (src.type !== KINDS[kind].media) return void ctx.reply(KINDS[kind].media === 'video' ? '❌ ردّ على فيديو/GIF.' : '❌ ردّ على صورة.');
-      await addToPack(ctx, src.fileId, kind);
+      if (!src) return void ctx.reply('➕ ردّ على صورة أو فيديو بهذا الأمر لإضافته.');
+      await addToPack(ctx, src.fileId, kind, src.type);
     };
     bot.command('addsticker', addCmd('regular'));
     bot.command('addemoji', addCmd('emoji'));
-    bot.command('addvideo', addCmd('video'));
-    bot.command('addvideoemoji', addCmd('videoemoji'));
 
     // Pack-creation title step.
     bot.on(message('text'), async (ctx, next) => {
@@ -94,7 +85,7 @@ export const stickerPackPlugin: Plugin = {
       const title = ctx.message.text.trim();
       if (!title || title.startsWith('/')) return void ctx.reply('❌ أرسل اسماً نصياً للمجموعة.');
       packState.set(ctx.from.id, { step: 'image', title: title.slice(0, 64), kind: st.kind });
-      await ctx.reply(`«${title}» — أرسل أول صورة 🖼️`);
+      await ctx.reply(`«${title}» — أرسل أول صورة أو فيديو 🖼️🎬`);
     });
 
     // Media (photo/video/GIF): first item of a new set, or "add" to an existing.
@@ -104,19 +95,13 @@ export const stickerPackPlugin: Plugin = {
       if (!src) return next();
       const st = packState.get(ctx.from.id);
       if (st?.step === 'image') {
-        if (src.type !== KINDS[st.kind].media) {
-          return void ctx.reply(KINDS[st.kind].media === 'video' ? '❌ أرسل فيديو/GIF.' : '❌ أرسل صورة.');
-        }
         packState.delete(ctx.from.id);
-        await createPack(ctx, src.fileId, st.title ?? 'مجموعتي', st.kind);
+        await createPack(ctx, src.fileId, st.title ?? 'مجموعتي', st.kind, src.type);
         return;
       }
       const caption = (ctx.message as { caption?: string }).caption;
       if (caption && ADD_RE.test(caption)) {
-        const isEmoji = EMOJI_ADD_RE.test(caption);
-        const kind: PackKind =
-          src.type === 'video' ? (isEmoji ? 'videoemoji' : 'video') : isEmoji ? 'emoji' : 'regular';
-        await addToPack(ctx, src.fileId, kind);
+        await addToPack(ctx, src.fileId, EMOJI_ADD_RE.test(caption) ? 'emoji' : 'regular', src.type);
         return;
       }
       return next();
@@ -136,56 +121,69 @@ function mediaOf(msg: unknown): { fileId: string; type: MediaType } | null {
   return null;
 }
 
-async function toFileId(ctx: BotContext, fileId: string, kind: PackKind): Promise<string | null> {
+/** Convert + upload; returns a sticker file_id and its format. */
+async function prepare(
+  ctx: BotContext,
+  fileId: string,
+  kind: PackKind,
+  media: MediaType,
+): Promise<{ id: string; format: 'static' | 'video' } | null> {
   const dlLink = await ctx.telegram.getFileLink(fileId).catch(() => null);
   if (!dlLink) return null;
   const res = await fetch(dlLink.toString()).catch(() => null);
   if (!res?.ok) return null;
-  const cfg = KINDS[kind];
-  const media = await cfg.convert(Buffer.from(await res.arrayBuffer()));
-  if (!media) return null;
+  const out = await convert(kind, media, Buffer.from(await res.arrayBuffer()));
+  if (!out) return null;
+  const format = media === 'video' ? 'video' : 'static';
+  const ext = media === 'video' ? 'webm' : 'webp';
   const uploaded = await ctx.telegram
-    .uploadStickerFile(ctx.from!.id, Input.fromBuffer(media, `sticker.${cfg.ext}`), cfg.format)
+    .uploadStickerFile(ctx.from!.id, Input.fromBuffer(out, `sticker.${ext}`), format)
     .catch((err) => {
       log.warn({ err }, 'uploadStickerFile failed');
       return null;
     });
-  return uploaded?.file_id ?? null;
+  return uploaded ? { id: uploaded.file_id, format } : null;
 }
 
-async function createPack(ctx: BotContext, fileId: string, title: string, kind: PackKind): Promise<void> {
+// The installed @telegraf/types (7.1) lacks per-sticker `format`; the live API
+// (7.2+) needs it for mixed-format sets, so we pass it through untyped.
+function inputSticker(id: string, format: 'static' | 'video') {
+  return { sticker: id, emoji_list: [DEFAULT_EMOJI], format };
+}
+
+async function createPack(ctx: BotContext, fileId: string, title: string, kind: PackKind, media: MediaType): Promise<void> {
   const username = ctx.botInfo?.username;
   if (!username || !ctx.from) return void ctx.reply('⚠️ تعذّر التجهيز الآن، حاول لاحقاً.');
   await ctx.reply('⏳ جاري الإنشاء...').catch(() => undefined);
-  const stickerId = await toFileId(ctx, fileId, kind);
-  if (!stickerId) return void ctx.reply('❌ تعذّر تجهيز الملصق من الصورة.');
+  const prepared = await prepare(ctx, fileId, kind, media);
+  if (!prepared) return void ctx.reply('❌ تعذّر تجهيز الملصق.');
 
   const name = packName(ctx.from.id, username, 10000 + Math.floor(Math.random() * 89999));
   try {
     await ctx.telegram.createNewStickerSet(ctx.from.id, name, title, {
-      stickers: [{ sticker: stickerId, emoji_list: [DEFAULT_EMOJI] }],
-      sticker_format: KINDS[kind].format,
+      stickers: [inputSticker(prepared.id, prepared.format)],
+      sticker_format: prepared.format,
       sticker_type: KINDS[kind].stickerType,
-    });
+    } as never);
   } catch (err) {
     log.warn({ err }, 'createNewStickerSet failed');
     return void ctx.reply('⚠️ تعذّر إنشاء المجموعة. تأكد أنك بدأت محادثة البوت وحاول مجدداً.');
   }
   await savePack(ctx.from.id, kind, name, title);
-  await ctx.reply(`✅ تم إنشاء «${title}»!\n🧷 ${link(kind, name)}\n\n➕ للإضافة: أرسل صورة مع كلمة «${kind === 'emoji' ? 'أضف رمز' : 'أضف'}»، أو ردّ على صورة بـ ${kind === 'emoji' ? '/addemoji' : '/addsticker'}.`);
+  await ctx.reply(`✅ تم إنشاء «${title}»!\n🧷 ${link(kind, name)}\n\n➕ للإضافة: أرسل صورة أو فيديو مع كلمة «${kind === 'emoji' ? 'أضف رمز' : 'أضف'}»، أو ردّ عليه بـ ${kind === 'emoji' ? '/addemoji' : '/addsticker'}.`);
 }
 
-async function addToPack(ctx: BotContext, fileId: string, kind: PackKind): Promise<void> {
+async function addToPack(ctx: BotContext, fileId: string, kind: PackKind, media: MediaType): Promise<void> {
   if (!ctx.from) return;
   const pack = await getPack(ctx.from.id, kind);
   if (!pack) return void ctx.reply(`لا توجد لديك ${KINDS[kind].label}. أنشئ بـ ${kind === 'emoji' ? '/newemoji' : '/newpack'}`);
   await ctx.reply('⏳ جاري الإضافة...').catch(() => undefined);
-  const stickerId = await toFileId(ctx, fileId, kind);
-  if (!stickerId) return void ctx.reply('❌ تعذّر تجهيز الملصق من الصورة.');
+  const prepared = await prepare(ctx, fileId, kind, media);
+  if (!prepared) return void ctx.reply('❌ تعذّر تجهيز الملصق.');
   try {
     await ctx.telegram.addStickerToSet(ctx.from.id, pack.name, {
-      sticker: { sticker: stickerId, emoji_list: [DEFAULT_EMOJI] },
-    });
+      sticker: inputSticker(prepared.id, prepared.format),
+    } as never);
   } catch (err) {
     log.warn({ err }, 'addStickerToSet failed');
     return void ctx.reply('⚠️ تعذّر الإضافة (قد تكون المجموعة ممتلئة أو محذوفة).');
