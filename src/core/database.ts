@@ -37,6 +37,24 @@ export async function ensureSchema(): Promise<void> {
   const statements = [
     'ALTER TABLE "EconomyAccount" ADD COLUMN IF NOT EXISTS "lastWorkAt" TIMESTAMP(3)',
     'ALTER TABLE "EconomyAccount" ADD COLUMN IF NOT EXISTS "lastCrimeAt" TIMESTAMP(3)',
+    // Virtual-pet table (matches Prisma's Postgres DDL so a later db push is a no-op).
+    `CREATE TABLE IF NOT EXISTS "Pet" (
+      "id" SERIAL NOT NULL,
+      "chatId" BIGINT NOT NULL,
+      "userId" BIGINT NOT NULL,
+      "name" TEXT NOT NULL DEFAULT 'حيوان',
+      "species" TEXT NOT NULL DEFAULT '🐶',
+      "level" INTEGER NOT NULL DEFAULT 1,
+      "xp" INTEGER NOT NULL DEFAULT 0,
+      "hunger" INTEGER NOT NULL DEFAULT 80,
+      "happiness" INTEGER NOT NULL DEFAULT 80,
+      "lastFedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "lastPlayedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "Pet_pkey" PRIMARY KEY ("id")
+    )`,
+    'CREATE UNIQUE INDEX IF NOT EXISTS "Pet_chatId_userId_key" ON "Pet"("chatId", "userId")',
   ];
   for (const sql of statements) {
     try {

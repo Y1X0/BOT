@@ -51,6 +51,10 @@ import { liveQuizPlugin } from './livequiz';
 import { mafiaPlugin } from './mafia';
 import { imageEditorPlugin } from './imageeditor';
 import { aiPlugin } from './ai';
+import { spyPlugin } from './spy';
+import { petPlugin } from './pet';
+import { typeRacePlugin } from './typerace';
+import { guessMediaPlugin } from './guessmedia';
 
 /**
  * Ordered plugin registry. ORDER MATTERS for passive text listeners:
@@ -83,6 +87,10 @@ allPlugins.push(
   mediaToolsPlugin,
   moreGamesPlugin, // passive: word-chain, calls next()
   newGamesPlugin, // passive: emoji/flag/hangman answers, calls next()
+  guessMediaPlugin, // passive: movie/song guesses, calls next()
+  typeRacePlugin, // passive: typing-race answers, calls next()
+  spyPlugin,
+  petPlugin,
   socialPlugin,
   birthdayPlugin,
   reportsPlugin,

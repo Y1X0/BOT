@@ -399,3 +399,23 @@ model AuditLog {
 
   @@index([chatId, createdAt])
 }
+
+/// Virtual pet per member (fun feature). Stats decay over time; computed on read.
+model Pet {
+  id          Int      @id @default(autoincrement())
+  chatId      BigInt
+  userId      BigInt
+
+  name        String   @default("حيوان")
+  species     String   @default("🐶")
+  level       Int      @default(1)
+  xp          Int      @default(0)
+  hunger      Int      @default(80) // 0 (starving) .. 100 (full)
+  happiness   Int      @default(80) // 0 (sad) .. 100 (joyful)
+  lastFedAt   DateTime @default(now())
+  lastPlayedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([chatId, userId])
+}
