@@ -19,6 +19,7 @@ import { notesPlugin } from './notes';
 import { afkPlugin } from './afk';
 import { toolsPlugin } from './tools';
 import { whisperPlugin } from './whisper';
+import { musarahaPlugin } from './musaraha';
 import { youtubePlugin } from './youtube';
 import { downloaderPlugin } from './downloader';
 import { voiceChatPlugin } from './voicechat';
@@ -98,6 +99,7 @@ allPlugins.push(
   funPlugin,
   toolsPlugin,
   whisperPlugin,
+  musarahaPlugin, // DM anonymous-message flow (after whisper)
   youtubePlugin,
   soundcloudPlugin,
   downloaderPlugin, // passive: auto-download known video links, calls next()

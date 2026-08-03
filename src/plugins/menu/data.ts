@@ -78,6 +78,7 @@ export const MENU: MenuCategory[] = [
       { ar: 'الازواج', cmd: 'couples', desc: 'أزواج الجروب' },
       { ar: 'الكره السحريه', cmd: '8ball', desc: 'كرة سحرية' },
       { ar: 'اختر', cmd: 'choose', desc: 'اختيار عشوائي' },
+      { ar: 'مصارحة', cmd: 'musaraha', desc: 'رابط رسائل مجهولة' },
       { ar: 'زخرفه', cmd: 'decorate', desc: 'زخرفة نص' },
       { ar: 'نكته', cmd: 'joke', desc: 'نكتة' },
     ],

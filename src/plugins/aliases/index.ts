@@ -3,6 +3,7 @@ import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { isAwaitingWhisper } from '../whisper/state';
+import { isAwaitingMusaraha } from '../musaraha/state';
 
 /**
  * Natural-language command aliases: lets users trigger commands by typing
@@ -59,6 +60,7 @@ const ALIASES: Alias[] = [
   { command: 'poll', triggers: ['تصويت', 'استفتاء'] },
   { command: 'decorate', triggers: ['زخرفه', 'زخرف', 'زخرفه كلمه'] },
   { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه'] },
+  { command: 'musaraha', triggers: ['مصارحه', 'مصارحة', 'صارحني', 'رسايل مجهوله'] },
   { command: 'yt', triggers: ['يوت', 'يوتيوب', 'yt'] },
   { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
   { command: 'dl', triggers: ['نزل', 'حمل', 'تنزيل', 'نزلها', 'dl'] },
@@ -194,7 +196,7 @@ export const aliasesPlugin: Plugin = {
     bot.on(message('text'), async (ctx, next) => {
       // While a user is typing a whisper secret in DM, their text is data,
       // not a command — never rewrite it.
-      if (ctx.from && isAwaitingWhisper(ctx.from.id)) return next();
+      if (ctx.from && (isAwaitingWhisper(ctx.from.id) || isAwaitingMusaraha(ctx.from.id))) return next();
 
       const rewritten = matchAlias(ctx.message.text);
       if (rewritten) {
