@@ -13,11 +13,27 @@ interface XoGame {
   board: Cell[];
   x?: number; // user id of X (the starter)
   o?: number; // user id of O
+  xName?: string;
+  oName?: string;
   turn: 'X' | 'O';
   vsBot?: boolean; // when true, O is the bot
 }
 const xoGames = new Map<string, XoGame>();
 const CELL: Record<Cell, string> = { ' ': '▫️', X: '❌', O: '⭕️' };
+const BOT_NAME = 'البوت 🤖';
+
+/** Name of the player holding a mark (falls back while a seat is empty). */
+function nameFor(g: XoGame, mark: 'X' | 'O'): string {
+  if (mark === 'X') return g.xName ?? 'بانتظار لاعب';
+  return g.vsBot ? BOT_NAME : g.oName ?? 'بانتظار لاعب';
+}
+
+/** Status text: who is playing whom, and whose turn it is (by name). */
+function xoStatus(g: XoGame): string {
+  const x = nameFor(g, 'X');
+  const o = nameFor(g, 'O');
+  return `⭕️❌ إكس-أو\n❌ ${x}  ضد  ⭕️ ${o}\n\n▶️ الآن دور ${CELL[g.turn]} ${nameFor(g, g.turn)}`;
+}
 
 function xoKeyboard(g: XoGame) {
   const rows = [];
@@ -80,11 +96,15 @@ export const moreGamesPlugin: Plugin = {
       if (!ctx.chat) return;
       const vsBot = ctx.match[1] === 'bot';
       const g: XoGame = { board: Array(9).fill(' '), turn: 'X', vsBot };
-      if (vsBot) g.x = ctx.from.id; // starter is X (human); O is the bot
+      if (vsBot) {
+        g.x = ctx.from.id; // starter is X (human); O is the bot
+        g.xName = displayName(ctx.from);
+        g.oName = BOT_NAME;
+      }
       await ctx.answerCbQuery().catch(() => undefined);
       const header = vsBot
-        ? `⭕️❌ إكس-أو ضد البوت\nأنت ❌ — دورك`
-        : '⭕️❌ إكس-أو\nأول لاعب يضغط = ❌، الثاني = ⭕️\nدور: ❌';
+        ? xoStatus(g)
+        : '⭕️❌ إكس-أو\nأول لاعب يضغط = ❌، والثاني = ⭕️\n\n▶️ بانتظار اللاعبين...';
       const sent = await ctx.editMessageText(header, xoKeyboard(g)).catch(() => undefined);
       const messageId = typeof sent === 'object' && sent ? sent.message_id : ctx.callbackQuery.message?.message_id;
       if (messageId) xoGames.set(`${ctx.chat.id}:${messageId}`, g);
@@ -97,9 +117,14 @@ export const moreGamesPlugin: Plugin = {
       const pos = Number(ctx.match[1]);
       if (!g) return void ctx.answerCbQuery('انتهت اللعبة.').catch(() => undefined);
 
-      // Assign players. In vs-bot mode only the human (X) may play.
-      if (g.x === undefined) g.x = uid;
-      else if (!g.vsBot && g.o === undefined && uid !== g.x) g.o = uid;
+      // Assign players (and remember their names). In vs-bot only X may play.
+      if (g.x === undefined) {
+        g.x = uid;
+        g.xName = displayName(ctx.from);
+      } else if (!g.vsBot && g.o === undefined && uid !== g.x) {
+        g.o = uid;
+        g.oName = displayName(ctx.from);
+      }
       const mark: 'X' | 'O' | null = uid === g.x ? 'X' : uid === g.o ? 'O' : null;
       if (!mark || (g.vsBot && mark !== 'X')) {
         return void ctx.answerCbQuery(g.vsBot ? 'هذه اللعبة ضد البوت 🤖' : 'اللعبة بين لاعبين فقط.', { show_alert: true }).catch(() => undefined);
@@ -119,10 +144,8 @@ export const moreGamesPlugin: Plugin = {
         if (move >= 0) g.board[move] = 'O';
         if (await finishIfOver(ctx, key, g)) return;
         g.turn = 'X';
-        await ctx.editMessageText('⭕️❌ إكس-أو ضد البوت\nدورك ❌', xoKeyboard(g)).catch(() => undefined);
-        return;
       }
-      await ctx.editMessageText(`⭕️❌ إكس-أو\nدور: ${CELL[g.turn]}`, xoKeyboard(g)).catch(() => undefined);
+      await ctx.editMessageText(xoStatus(g), xoKeyboard(g)).catch(() => undefined);
     });
 
     // --- Riddle (reveal via button) ---
@@ -190,7 +213,7 @@ async function finishIfOver(ctx: BotContext, key: string, g: XoGame): Promise<bo
       ? win === 'X'
         ? '🎉 فزت على البوت! أسطورة!'
         : '🤖 البوت فاز! حظ أوفر المرة الجاية.'
-      : `فاز ${CELL[win]}! 🎉`;
+      : `فاز ${CELL[win]} ${nameFor(g, win)}! 🎉`;
     await ctx.editMessageText(`⭕️❌ ${verdict}\n\n${boardText(g)}`).catch(() => undefined);
     return true;
   }
