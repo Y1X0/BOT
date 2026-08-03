@@ -5,6 +5,7 @@ import type { Plugin } from '../../core/plugin';
 import { isAwaitingWhisper } from '../whisper/state';
 import { isAwaitingMusaraha } from '../musaraha/state';
 import { isAwaitingStickerText } from '../sticker/state';
+import { isAwaitingPackTitle } from '../stickerpack/state';
 
 /**
  * Natural-language command aliases: lets users trigger commands by typing
@@ -66,6 +67,9 @@ const ALIASES: Alias[] = [
   { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
   { command: 'dl', triggers: ['نزل', 'حمل', 'تنزيل', 'نزلها', 'dl'] },
   { command: 'sticker', triggers: ['ملصق', 'ستيكر', 'حولها ملصق', 'sticker'] },
+  { command: 'newpack', triggers: ['مجموعه جديده', 'انشئ مجموعه', 'مجموعه ملصقات'] },
+  { command: 'mypack', triggers: ['مجموعتي', 'ملصقاتي'] },
+  { command: 'addsticker', triggers: ['اضف ملصق', 'اضف للمجموعه'] },
   // Islamic
   { command: 'prayer', triggers: ['صلاه', 'مواقيت', 'وقت الصلاه', 'الصلاه'] },
   { command: 'ayah', triggers: ['ايه', 'آيه', 'ايه عشوائيه'] },
@@ -200,6 +204,7 @@ export const aliasesPlugin: Plugin = {
       // not a command — never rewrite it.
       if (ctx.from && (isAwaitingWhisper(ctx.from.id) || isAwaitingMusaraha(ctx.from.id))) return next();
       if (ctx.from && ctx.chat && isAwaitingStickerText(ctx.chat.id, ctx.from.id)) return next();
+      if (ctx.from && isAwaitingPackTitle(ctx.from.id)) return next();
       // In DM, a native reply to the bot's own message is an interaction
       // (e.g. a musaraha reply/block), never a command — don't rewrite it.
       if (ctx.chat?.type === 'private') {

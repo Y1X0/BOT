@@ -41,6 +41,7 @@ import { decidePlugin } from './decide';
 import { countdownPlugin } from './countdown';
 import { soundcloudPlugin } from './soundcloud';
 import { stickerPlugin } from './sticker';
+import { stickerPackPlugin } from './stickerpack';
 import { utilitiesPlugin } from './utilities';
 import { mediaToolsPlugin } from './mediatools';
 import { progressionPlugin } from './progression';
@@ -103,6 +104,7 @@ allPlugins.push(
   musarahaPlugin, // DM anonymous-message flow (after whisper)
   youtubePlugin,
   soundcloudPlugin,
+  stickerPackPlugin, // pack creation/add — must run before sticker auto-convert
   stickerPlugin, // passive: photo → sticker
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()

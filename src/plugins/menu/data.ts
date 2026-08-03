@@ -124,6 +124,8 @@ export const MENU: MenuCategory[] = [
       { ar: 'نزل', cmd: 'dl', desc: 'تنزيل من رابط' },
       { ar: 'حوله', cmd: 'mp3', desc: 'فيديو → صوت (بالرد)' },
       { ar: 'ملصق', cmd: 'sticker', desc: 'صورة → ملصق (بالرد)' },
+      { ar: 'مجموعه جديده', cmd: 'newpack', desc: 'أنشئ مجموعة ملصقات' },
+      { ar: 'مجموعتي', cmd: 'mypack', desc: 'رابط مجموعتك' },
       { ar: 'تعديل', cmd: 'edit', desc: 'تعديل صورة (بالرد)' },
       { ar: 'تخيل', cmd: 'imagine', desc: 'توليد صورة من نص' },
     ],

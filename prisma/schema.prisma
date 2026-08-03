@@ -258,6 +258,14 @@ model MusarahaMessage {
   @@index([createdAt])
 }
 
+/// A user's personal sticker set created through the bot.
+model StickerPack {
+  userId    BigInt   @id
+  name      String // t.me/addstickers/<name>
+  title     String
+  createdAt DateTime @default(now())
+}
+
 /// Per-owner block list for musaraha senders.
 model MusarahaBlock {
   ownerId   BigInt
