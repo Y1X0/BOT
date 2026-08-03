@@ -6,21 +6,18 @@ import type { Plugin } from '../../core/plugin';
 import { recordActivity } from '../../services/member.service';
 import { awardGameWin } from '../../utils/progression';
 import { displayName, pickRandom } from '../../utils/format';
+import { winner as xoWinner, bestMove, type Cell } from '../../services/xo-ai';
 
 // ---------------- Tic-Tac-Toe (XO) ----------------
 interface XoGame {
-  board: (' ' | 'X' | 'O')[];
-  x?: number; // user id of X
+  board: Cell[];
+  x?: number; // user id of X (the starter)
   o?: number; // user id of O
   turn: 'X' | 'O';
+  vsBot?: boolean; // when true, O is the bot
 }
 const xoGames = new Map<string, XoGame>();
-const WIN_LINES = [
-  [0, 1, 2], [3, 4, 5], [6, 7, 8],
-  [0, 3, 6], [1, 4, 7], [2, 5, 8],
-  [0, 4, 8], [2, 4, 6],
-];
-const CELL: Record<' ' | 'X' | 'O', string> = { ' ': '▫️', X: '❌', O: '⭕️' };
+const CELL: Record<Cell, string> = { ' ': '▫️', X: '❌', O: '⭕️' };
 
 function xoKeyboard(g: XoGame) {
   const rows = [];
@@ -33,12 +30,6 @@ function xoKeyboard(g: XoGame) {
     );
   }
   return Markup.inlineKeyboard(rows);
-}
-function xoWinner(b: XoGame['board']): 'X' | 'O' | null {
-  for (const [a, c, d] of WIN_LINES) {
-    if (b[a] !== ' ' && b[a] === b[c] && b[c] === b[d]) return b[a] as 'X' | 'O';
-  }
-  return null;
 }
 
 // ---------------- Riddles ----------------
@@ -73,12 +64,30 @@ export const moreGamesPlugin: Plugin = {
   ],
 
   register(bot: Telegraf<BotContext>) {
-    // --- XO ---
+    // --- XO --- choose a mode first.
     bot.command('xo', async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
-      const g: XoGame = { board: Array(9).fill(' '), turn: 'X' };
-      const sent = await ctx.reply('⭕️❌ إكس-أو\nأول لاعب يضغط = ❌، الثاني = ⭕️\nدور: ❌', xoKeyboard(g));
-      xoGames.set(`${ctx.chat.id}:${sent.message_id}`, g);
+      await ctx.reply(
+        '⭕️❌ إكس-أو — اختر نمط اللعب:',
+        Markup.inlineKeyboard([
+          [Markup.button.callback('🤖 ضد البوت', 'xostart:bot')],
+          [Markup.button.callback('👥 ضد لاعب', 'xostart:pvp')],
+        ]),
+      );
+    });
+
+    bot.action(/^xostart:(bot|pvp)$/, async (ctx) => {
+      if (!ctx.chat) return;
+      const vsBot = ctx.match[1] === 'bot';
+      const g: XoGame = { board: Array(9).fill(' '), turn: 'X', vsBot };
+      if (vsBot) g.x = ctx.from.id; // starter is X (human); O is the bot
+      await ctx.answerCbQuery().catch(() => undefined);
+      const header = vsBot
+        ? `⭕️❌ إكس-أو ضد البوت\nأنت ❌ — دورك`
+        : '⭕️❌ إكس-أو\nأول لاعب يضغط = ❌، الثاني = ⭕️\nدور: ❌';
+      const sent = await ctx.editMessageText(header, xoKeyboard(g)).catch(() => undefined);
+      const messageId = typeof sent === 'object' && sent ? sent.message_id : ctx.callbackQuery.message?.message_id;
+      if (messageId) xoGames.set(`${ctx.chat.id}:${messageId}`, g);
     });
 
     bot.action(/^xo:(\d)$/, async (ctx) => {
@@ -88,30 +97,31 @@ export const moreGamesPlugin: Plugin = {
       const pos = Number(ctx.match[1]);
       if (!g) return void ctx.answerCbQuery('انتهت اللعبة.').catch(() => undefined);
 
-      // Assign players.
+      // Assign players. In vs-bot mode only the human (X) may play.
       if (g.x === undefined) g.x = uid;
-      else if (g.o === undefined && uid !== g.x) g.o = uid;
+      else if (!g.vsBot && g.o === undefined && uid !== g.x) g.o = uid;
       const mark: 'X' | 'O' | null = uid === g.x ? 'X' : uid === g.o ? 'O' : null;
-      if (!mark) return void ctx.answerCbQuery('اللعبة بين لاعبين فقط.', { show_alert: true }).catch(() => undefined);
+      if (!mark || (g.vsBot && mark !== 'X')) {
+        return void ctx.answerCbQuery(g.vsBot ? 'هذه اللعبة ضد البوت 🤖' : 'اللعبة بين لاعبين فقط.', { show_alert: true }).catch(() => undefined);
+      }
       if (mark !== g.turn) return void ctx.answerCbQuery('مو دورك ✋').catch(() => undefined);
       if (g.board[pos] !== ' ') return void ctx.answerCbQuery('الخانة محجوزة.').catch(() => undefined);
 
       g.board[pos] = mark;
       await ctx.answerCbQuery().catch(() => undefined);
 
-      const win = xoWinner(g.board);
-      if (win) {
-        xoGames.delete(key);
-        if (ctx.chat && ctx.from) await awardGameWin(ctx, 15);
-        await ctx.editMessageText(`⭕️❌ فاز ${CELL[win]}! 🎉\n\n${boardText(g)}`).catch(() => undefined);
-        return;
-      }
-      if (!g.board.includes(' ')) {
-        xoGames.delete(key);
-        await ctx.editMessageText(`⭕️❌ تعادل 🤝\n\n${boardText(g)}`).catch(() => undefined);
-        return;
-      }
+      // Human move resolved? Check end state, else either hand over or let the bot play.
+      if (await finishIfOver(ctx, key, g)) return;
       g.turn = g.turn === 'X' ? 'O' : 'X';
+
+      if (g.vsBot && g.turn === 'O') {
+        const move = bestMove(g.board, 'O');
+        if (move >= 0) g.board[move] = 'O';
+        if (await finishIfOver(ctx, key, g)) return;
+        g.turn = 'X';
+        await ctx.editMessageText('⭕️❌ إكس-أو ضد البوت\nدورك ❌', xoKeyboard(g)).catch(() => undefined);
+        return;
+      }
       await ctx.editMessageText(`⭕️❌ إكس-أو\nدور: ${CELL[g.turn]}`, xoKeyboard(g)).catch(() => undefined);
     });
 
@@ -164,4 +174,30 @@ function boardText(g: XoGame): string {
   let s = '';
   for (let r = 0; r < 3; r++) s += g.board.slice(r * 3, r * 3 + 3).map((c) => CELL[c]).join('') + '\n';
   return s;
+}
+
+/**
+ * If the board is won or full, end the game, announce it, award XP, and return
+ * true. In vs-bot mode XP is only granted when the human (X) actually wins.
+ */
+async function finishIfOver(ctx: BotContext, key: string, g: XoGame): Promise<boolean> {
+  const win = xoWinner(g.board);
+  if (win) {
+    xoGames.delete(key);
+    if (!g.vsBot) await awardGameWin(ctx, 15);
+    else if (win === 'X') await awardGameWin(ctx, 20); // beating a perfect bot is rare
+    const verdict = g.vsBot
+      ? win === 'X'
+        ? '🎉 فزت على البوت! أسطورة!'
+        : '🤖 البوت فاز! حظ أوفر المرة الجاية.'
+      : `فاز ${CELL[win]}! 🎉`;
+    await ctx.editMessageText(`⭕️❌ ${verdict}\n\n${boardText(g)}`).catch(() => undefined);
+    return true;
+  }
+  if (!g.board.includes(' ')) {
+    xoGames.delete(key);
+    await ctx.editMessageText(`⭕️❌ تعادل 🤝\n\n${boardText(g)}`).catch(() => undefined);
+    return true;
+  }
+  return false;
 }
