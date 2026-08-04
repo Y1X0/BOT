@@ -162,17 +162,19 @@ async function tickMon(){ const rows=await api('/monitor?limit=60'); const el=do
 let convUid=null, convName='';
 function initial(s){ return esc((String(s||'?').trim().charAt(0))||'?'); }
 async function loadUsers(){ const users=await api('/users'); const c=document.getElementById('content');
-  const items=users.length?users.map(u=>'<div class="chatlist-item" onclick="openConv(\\''+u.userId+'\\',this)"><div class="avatar">'+initial(u.name)+'</div><div class="ci-main"><div class="ci-name">'+esc(u.name)+'</div><div class="ci-sub">'+u.count+' رسالة</div></div><div class="ci-time">'+(u.last?new Date(u.last).toLocaleDateString('ar'):'')+'</div></div>').join(''):'<p class="muted" style="padding:12px">لا محادثات بعد. فعّل MESSAGE_LOG_ENABLED=true.</p>';
+  const items=users.length?users.map(u=>'<div class="chatlist-item" onclick="openConv(\\''+u.userId+'\\',this)"><div class="avatar">'+initial(u.name)+'</div><div class="ci-main"><div class="ci-name">'+esc(u.name)+'</div><div class="ci-sub">'+u.count+' رسالة</div></div><div class="ci-time">'+(u.last?new Date(u.last).toLocaleDateString('ar'):'')+'</div></div>').join(''):'<p class="muted" style="padding:12px">لا محادثات خاصة بعد. رسائل الجروبات تظهر في تبويبَي «الجروبات» و«المراقبة».</p>';
   c.innerHTML='<div class="grid2"><div class="card" style="max-width:330px;padding:8px"><h3 style="padding:4px 6px 6px;margin:0">💬 المحادثات</h3><div id="uList">'+items+'</div></div><div class="card" id="convPanel" style="padding:0;overflow:hidden"><div class="center muted" style="padding:70px 20px">اختر محادثة من القائمة</div></div></div>'; }
 async function openConv(uid,node){ document.querySelectorAll('#uList .chatlist-item').forEach(n=>n.classList.remove('active')); if(node)node.classList.add('active');
   convUid=uid; convName=node?node.querySelector('.ci-name').textContent:uid;
   document.getElementById('convPanel').innerHTML='<div class="chat">'
-   +'<div class="chat-head"><div class="avatar" style="width:38px;height:38px;font-size:15px">'+initial(convName)+'</div><div style="flex:1;min-width:0"><div class="ch-name">'+esc(convName)+'</div><div class="ch-sub">'+esc(uid)+'</div></div><button class="iconbtn" onclick="toggleSearch()">🔍</button><button class="iconbtn" onclick="exportConv()">📥</button></div>'
+   +'<div class="chat-head"><button class="iconbtn" onclick="backToList()" title="رجوع">▶</button><div class="avatar" style="width:38px;height:38px;font-size:15px">'+initial(convName)+'</div><div style="flex:1;min-width:0"><div class="ch-name">'+esc(convName)+'</div><div class="ch-sub">'+esc(uid)+'</div></div><button class="iconbtn" onclick="toggleSearch()">🔍</button><button class="iconbtn" onclick="exportConv()">📥</button></div>'
    +'<div id="convSearch" style="display:none;padding:8px 12px;border-bottom:1px solid var(--line)"><input id="convQ" placeholder="بحث في المحادثة..." onkeydown="if(event.key===\\'Enter\\')renderConv()" style="width:100%"></div>'
    +'<div class="chat-body" id="convBody"></div>'
    +'<div class="chat-input"><input id="convMsg" placeholder="اكتب رسالة تُرسل من البوت..." onkeydown="if(event.key===\\'Enter\\')sendDM()"><button class="sendbtn" onclick="sendDM()">➤</button></div>'
    +'</div>';
+  document.getElementById('convPanel').scrollIntoView({behavior:'smooth',block:'start'});
   renderConv(); }
+function backToList(){ const l=document.getElementById('uList'); if(l)l.scrollIntoView({behavior:'smooth',block:'start'}); }
 function toggleSearch(){ const s=document.getElementById('convSearch'); if(!s)return; const show=s.style.display==='none'; s.style.display=show?'block':'none'; if(show)document.getElementById('convQ').focus(); else{ document.getElementById('convQ').value=''; renderConv(); } }
 async function renderConv(){ if(!convUid)return; const q=document.getElementById('convQ'); const term=q?q.value.trim():'';
   const rows=await api('/users/'+convUid+'/conversation?limit=300'+(term?'&q='+encodeURIComponent(term):'')); rows.reverse();

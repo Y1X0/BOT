@@ -62,12 +62,15 @@ export async function queryLogs(f: LogFilter): Promise<MessageLog[]> {
   });
 }
 
-/** Users who have talked to the bot (DM or in groups), most recent first. */
+/** Users with a *private* (DM) conversation with the bot, most recent first.
+ * Group chatter is excluded — that lives in the Groups/Monitor tabs. Private
+ * chat ids are positive (chatId === userId); group ids are negative. */
 export async function listConversants(limit = 200): Promise<
   { userId: string; name: string; count: number; last: string | null }[]
 > {
   const rows = await prisma.messageLog.groupBy({
     by: ['userId', 'userName'],
+    where: { chatId: { gt: 0 } }, // DM only
     _count: { _all: true },
     _max: { createdAt: true },
     orderBy: { _max: { createdAt: 'desc' } },
@@ -92,7 +95,8 @@ export async function userConversation(
   return prisma.messageLog.findMany({
     where: {
       userId: BigInt(userId),
-      chatId: chatId ? BigInt(chatId) : undefined,
+      // Default to the private (DM) thread; a specific chatId can still scope to a group.
+      chatId: chatId ? BigInt(chatId) : { gt: 0 },
       text: q ? { contains: q } : undefined,
       id: before ? { lt: before } : undefined,
     },
