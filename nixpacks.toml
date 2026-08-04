@@ -1,0 +1,6 @@
+# Railway/Nixpacks build config.
+# Installs system Chromium (+ fontconfig) so the Smart PDF Creator can render
+# HTML → PDF. The bot resolves /usr/bin/chromium automatically at runtime.
+# Node setup is auto-detected by Nixpacks; these apt packages are added on top.
+[phases.setup]
+aptPkgs = ["chromium", "fontconfig", "fonts-liberation", "ca-certificates"]

@@ -213,6 +213,10 @@ async function generate(ctx: BotContext, st: PdfState): Promise<void> {
     clearPdf(ctx.from.id);
   } catch (err) {
     log.error({ err }, 'pdf generation failed');
-    await ctx.reply('⚠️ تعذّر إنشاء الـ PDF. حاول مجدداً أو قلّل حجم المحتوى.');
+    const reason = err instanceof Error ? err.message : String(err);
+    const hint = /Chromium|Executable|launch|browserType/i.test(reason)
+      ? '\n\n⚠️ المتصفح (Chromium) غير مثبّت على الخادم — لازم يُثبّت لإنشاء الـ PDF.'
+      : '';
+    await ctx.reply(`⚠️ تعذّر إنشاء الـ PDF.\n\nالسبب: ${reason.slice(0, 200)}${hint}`);
   }
 }

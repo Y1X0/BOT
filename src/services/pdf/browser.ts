@@ -1,10 +1,11 @@
 import { readdirSync, existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { chromium, type Browser } from 'playwright-core';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('pdf:browser');
 
-/** Resolve the pre-installed Chromium binary (Playwright layout or system). */
+/** Resolve a Chromium binary: env override → Playwright layout → system → PATH. */
 function resolveExecutable(): string | undefined {
   if (process.env.PDF_CHROME_PATH && existsSync(process.env.PDF_CHROME_PATH)) return process.env.PDF_CHROME_PATH;
   const root = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
@@ -21,8 +22,17 @@ function resolveExecutable(): string | undefined {
   } catch {
     /* fall through to system paths */
   }
-  for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome']) {
+  for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable']) {
     if (existsSync(p)) return p;
+  }
+  // Last resort: whatever is on PATH (e.g. a Nix-provided chromium).
+  for (const name of ['chromium', 'chromium-browser', 'google-chrome-stable']) {
+    try {
+      const p = execSync(`command -v ${name}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      if (p && existsSync(p)) return p;
+    } catch {
+      /* not on PATH */
+    }
   }
   return undefined;
 }
@@ -36,8 +46,14 @@ export async function getBrowser(): Promise<Browser> {
     if (b && b.isConnected()) return b;
     browserPromise = null;
   }
+  const executablePath = resolveExecutable();
+  if (!executablePath) {
+    throw new Error(
+      'Chromium غير مثبّت على الخادم. ثبّت chromium (عبر nixpacks.toml) أو عيّن PDF_CHROME_PATH.',
+    );
+  }
   browserPromise = chromium.launch({
-    executablePath: resolveExecutable(),
+    executablePath,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
   const browser = await browserPromise;
