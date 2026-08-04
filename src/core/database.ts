@@ -37,6 +37,7 @@ export async function ensureSchema(): Promise<void> {
   const statements = [
     'ALTER TABLE "EconomyAccount" ADD COLUMN IF NOT EXISTS "lastWorkAt" TIMESTAMP(3)',
     'ALTER TABLE "EconomyAccount" ADD COLUMN IF NOT EXISTS "lastCrimeAt" TIMESTAMP(3)',
+    'ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "badwordsEnabled" BOOLEAN NOT NULL DEFAULT false',
     // Virtual-pet table (matches Prisma's Postgres DDL so a later db push is a no-op).
     `CREATE TABLE IF NOT EXISTS "Pet" (
       "id" SERIAL NOT NULL,

@@ -178,6 +178,7 @@ export const MENU: MenuCategory[] = [
       { ar: 'قفل الجروب', cmd: 'lockdown', desc: 'منع الكتابة' },
       { ar: 'فتح الجروب', cmd: 'unlock', desc: 'فتح الكتابة' },
       { ar: 'مكافحة الغارات', cmd: 'antiraid', desc: 'حماية من الاقتحام' },
+      { ar: 'منع السب', cmd: 'antiswear', desc: 'حذف السب والشتم تلقائياً' },
       { ar: 'رفع ادمن', cmd: 'promote', desc: 'ترقية عضو لمشرف (بالرد)' },
       { ar: 'تنزيل ادمن', cmd: 'demote', desc: 'تنزيل مشرف (بالرد)' },
       { ar: 'كتم', cmd: 'mute', desc: 'كتم عضو (بالرد)' },

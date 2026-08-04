@@ -58,6 +58,7 @@ export const TOGGLEABLE_SETTINGS = [
   'antiLinkEnabled',
   'antiForwardEnabled',
   'filtersEnabled',
+  'badwordsEnabled',
   'repliesEnabled',
   'reactionsEnabled',
   'gamesEnabled',

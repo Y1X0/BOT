@@ -1,6 +1,7 @@
 import type { MiddlewareFn } from 'telegraf';
 import type { BotContext } from '../core/context';
 import { matchFilter } from '../services/filters.service';
+import { containsBadword } from '../services/badwords';
 import { addWarning } from '../services/moderation.service';
 import { logAction } from '../services/moderation.service';
 import { deleteMessage, muteUser, applyWarnAction } from '../utils/moderation-actions';
@@ -68,6 +69,15 @@ export const antispamMiddleware: MiddlewareFn<BotContext> = async (ctx, next) =>
       await ctx.reply(t('mod.filter_hit')).catch(() => undefined);
       return; // handled
     }
+  }
+
+  // 1b) Built-in profanity/insult filter (opt-in). Deletes and warns; repeated
+  // offenders escalate per the chat's warn action (mute/kick/ban).
+  if ((settings as { badwordsEnabled?: boolean }).badwordsEnabled && text && containsBadword(text)) {
+    await deleteMessage(ctx);
+    await handleWarn(ctx, from, settings, t, 'insult');
+    await ctx.reply('🚫 يُمنع السب والشتم والألفاظ المسيئة في المجموعة.').catch(() => undefined);
+    return; // handled
   }
 
   // 2) Anti-link.

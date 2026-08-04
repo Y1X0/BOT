@@ -29,6 +29,7 @@ export const adminPlugin: Plugin = {
     { command: 'setwarns', description: '🔢 حد التحذيرات: /setwarns 3', staffOnly: true },
     { command: 'warnaction', description: '⚙️ عقوبة التحذيرات: /warnaction mute|kick|ban', staffOnly: true },
     { command: 'setflood', description: '🚦 ضبط التكرار: /setflood 7 10', staffOnly: true },
+    { command: 'antiswear', description: '🚫 منع السب والشتم: /antiswear on|off', staffOnly: true },
     { command: 'lang', description: '🌐 لغة الجروب: /lang ar|en', staffOnly: true },
   ],
 
@@ -118,6 +119,23 @@ export const adminPlugin: Plugin = {
         data: { floodLimit: limit, floodWindowSec: windowSec, floodEnabled: true },
       });
       await ctx.reply(`✅ تم ضبط مكافحة التكرار: ${limit} رسائل خلال ${windowSec} ثانية.`);
+    });
+
+    // 🚫 Toggle the built-in profanity/insult filter.
+    bot.command('antiswear', requireRole('admin'), async (ctx) => {
+      const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
+      const on = arg === 'on' || arg === 'تفعيل' || arg === 'فعل';
+      const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف' || arg === 'وقف';
+      if (!on && !off) {
+        const cur = (ctx.state.settings as { badwordsEnabled?: boolean } | undefined)?.badwordsEnabled ? 'مفعّل ✅' : 'متوقف ❌';
+        return void ctx.reply(`🚫 منع السب حالياً: ${cur}\nاستخدم: /antiswear on   أو   /antiswear off`);
+      }
+      await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { badwordsEnabled: on } });
+      await ctx.reply(
+        on
+          ? '🚫 تم تفعيل منع السب — سيُحذف أي سب أو شتم تلقائياً ويُحذَّر صاحبه.'
+          : '✅ تم إيقاف منع السب.',
+      );
     });
 
     bot.command('setwelcome', requireRole('admin'), async (ctx) => {

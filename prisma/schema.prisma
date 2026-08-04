@@ -56,6 +56,7 @@ model ChatSettings {
   antiLinkEnabled     Boolean  @default(false)
   antiForwardEnabled  Boolean  @default(false)
   filtersEnabled      Boolean  @default(true)
+  badwordsEnabled     Boolean  @default(false) // auto-filter Arabic profanity/insults
   maxWarnings         Int      @default(3)
   warnAction          String   @default("mute") // mute | kick | ban
 
