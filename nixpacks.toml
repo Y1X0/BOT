@@ -1,6 +1,11 @@
-# Railway/Nixpacks build config.
-# Installs system Chromium (+ fontconfig) so the Smart PDF Creator can render
-# HTML → PDF. The bot resolves /usr/bin/chromium automatically at runtime.
-# Node setup is auto-detected by Nixpacks; these apt packages are added on top.
+# Railway / Nixpacks build config.
+# Installs a self-contained Chromium (Nix package) so the Smart PDF Creator can
+# render HTML → PDF. The "..." keeps Nixpacks' auto-detected Node packages and
+# adds chromium on top; the app resolves it via PATH (`command -v chromium`) at
+# runtime. Nix's chromium bundles its own libraries, avoiding missing-.so errors.
 [phases.setup]
-aptPkgs = ["chromium", "fontconfig", "fonts-liberation", "ca-certificates"]
+nixPkgs = ["...", "chromium"]
+
+[variables]
+# playwright-core uses the system Chromium above — never download a browser.
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
