@@ -63,19 +63,37 @@ export async function createBot(): Promise<{
   return { bot, plugins };
 }
 
-/** Publish the public command list to Telegram (autocomplete menu). */
+/**
+ * Curated commands shown in Telegram's "/" autocomplete menu. Every other
+ * command still works (by typing it, via an Arabic alias, or through /menu) —
+ * this only keeps the popup short and clean instead of listing 150+ commands.
+ * Edit this list to show/hide a command in the popup.
+ */
+export const MENU_COMMANDS = [
+  'menu', 'help', 'id', 'rules',
+  'prayer', 'ayah', 'athkar',
+  'balance', 'daily', 'top', 'rank', 'pet',
+  'sticker', 'song', 'pdf',
+  'quiz', 'spy', 'stats',
+  'tr', 'weather', 'remind',
+  'marry', 'musaraha', 'giveaway',
+];
+
+/** Publish the curated command list to Telegram (autocomplete menu). */
 export async function publishCommands(
   bot: Telegraf<BotContext>,
   plugins: Plugin[],
 ): Promise<void> {
-  const commands = plugins
-    .flatMap((p) => p.commands ?? [])
-    .filter((c) => !c.staffOnly)
-    .map((c) => ({ command: c.command, description: c.description }));
+  const all = new Map(
+    plugins
+      .flatMap((p) => p.commands ?? [])
+      .filter((c) => !c.staffOnly)
+      .map((c) => [c.command, c.description] as const),
+  );
+  // Keep only whitelisted commands, in the whitelist's order.
+  const commands = MENU_COMMANDS.filter((c) => all.has(c)).map((c) => ({ command: c, description: all.get(c)! }));
 
-  if (commands.length) {
-    await bot.telegram.setMyCommands(commands).catch((err) => {
-      log.warn({ err }, 'Failed to set command menu');
-    });
-  }
+  await bot.telegram.setMyCommands(commands).catch((err) => {
+    log.warn({ err }, 'Failed to set command menu');
+  });
 }
