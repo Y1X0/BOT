@@ -52,6 +52,7 @@ async function main(): Promise<void> {
       /* already stopped */
     }
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await import('./services/pdf/browser').then((m) => m.closeBrowser()).catch(() => undefined);
     await disconnectDatabase();
     logger.info('Shutdown complete');
     process.exit(0);

@@ -111,6 +111,7 @@ export const MENU: MenuCategory[] = [
     title: 'أدوات',
     items: [
       { ar: 'ترجم', cmd: 'tr', desc: 'ترجمة' },
+      { ar: 'بي دي اف', cmd: 'pdf', desc: 'أنشئ PDF احترافي (مُرشد)' },
       { ar: 'باركود', cmd: 'qr', desc: 'باركود QR' },
       { ar: 'عمله', cmd: 'currency', desc: 'أسعار العملات' },
       { ar: 'كريبتو', cmd: 'crypto', desc: 'عملات رقمية' },

@@ -6,6 +6,7 @@ import { isAwaitingWhisper } from '../whisper/state';
 import { isAwaitingMusaraha } from '../musaraha/state';
 import { isAwaitingStickerText } from '../sticker/state';
 import { isAwaitingPackTitle } from '../stickerpack/state';
+import { isAwaitingPdf } from '../pdf/state';
 
 /**
  * Natural-language command aliases: lets users trigger commands by typing
@@ -64,6 +65,7 @@ const ALIASES: Alias[] = [
   { command: 'type', triggers: ['كتابه سريعه', 'تحدي الكتابه', 'سباق كتابه'] },
   { command: 'guessmovie', triggers: ['خمن الفيلم', 'تخمين الافلام', 'خمن فيلم'] },
   { command: 'guesssong', triggers: ['خمن الاغنيه', 'تخمين الاغاني', 'خمن اغنيه'] },
+  { command: 'pdf', triggers: ['pdf', 'بي دي اف', 'انشئ pdf', 'ملف pdf', 'اعمل pdf'] },
   { command: 'stats', triggers: ['الاحصائيات', 'احصائيات', 'احصائيه'] },
   { command: 'activetop', triggers: ['الاكثر تفاعلا', 'النشطين'] },
   { command: 'quiz', triggers: ['سؤال', 'مسابقه', 'سؤال ثقافي'] },
@@ -243,6 +245,8 @@ export const aliasesPlugin: Plugin = {
       if (ctx.from && (isAwaitingWhisper(ctx.from.id) || isAwaitingMusaraha(ctx.from.id))) return next();
       if (ctx.from && ctx.chat && isAwaitingStickerText(ctx.chat.id, ctx.from.id)) return next();
       if (ctx.from && isAwaitingPackTitle(ctx.from.id)) return next();
+      // While the PDF wizard is collecting input, text is data — never rewrite it.
+      if (ctx.from && isAwaitingPdf(ctx.from.id)) return next();
       // In DM, a native reply to the bot's own message is an interaction
       // (e.g. a musaraha reply/block), never a command — don't rewrite it.
       if (ctx.chat?.type === 'private') {
