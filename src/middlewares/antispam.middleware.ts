@@ -48,12 +48,26 @@ export const antispamMiddleware: MiddlewareFn<BotContext> = async (ctx, next) =>
     return next();
   }
 
-  // Never moderate staff or the bot itself.
-  if (ctx.state.isStaff || from.is_bot) return next();
-  if (!settings.antispamEnabled) return next();
+  if (from.is_bot) return next();
 
   const text = (ctx.message as { text?: string; caption?: string } | undefined)?.text
     ?? (ctx.message as { caption?: string } | undefined)?.caption;
+
+  // 0) Profanity/insult filter (opt-in). Runs BEFORE the staff bypass and
+  // independently of antispamEnabled, so insults are caught for everyone. Staff
+  // messages are still deleted when possible, but staff aren't warned/escalated.
+  if ((settings as { badwordsEnabled?: boolean }).badwordsEnabled && text && containsBadword(text)) {
+    await deleteMessage(ctx);
+    if (!ctx.state.isStaff) {
+      await handleWarn(ctx, from, settings, t, 'insult');
+    }
+    await ctx.reply('🚫 يُمنع السب والشتم والألفاظ المسيئة في المجموعة.').catch(() => undefined);
+    return; // handled
+  }
+
+  // Never moderate staff or the bot itself for the remaining spam checks.
+  if (ctx.state.isStaff) return next();
+  if (!settings.antispamEnabled) return next();
 
   // 1) Banned words filter.
   if (settings.filtersEnabled && text) {
@@ -69,15 +83,6 @@ export const antispamMiddleware: MiddlewareFn<BotContext> = async (ctx, next) =>
       await ctx.reply(t('mod.filter_hit')).catch(() => undefined);
       return; // handled
     }
-  }
-
-  // 1b) Built-in profanity/insult filter (opt-in). Deletes and warns; repeated
-  // offenders escalate per the chat's warn action (mute/kick/ban).
-  if ((settings as { badwordsEnabled?: boolean }).badwordsEnabled && text && containsBadword(text)) {
-    await deleteMessage(ctx);
-    await handleWarn(ctx, from, settings, t, 'insult');
-    await ctx.reply('🚫 يُمنع السب والشتم والألفاظ المسيئة في المجموعة.').catch(() => undefined);
-    return; // handled
   }
 
   // 2) Anti-link.
