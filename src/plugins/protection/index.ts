@@ -2,7 +2,7 @@ import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { prisma } from '../../core/database';
-import { requireRole } from '../../utils/permissions';
+import { requireRole, isBotOwner } from '../../utils/permissions';
 import { muteUser } from '../../utils/moderation-actions';
 import { createLogger } from '../../core/logger';
 import { makeRaidState, recordJoin, type RaidState } from './raid';
@@ -13,6 +13,26 @@ const log = createLogger('plugin:protection');
 const THRESHOLD = 5;
 const WINDOW_MS = 10_000;
 const COOLDOWN_MS = 60_000;
+
+// Guardian mode: the full protection suite toggled together.
+const GUARD_ON = {
+  antispamEnabled: true,
+  floodEnabled: true,
+  antiLinkEnabled: true,
+  antiForwardEnabled: true,
+  filtersEnabled: true,
+  badwordsEnabled: true,
+  antiRaidEnabled: true,
+  cleanServiceEnabled: true,
+} as const;
+// Turn off the strict extras but keep baseline anti-spam/flood/filters on.
+const GUARD_OFF = {
+  antiLinkEnabled: false,
+  antiForwardEnabled: false,
+  badwordsEnabled: false,
+  antiRaidEnabled: false,
+  cleanServiceEnabled: false,
+} as const;
 
 const raidStates = new Map<number, RaidState>();
 function stateFor(chatId: number): RaidState {
@@ -49,6 +69,8 @@ export const protectionPlugin: Plugin = {
     { command: 'lockdown', description: '🔒 قفل الكتابة في الجروب', staffOnly: true },
     { command: 'unlock', description: '🔓 فتح الكتابة في الجروب', staffOnly: true },
     { command: 'antiraid', description: '🛡 تفعيل/إيقاف مكافحة الغارات', staffOnly: true },
+    { command: 'guard', description: '🛡 وضع الحارس: تفعيل كل الحمايات دفعة', staffOnly: true },
+    { command: 'guardall', description: '🛡 تطبيق الحارس على كل القروبات (المالك)', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -108,6 +130,41 @@ export const protectionPlugin: Plugin = {
       }
       await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { antiRaidEnabled: on } });
       await ctx.reply(on ? '🛡 تم تفعيل مكافحة الغارات — سيتم قفل الجروب تلقائياً عند دخول جماعي مفاجئ.' : '🛡 تم إيقاف مكافحة الغارات.');
+    });
+
+    // --- Guardian mode: flip the whole protection suite at once ---
+    bot.command('guard', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
+      const on = arg === 'on' || arg === 'تفعيل' || arg === 'فعل';
+      const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف' || arg === 'وقف';
+      if (!on && !off) {
+        return void ctx.reply(
+          '🛡 وضع الحارس يفعّل كل الحمايات دفعة واحدة:\n' +
+            'مكافحة السبام والتكرار، منع الروابط والتوجيه، فلتر الكلمات، منع السب، مكافحة الغارات، وتنظيف رسائل الخدمة.\n\n' +
+            'استخدم: /guard on   أو   /guard off',
+        );
+      }
+      await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: on ? GUARD_ON : GUARD_OFF });
+      await ctx.reply(
+        on
+          ? '🛡 تم تفعيل وضع الحارس — الجروب محمي بالكامل الآن:\n✅ سبام · ✅ تكرار · ✅ روابط · ✅ توجيه · ✅ كلمات ممنوعة · ✅ منع سب · ✅ غارات · ✅ تنظيف'
+          : '🛡 تم إيقاف الحمايات الإضافية لوضع الحارس (تبقى مكافحة السبام الأساسية).',
+      );
+    });
+
+    // --- Apply guardian mode to ALL groups at once (bot owner only) ---
+    bot.command('guardall', async (ctx) => {
+      if (!ctx.from || !isBotOwner(ctx.from.id)) return;
+      const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
+      const on = arg === 'on' || arg === 'تفعيل';
+      const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف';
+      if (!on && !off) {
+        return void ctx.reply('🛡 يطبّق وضع الحارس على كل القروبات.\nاستخدم: /guardall on   أو   /guardall off');
+      }
+      const res = await prisma.chatSettings.updateMany({ data: on ? GUARD_ON : GUARD_OFF });
+      log.info({ count: res.count, on }, 'guardall applied');
+      await ctx.reply(`🛡 تم ${on ? 'تفعيل' : 'إيقاف'} وضع الحارس على ${res.count} قروب.`);
     });
   },
 };
