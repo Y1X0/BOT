@@ -2,7 +2,7 @@ import type { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { displayName } from '../../utils/format';
+import { displayName, senderIdentity } from '../../utils/format';
 import { isBotOwner } from '../../utils/permissions';
 import { isPromptAllowed } from '../../services/image/safety';
 import { recordMessage, senderForDelivered, blockSender, isBlocked, recentMessages } from '../../services/musaraha.service';
@@ -25,10 +25,11 @@ export const musarahaPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     const sendLink = async (ctx: BotContext) => {
-      if (!ctx.from) return;
+      const me = senderIdentity(ctx);
+      if (!me) return;
       const username = ctx.botInfo?.username;
       if (!username) return void ctx.reply('⚠️ تعذّر تجهيز الرابط الآن، حاول لاحقاً.');
-      const link = `https://t.me/${username}?start=s_${ctx.from.id}`;
+      const link = `https://t.me/${username}?start=s_${me.id}`;
       await ctx.reply(
         `💌 رابط المصارحة الخاص فيك:\n${link}\n\nشاركه في بايو/ستوري، وأي حد يفتحه بيقدر يبعتلك رسالة مجهولة تجيك بالخاص 🤫`,
       );

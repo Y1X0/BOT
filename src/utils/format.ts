@@ -17,6 +17,19 @@ export function displayName(user?: {
   return `User ${user.id ?? ''}`.trim();
 }
 
+/**
+ * The identity that sent a message. When a user posts "as a channel" in a
+ * group, Telegram omits `from` and provides `sender_chat` instead — this
+ * treats that channel as its own account (using its unique id), so features
+ * keyed by a sender still work. Returns null only when neither is present.
+ */
+export function senderIdentity(ctx: BotContext): { id: number; name: string } | null {
+  const sc = ctx.senderChat as { id: number; title?: string; username?: string } | undefined;
+  if (sc) return { id: sc.id, name: sc.title ?? (sc.username ? `@${sc.username}` : 'قناة') };
+  if (ctx.from) return { id: ctx.from.id, name: displayName(ctx.from) };
+  return null;
+}
+
 /** An @mention-style clickable name for MarkdownV2. */
 export function mention(user: { id: number; first_name?: string; username?: string }): string {
   const name = escapeMd(displayName(user));

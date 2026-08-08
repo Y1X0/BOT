@@ -31,7 +31,12 @@ export const whisperPlugin: Plugin = {
   register(bot: Telegraf<BotContext>) {
     // Step 1: /whisper or "اهمس" as a reply to the target in a group.
     bot.command('whisper', async (ctx) => {
-      if (!ctx.chat || ctx.chat.type === 'private' || !ctx.from) return;
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      // Posting as a channel has no personal chat to type the secret in.
+      if (!ctx.from) {
+        await ctx.reply('🤫 ميزة الهمس تحتاج حساباً شخصياً — لا يمكن استخدامها من هوية قناة.').catch(() => undefined);
+        return;
+      }
       const replied = (ctx.message as { reply_to_message?: { from?: TargetUser } }).reply_to_message;
       const target = replied?.from;
       if (!target || target.is_bot || target.id === ctx.from.id) {
