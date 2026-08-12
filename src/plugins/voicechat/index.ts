@@ -2,6 +2,11 @@ import type { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
+import { displayName } from '../../utils/format';
+
+const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const mention = (u: { id: number; first_name?: string; username?: string }): string =>
+  `<a href="tg://user?id=${u.id}">${escapeHtml(displayName(u))}</a>`;
 
 /**
  * Voice-chat interaction. Bots cannot start/stop group calls via the Bot API,
@@ -37,10 +42,12 @@ export const voiceChatPlugin: Plugin = {
     });
 
     bot.on(message('video_chat_participants_invited'), async (ctx) => {
-      const count = ctx.message.video_chat_participants_invited.users?.length ?? 0;
-      if (count > 0) {
-        await ctx.reply(`👥 تمت دعوة ${count} للمكالمة الصوتية 🎧`).catch(() => undefined);
-      }
+      const users = ctx.message.video_chat_participants_invited.users ?? [];
+      if (!users.length) return;
+      const names = users.map(mention).join('، ');
+      await ctx
+        .reply(`👥 تمت دعوة ${names} للمكالمة الصوتية 🎧\nيلا انضموا! 🎙`, { parse_mode: 'HTML' })
+        .catch(() => undefined);
     });
   },
 };
