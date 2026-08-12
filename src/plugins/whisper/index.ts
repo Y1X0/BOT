@@ -23,6 +23,8 @@ import {
  */
 type TargetUser = { id: number; first_name?: string; username?: string; is_bot?: boolean };
 
+const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 export const whisperPlugin: Plugin = {
   name: 'whisper',
   description: 'Secret whispers with the secret entered privately in DM',
@@ -120,8 +122,10 @@ export const whisperPlugin: Plugin = {
         text: secret,
       });
 
+      const mentionHtml = `<a href="tg://user?id=${p.targetId}">${escapeHtml(p.targetName)}</a>`;
       await ctx.telegram
-        .sendMessage(p.chatId, `🤫 همسة سرية إلى ${p.targetName}\nفقط هو من يقدر يفتحها 👇`, {
+        .sendMessage(p.chatId, `🤫 همسة سرية إلى ${mentionHtml}\nفقط هو من يقدر يفتحها 👇`, {
+          parse_mode: 'HTML',
           reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
         })
         .catch(() => undefined);
