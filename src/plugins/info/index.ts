@@ -4,7 +4,8 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
-import { resolveTarget } from '../../utils/format';
+import { resolveTarget, displayName, pickRandom } from '../../utils/format';
+import { BIO_QUOTES } from './bios';
 import { getSettings } from '../../services/settings.service';
 import { getMember } from '../../services/member.service';
 import { statLabel, interactionLabel, buildIdCard } from './card';
@@ -22,6 +23,7 @@ export const infoPlugin: Plugin = {
     { command: 'weather', description: '🌤 حالة الطقس' },
     { command: 'id', description: '🆔 معلوماتك (صورة، بايو، آيدي)' },
     { command: 'info', description: '👤 معلومات عضو (بالرد عليه)' },
+    { command: 'bio', description: '📝 بايو عضو (بالرد عليه)' },
     { command: 'rules', description: '📜 قوانين الجروب' },
   ],
 
@@ -50,6 +52,25 @@ export const infoPlugin: Plugin = {
     };
     bot.command('id', infoHandler);
     bot.command('info', infoHandler);
+
+    // /bio (reply) → the member's Telegram bio, or a bot-picked phrase if none.
+    bot.command('bio', async (ctx) => {
+      const target = resolveTarget(ctx) ?? ctx.from;
+      if (!target) return;
+      let bio = '';
+      try {
+        const chat = (await ctx.telegram.getChat(target.id)) as { bio?: string };
+        bio = chat.bio?.trim() ?? '';
+      } catch {
+        /* bio unavailable */
+      }
+      const name = displayName(target);
+      if (bio) {
+        await ctx.reply(`📝 بايو ${name}:\n«${bio}»`);
+      } else {
+        await ctx.reply(`📝 ${name} ما حاطط بايو 🤷\nخُذ هاي من عندي:\n«${pickRandom(BIO_QUOTES)}»`);
+      }
+    });
 
     // Also trigger on a bare "id" / "آيدي" message (no slash needed).
     bot.on(message('text'), async (ctx, next) => {
