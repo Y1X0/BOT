@@ -24,6 +24,27 @@ function inNightWindow(hour: number, start: number, end: number): boolean {
   return start <= end ? hour >= start && hour < end : hour >= start || hour < end;
 }
 
+/** Mention up to 50 registered members in batches (shared by /all and @all). */
+async function mentionAll(ctx: BotContext, note: string): Promise<void> {
+  if (!ctx.chat || ctx.chat.type === 'private') return;
+  const members = await prisma.member.findMany({
+    where: { chatId: BigInt(ctx.chat.id) },
+    orderBy: { lastSeenAt: 'desc' },
+    take: 50,
+  });
+  if (!members.length) return void ctx.reply('لا يوجد أعضاء مسجّلون بعد.');
+
+  const mentions = members.map(
+    (m) => `<a href="tg://user?id=${m.userId}">${escapeHtml(m.firstName ?? 'عضو')}</a>`,
+  );
+  const header = note ? `📢 ${escapeHtml(note)}\n\n` : '📢 نداء للجميع:\n\n';
+  // 8 mentions per message to avoid hitting entity limits.
+  for (let i = 0; i < mentions.length; i += 8) {
+    const chunk = mentions.slice(i, i + 8).join(' ');
+    await ctx.reply((i === 0 ? header : '') + chunk, { parse_mode: 'HTML' }).catch(() => undefined);
+  }
+}
+
 export const managementPlugin: Plugin = {
   name: 'management',
   description: 'Night mode, service-message cleanup, mention-all, admins list',
@@ -57,26 +78,18 @@ export const managementPlugin: Plugin = {
 
     // --- Mention all registered members (in batches) ---
     bot.command('all', requireRole('moderator'), async (ctx) => {
-      if (!ctx.chat || ctx.chat.type === 'private') return;
       const note = ctx.message.text.split(' ').slice(1).join(' ').trim();
-      const members = await prisma.member.findMany({
-        where: { chatId: BigInt(ctx.chat.id) },
-        orderBy: { lastSeenAt: 'desc' },
-        take: 50,
-      });
-      if (!members.length) return void ctx.reply('لا يوجد أعضاء مسجّلون بعد.');
+      await mentionAll(ctx, note);
+    });
 
-      const mentions = members.map(
-        (m) => `<a href="tg://user?id=${m.userId}">${escapeHtml(m.firstName ?? 'عضو')}</a>`,
-      );
-      const header = note ? `📢 ${escapeHtml(note)}\n\n` : '📢 نداء للجميع:\n\n';
-      // 8 mentions per message to avoid hitting entity limits.
-      for (let i = 0; i < mentions.length; i += 8) {
-        const chunk = mentions.slice(i, i + 8).join(' ');
-        await ctx
-          .reply((i === 0 ? header : '') + chunk, { parse_mode: 'HTML' })
-          .catch(() => undefined);
-      }
+    // Also trigger on a bare "@all" / "@everyone" / "@الكل" (staff only).
+    bot.on(message('text'), async (ctx, next) => {
+      const text = ctx.message.text.trim();
+      const m = /^@(all|everyone|الكل|الجميع)\b\s*/i.exec(text);
+      if (!m) return next();
+      if (!ctx.state.isStaff) return next(); // silently ignore for non-staff
+      await mentionAll(ctx, text.slice(m[0].length).trim());
+      return; // consumed
     });
 
     // --- Admins list ---
