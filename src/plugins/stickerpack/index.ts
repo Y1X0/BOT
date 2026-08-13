@@ -42,6 +42,7 @@ export const stickerPackPlugin: Plugin = {
     { command: 'addemoji', description: '➕ أضف رمزاً مميزاً (بالرد على صورة/فيديو)' },
     { command: 'mypack', description: '🧷 رابط مجموعة الملصقات' },
     { command: 'myemoji', description: '🧷 رابط مجموعة الرموز المميزة' },
+    { command: 'pemoji', description: '✨ يبعت رموزك المميزة داخل رسالة: /pemoji [نص]' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -67,6 +68,30 @@ export const stickerPackPlugin: Plugin = {
     };
     bot.command('mypack', showPack('regular'));
     bot.command('myemoji', showPack('emoji'));
+
+    // Send the user's premium (custom-emoji) pack inline in a message. Bots may
+    // only send custom emoji from sets they created — which /newemoji sets are.
+    bot.command('pemoji', async (ctx) => {
+      if (!ctx.from || !ctx.chat) return;
+      const pack = await getPack(ctx.from.id, 'emoji');
+      if (!pack) return void ctx.reply('✨ لا توجد لديك رموز مميزة. أنشئها بـ /newemoji ثم أضِف رموزاً.');
+      const set = await ctx.telegram.getStickerSet(pack.name).catch(() => null);
+      const stickers = (set?.stickers ?? []).filter((s) => s.custom_emoji_id).slice(0, 12);
+      if (!stickers.length) return void ctx.reply('✨ حزمتك فارغة — أضِف رموزاً أولاً بـ /addemoji.');
+
+      const extra = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      let text = '';
+      const entities: { type: 'custom_emoji'; offset: number; length: number; custom_emoji_id: string }[] = [];
+      for (const s of stickers) {
+        const emo = s.emoji || '⭐';
+        entities.push({ type: 'custom_emoji', offset: text.length, length: emo.length, custom_emoji_id: s.custom_emoji_id! });
+        text += emo;
+      }
+      if (extra) text += ' ' + extra;
+      await ctx.telegram
+        .sendMessage(ctx.chat.id, text, { entities })
+        .catch(() => ctx.reply('⚠️ تعذّر إرسال الرموز المميزة.').catch(() => undefined));
+    });
 
     const addCmd = (kind: PackKind) => async (ctx: BotContext) => {
       const replied = (ctx.message as { reply_to_message?: unknown }).reply_to_message;
