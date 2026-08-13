@@ -86,7 +86,9 @@ const ALIASES: Alias[] = [
   { command: 'newemoji', triggers: ['رموز مميزه', 'مجموعه رموز', 'ايموجي مميز'] },
   { command: 'mypack', triggers: ['مجموعتي', 'ملصقاتي'] },
   { command: 'myemoji', triggers: ['رموزي', 'رموزي المميزه'] },
+  { command: 'saveemoji', triggers: ['احفظ رموز', 'خزن رموز', 'حفظ رموز'] },
   { command: 'pemoji', triggers: ['ارسل رموزي', 'ابعت رموزي', 'رموز مميزه'] },
+  { command: 'clearemoji', triggers: ['امسح رموزي', 'مسح الرموز'] },
   { command: 'addsticker', triggers: ['اضف ملصق', 'اضف للمجموعه'] },
   { command: 'addemoji', triggers: ['اضف رمز', 'اضف ايموجي'] },
   // Moderation (reply-based staff actions)

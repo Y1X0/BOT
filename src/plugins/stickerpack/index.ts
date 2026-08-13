@@ -6,6 +6,7 @@ import type { Plugin } from '../../core/plugin';
 import { photoToSticker, photoToEmoji } from '../../services/sticker';
 import { videoToSticker, videoToEmoji } from '../../services/videosticker';
 import { getPack, savePack, type PackKind } from '../../services/stickerpack.service';
+import { getSavedEmoji, addSavedEmoji, clearSavedEmoji, extractCustomEmoji } from '../../services/savedemoji.service';
 import { largestPhoto } from '../sticker/logic';
 import { packState } from './state';
 import { packName } from './logic';
@@ -42,7 +43,9 @@ export const stickerPackPlugin: Plugin = {
     { command: 'addemoji', description: '➕ أضف رمزاً مميزاً (بالرد على صورة/فيديو)' },
     { command: 'mypack', description: '🧷 رابط مجموعة الملصقات' },
     { command: 'myemoji', description: '🧷 رابط مجموعة الرموز المميزة' },
-    { command: 'pemoji', description: '✨ يبعت رموزك المميزة داخل رسالة: /pemoji [نص]' },
+    { command: 'saveemoji', description: '✨ احفظ رموزاً مميزة (بالرد على رسالة فيها رموز)' },
+    { command: 'pemoji', description: '✨ يبعت رموزك المميزة المحفوظة: /pemoji [نص]' },
+    { command: 'clearemoji', description: '🗑 امسح الرموز المميزة المحفوظة' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -69,28 +72,60 @@ export const stickerPackPlugin: Plugin = {
     bot.command('mypack', showPack('regular'));
     bot.command('myemoji', showPack('emoji'));
 
-    // Send the user's premium (custom-emoji) pack inline in a message. Bots may
-    // only send custom emoji from sets they created — which /newemoji sets are.
+    // Grab premium (custom) emoji from any message and save them.
+    bot.command('saveemoji', async (ctx) => {
+      if (!ctx.from) return;
+      const msg = ctx.message as {
+        text?: string;
+        entities?: never[];
+        reply_to_message?: { text?: string; caption?: string; entities?: never[]; caption_entities?: never[] };
+      };
+      const r = msg.reply_to_message;
+      const items = [
+        ...(r ? extractCustomEmoji(r.text ?? r.caption ?? '', r.entities ?? r.caption_entities ?? []) : []),
+        ...extractCustomEmoji(msg.text ?? '', msg.entities ?? []),
+      ];
+      if (!items.length) {
+        return void ctx.reply('✨ ردّ على رسالة فيها رموز مميزة (أو أرسلها بعد الأمر) لأحفظها.\nملاحظة: تحتاج Telegram Premium حتى ترسل رموز مميزة.');
+      }
+      const total = await addSavedEmoji(ctx.from.id, items);
+      await ctx.reply(`✅ حفظت ${items.length} رمزاً. المجموع المحفوظ: ${total}.\nأرسلها بـ /pemoji`);
+    });
+
+    bot.command('clearemoji', async (ctx) => {
+      if (!ctx.from) return;
+      await clearSavedEmoji(ctx.from.id);
+      await ctx.reply('🗑 تم مسح الرموز المميزة المحفوظة.');
+    });
+
+    // Send the user's saved custom emoji inline (falls back to their /newemoji
+    // pack). Requires the bot owner to have Telegram Premium to actually render.
     bot.command('pemoji', async (ctx) => {
       if (!ctx.from || !ctx.chat) return;
-      const pack = await getPack(ctx.from.id, 'emoji');
-      if (!pack) return void ctx.reply('✨ لا توجد لديك رموز مميزة. أنشئها بـ /newemoji ثم أضِف رموزاً.');
-      const set = await ctx.telegram.getStickerSet(pack.name).catch(() => null);
-      const stickers = (set?.stickers ?? []).filter((s) => s.custom_emoji_id).slice(0, 12);
-      if (!stickers.length) return void ctx.reply('✨ حزمتك فارغة — أضِف رموزاً أولاً بـ /addemoji.');
-
+      let items = await getSavedEmoji(ctx.from.id);
+      if (!items.length) {
+        const pack = await getPack(ctx.from.id, 'emoji');
+        const set = pack ? await ctx.telegram.getStickerSet(pack.name).catch(() => null) : null;
+        items = (set?.stickers ?? [])
+          .filter((s) => s.custom_emoji_id)
+          .map((s) => ({ e: s.emoji || '⭐', id: s.custom_emoji_id! }));
+      }
+      items = items.slice(0, 12);
+      if (!items.length) {
+        return void ctx.reply('✨ لا رموز محفوظة. ردّ على رسالة فيها رموز مميزة واكتب /saveemoji، أو أنشئ حزمة بـ /newemoji.');
+      }
       const extra = ctx.message.text.split(' ').slice(1).join(' ').trim();
       let text = '';
       const entities: { type: 'custom_emoji'; offset: number; length: number; custom_emoji_id: string }[] = [];
-      for (const s of stickers) {
-        const emo = s.emoji || '⭐';
-        entities.push({ type: 'custom_emoji', offset: text.length, length: emo.length, custom_emoji_id: s.custom_emoji_id! });
+      for (const it of items) {
+        const emo = it.e || '⭐';
+        entities.push({ type: 'custom_emoji', offset: text.length, length: emo.length, custom_emoji_id: it.id });
         text += emo;
       }
       if (extra) text += ' ' + extra;
       await ctx.telegram
         .sendMessage(ctx.chat.id, text, { entities })
-        .catch(() => ctx.reply('⚠️ تعذّر إرسال الرموز المميزة.').catch(() => undefined));
+        .catch(() => ctx.reply('⚠️ تعذّر إرسال الرموز المميزة.\nتأكد أن مالك البوت عنده اشتراك Telegram Premium.').catch(() => undefined));
     });
 
     const addCmd = (kind: PackKind) => async (ctx: BotContext) => {

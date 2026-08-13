@@ -56,6 +56,12 @@ export async function ensureSchema(): Promise<void> {
       CONSTRAINT "Pet_pkey" PRIMARY KEY ("id")
     )`,
     'CREATE UNIQUE INDEX IF NOT EXISTS "Pet_chatId_userId_key" ON "Pet"("chatId", "userId")',
+    `CREATE TABLE IF NOT EXISTS "SavedEmoji" (
+      "userId" BIGINT NOT NULL,
+      "items" TEXT NOT NULL DEFAULT '[]',
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "SavedEmoji_pkey" PRIMARY KEY ("userId")
+    )`,
   ];
   for (const sql of statements) {
     try {

@@ -420,3 +420,11 @@ model Pet {
 
   @@unique([chatId, userId])
 }
+
+/// A user's saved custom (premium) emoji, grabbed from any pack, so the bot can
+/// resend them. Requires the bot owner to have Telegram Premium to actually send.
+model SavedEmoji {
+  userId    BigInt   @id
+  items     String   @default("[]") // JSON array of { e: string, id: string }
+  updatedAt DateTime @updatedAt
+}
