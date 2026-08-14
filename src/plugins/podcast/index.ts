@@ -98,7 +98,7 @@ export const podcastPlugin: Plugin = {
 async function runSearch(ctx: BotContext & { message: { text: string } }, query: string): Promise<void> {
   if (!ctx.chat) return;
   const status = await ctx.reply('🔎 جاري البحث عن البودكاست...');
-  const res = await searchPodcasts(query, 8);
+  const res = await searchPodcasts(query, 20);
   if ('error' in res) {
     const msg =
       res.error === 'notfound'

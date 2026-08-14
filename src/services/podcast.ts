@@ -142,7 +142,11 @@ export function parseItunesShows(json: unknown, limit = 8): PodcastShow[] {
 export async function searchPodcasts(term: string, limit = 8): Promise<PodcastShow[] | PodcastError> {
   let reachable = false;
   let detail = '';
-  for (const country of ['SA', '']) {
+  const seen = new Set<string>();
+  const all: PodcastShow[] = [];
+  // Merge results across stores (broader coverage), de-duplicating by feed.
+  for (const country of ['SA', '', 'US', 'EG']) {
+    if (all.length >= limit) break;
     const c = country ? `&country=${country}` : '';
     const url = `https://itunes.apple.com/search?media=podcast&entity=podcast${c}&limit=${limit * 2}&term=${encodeURIComponent(term)}`;
     try {
@@ -152,13 +156,18 @@ export async function searchPodcasts(term: string, limit = 8): Promise<PodcastSh
         continue;
       }
       reachable = true;
-      const shows = parseItunesShows(await res.json(), limit);
-      if (shows.length) return shows;
+      for (const s of parseItunesShows(await res.json(), limit * 2)) {
+        if (!seen.has(s.feedUrl)) {
+          seen.add(s.feedUrl);
+          all.push(s);
+        }
+      }
     } catch (err) {
       detail = err instanceof Error ? err.message : String(err);
       log.warn({ err }, 'podcast search failed');
     }
   }
+  if (all.length) return all.slice(0, limit);
   return reachable ? { error: 'notfound' } : { error: 'failed', detail };
 }
 
