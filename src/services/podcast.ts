@@ -1,9 +1,43 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLogger } from '../core/logger';
 
 const log = createLogger('podcast');
+
+/**
+ * Re-encode an audio file to low-bitrate mono MP3 so a long episode fits under
+ * Telegram's bot upload cap. Speech is fine at 32–96 kbps; the bitrate is
+ * chosen from the episode duration to target ~`targetBytes`. Returns the new
+ * file path (same dir), or null on failure.
+ */
+export async function compressAudio(
+  inputPath: string,
+  durationSec: number | null,
+  targetBytes: number,
+): Promise<string | null> {
+  // kbps that would land near the target for the whole duration (with headroom).
+  let kbps = 48;
+  if (durationSec && durationSec > 0) {
+    kbps = Math.floor((targetBytes * 8) / (durationSec * 1000));
+    kbps = Math.max(32, Math.min(128, kbps));
+  }
+  const out = inputPath.replace(/\.[^.]+$/, '') + `.c${kbps}.mp3`;
+  const args = ['-y', '-i', inputPath, '-vn', '-ac', '1', '-b:a', `${kbps}k`, '-f', 'mp3', out];
+  const ok = await new Promise<boolean>((resolve) => {
+    const p = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'ignore'] });
+    const timer = setTimeout(() => p.kill('SIGKILL'), 8 * 60_000).unref?.();
+    p.on('error', () => resolve(false));
+    p.on('close', (code) => {
+      if (timer) clearTimeout(timer as unknown as NodeJS.Timeout);
+      resolve(code === 0);
+    });
+  });
+  if (!ok) return null;
+  const size = await stat(out).then((s) => s.size).catch(() => Infinity);
+  return Number.isFinite(size) ? out : null;
+}
 
 export interface PodcastShow {
   name: string;

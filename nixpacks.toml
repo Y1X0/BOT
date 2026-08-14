@@ -4,7 +4,9 @@
 # adds chromium on top; the app resolves it via PATH (`command -v chromium`) at
 # runtime. Nix's chromium bundles its own libraries, avoiding missing-.so errors.
 [phases.setup]
-nixPkgs = ["...", "chromium"]
+# chromium → PDF rendering; ffmpeg → audio compression + video stickers;
+# yt-dlp → media downloads. "..." keeps the auto-detected Node toolchain.
+nixPkgs = ["...", "chromium", "ffmpeg", "yt-dlp"]
 
 [variables]
 # playwright-core uses the system Chromium above — never download a browser.
