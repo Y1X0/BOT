@@ -100,7 +100,10 @@ async function runSearch(ctx: BotContext & { message: { text: string } }, query:
   const status = await ctx.reply('🔎 جاري البحث عن البودكاست...');
   const res = await searchPodcasts(query, 8);
   if ('error' in res) {
-    const msg = res.error === 'notfound' ? '❌ ما لقيت بودكاست بهذا الاسم، جرّب كلمات ثانية.' : '⚠️ تعذّر البحث، حاول لاحقاً.';
+    const msg =
+      res.error === 'notfound'
+        ? '❌ ما لقيت بودكاست بهذا الاسم، جرّب كلمات ثانية.'
+        : `⚠️ تعذّر الوصول لخدمة البحث (قد تكون محجوبة على الاستضافة).\nالتفاصيل: ${res.detail ?? 'غير معروف'}`;
     return void ctx.telegram.editMessageText(ctx.chat.id, status.message_id, undefined, msg).catch(() => undefined);
   }
   const rows = res.map((s, i) => [

@@ -53,7 +53,7 @@ export interface PodcastEpisode {
   pubDate?: string;
 }
 
-export type PodcastError = { error: 'notfound' | 'failed' };
+export type PodcastError = { error: 'notfound' | 'failed'; detail?: string };
 
 const UA = 'Mozilla/5.0 (compatible; TelegramBot/1.0)';
 
@@ -134,20 +134,32 @@ export function parseItunesShows(json: unknown, limit = 8): PodcastShow[] {
   return shows;
 }
 
-/** Search Apple's public podcast directory (free, no API key). */
+/**
+ * Search Apple's public podcast directory (free, no API key). Tries the Saudi
+ * store first then the default (broader) store. Distinguishes an unreachable
+ * service (likely network/allowlist block on the host) from an empty result.
+ */
 export async function searchPodcasts(term: string, limit = 8): Promise<PodcastShow[] | PodcastError> {
-  const url =
-    `https://itunes.apple.com/search?media=podcast&entity=podcast&country=SA&limit=${limit * 2}` +
-    `&term=${encodeURIComponent(term)}`;
-  try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA } });
-    if (!res.ok) return { error: 'failed' };
-    const shows = parseItunesShows(await res.json(), limit);
-    return shows.length ? shows : { error: 'notfound' };
-  } catch (err) {
-    log.warn({ err }, 'podcast search failed');
-    return { error: 'failed' };
+  let reachable = false;
+  let detail = '';
+  for (const country of ['SA', '']) {
+    const c = country ? `&country=${country}` : '';
+    const url = `https://itunes.apple.com/search?media=podcast&entity=podcast${c}&limit=${limit * 2}&term=${encodeURIComponent(term)}`;
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': UA } });
+      if (!res.ok) {
+        detail = `HTTP ${res.status}`;
+        continue;
+      }
+      reachable = true;
+      const shows = parseItunesShows(await res.json(), limit);
+      if (shows.length) return shows;
+    } catch (err) {
+      detail = err instanceof Error ? err.message : String(err);
+      log.warn({ err }, 'podcast search failed');
+    }
   }
+  return reachable ? { error: 'notfound' } : { error: 'failed', detail };
 }
 
 /** Fetch a feed and return its most recent episodes. */
