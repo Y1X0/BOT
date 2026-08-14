@@ -144,8 +144,12 @@ export async function searchPodcasts(term: string, limit = 8): Promise<PodcastSh
   let detail = '';
   const seen = new Set<string>();
   const all: PodcastShow[] = [];
+  // Arabic query → search Arab stores only (keeps Arabic results strong);
+  // otherwise widen globally.
+  const isArabic = /[؀-ۿ]/.test(term);
+  const stores = isArabic ? ['SA', 'EG', 'AE', 'JO', 'KW', 'QA', 'MA'] : ['US', '', 'GB', 'CA'];
   // Merge results across stores (broader coverage), de-duplicating by feed.
-  for (const country of ['SA', '', 'US', 'EG']) {
+  for (const country of stores) {
     if (all.length >= limit) break;
     const c = country ? `&country=${country}` : '';
     const url = `https://itunes.apple.com/search?media=podcast&entity=podcast${c}&limit=${limit * 2}&term=${encodeURIComponent(term)}`;
