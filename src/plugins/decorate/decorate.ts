@@ -71,7 +71,7 @@ const MARKS: string[] = [
   'ْ', 'ّ', 'ٰ', 'ً', 'ٖ', 'ۡ',
   '۟', '۠', 'ۖ', 'ۘ', 'ۚ', 'ٟ',
   '́', '̂', '̃', '̅', '̊', '҉',
-  '̶', '̲', '॑', '҃',
+  '̶', '̲', '॑', '҃', '҂', '̈', '̆', '̐',
 ];
 
 function applyMark(text: string, mark: string): string {
@@ -80,11 +80,24 @@ function applyMark(text: string, mark: string): string {
     .join('');
 }
 
-/** Light separators inserted between letters (keeps the same letters). */
-const SEPARATORS = ['·', '˚', '•', '°', '⁛'];
+/** Symbols inserted BETWEEN letters (keeps the letters, decorates the spacing). */
+const SEPARATORS = [
+  '·', '˚', '•', '°', '⁛', '⋆', '✦', '✧', '˙', '๑', '‿', '⁀', '♡', '✿', '❁', '⁘', '⳹', '҂', '⌇', '⁙',
+];
 
 function joinWith(text: string, sep: string): string {
   return Array.from(text).join(sep);
+}
+
+/** Wrap EACH letter with a symbol on both sides (a fuller letter decoration). */
+const WRAPS: [string, string][] = [
+  ['˚', '˚'], ['⁀', '⁀'], ['⋆', '⋆'], ['๑', '๑'], ['̊', ''], ['ᬼ', ''],
+];
+
+function wrapLetters(text: string, l: string, r: string): string {
+  return Array.from(text)
+    .map((ch) => (ch === ' ' ? ch : `${l}${ch}${r}`))
+    .join('');
 }
 
 /**
@@ -130,27 +143,26 @@ const hasLatin = (t: string) => /[A-Za-z]/.test(t);
  * frames lead (prettiest, work for Arabic & Latin), then Latin fancy alphabets,
  * then a few clean separators and subtle marks. `limit` caps the count.
  */
-export function decorate(text: string, limit = 32): string[] {
+export function decorate(text: string, limit = 44): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
   const out: string[] = [];
 
-  // Frames first — the nice ones.
-  for (const [l, r] of FRAMES) out.push(`${l}${trimmed}${r}`);
-
-  // Latin fancy alphabets (+ two framed bold variants for a "gamer" look).
+  // Latin fancy alphabets first for ASCII (the real per-letter restyle).
   if (hasLatin(trimmed)) {
     for (const font of LATIN_FONTS) out.push(mapLatinFont(trimmed, font));
     const bold = mapLatinFont(trimmed, LATIN_FONTS[0]);
     out.push(`꧁ ${bold} ꧂`, `༺ ${bold} ༻`);
   }
 
-  // A few clean separators.
+  // Per-letter decoration — the core "زخرفة الحروف" (marks, wraps, separators).
+  for (const mark of MARKS) out.push(applyMark(trimmed, mark));
+  for (const [l, r] of WRAPS) out.push(wrapLetters(trimmed, l, r));
   for (const sep of SEPARATORS) out.push(joinWith(trimmed, sep));
 
-  // A couple of subtle combining-mark styles (the cluttered ones are dropped).
-  for (const mark of MARKS.slice(0, 4)) out.push(applyMark(trimmed, mark));
+  // Decorative frames around the whole word (also nice).
+  for (const [l, r] of FRAMES) out.push(`${l}${trimmed}${r}`);
 
   // De-duplicate while preserving order, then cap.
   return [...new Set(out)].filter((v) => v !== trimmed).slice(0, limit);
