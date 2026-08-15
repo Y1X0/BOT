@@ -87,28 +87,70 @@ function joinWith(text: string, sep: string): string {
   return Array.from(text).join(sep);
 }
 
+/**
+ * Decorative frames — [left, right] wrappers placed around the whole word.
+ * These are the prettiest and work for BOTH Arabic and Latin, so they lead.
+ * Spacing is baked into each side.
+ */
+const FRAMES: [string, string][] = [
+  ['꧁ ', ' ꧂'],
+  ['꧁༺ ', ' ༻꧂'],
+  ['༒ ', ' ༒'],
+  ['✦ ', ' ✦'],
+  ['✧ ', ' ✧'],
+  ['⋆｡˚ ', ' ˚｡⋆'],
+  ['⊹ ₊ ', ' ₊ ⊹'],
+  ['☾ ', ' ☽'],
+  ['❁ ', ' ❁'],
+  ['✿ ', ' ✿'],
+  ['❦ ', ' ❦'],
+  ['♡ ', ' ♡'],
+  ['『 ', ' 』'],
+  ['【 ', ' 】'],
+  ['「 ', ' 」'],
+  ['≼ ', ' ≽'],
+  ['➶ ', ' ➷'],
+  ['彡★ ', ' ★彡'],
+  ['⚡ ', ' ⚡'],
+  ['╰☆ ', ' ☆╮'],
+  ['✩ ', ' ✩'],
+  ['❖ ', ' ❖'],
+  ['◈ ', ' ◈'],
+  ['➳ ', ' ➳'],
+  ['⌁ ', ' ⌁'],
+  ['⟢ ', ' ⟣'],
+  ['ღ ', ' ღ'],
+  ['᯽ ', ' ᯽'],
+];
+
 const hasLatin = (t: string) => /[A-Za-z]/.test(t);
 
 /**
- * Return a de-duplicated list of decorated variants of `text` — the same
- * letters restyled many ways. `limit` caps the count for readable replies.
+ * Return a de-duplicated list of decorated variants of `text`. Decorative
+ * frames lead (prettiest, work for Arabic & Latin), then Latin fancy alphabets,
+ * then a few clean separators and subtle marks. `limit` caps the count.
  */
-export function decorate(text: string, limit = 28): string[] {
+export function decorate(text: string, limit = 32): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
   const out: string[] = [];
 
-  // Latin alphabets first (the highlight for ASCII words).
+  // Frames first — the nice ones.
+  for (const [l, r] of FRAMES) out.push(`${l}${trimmed}${r}`);
+
+  // Latin fancy alphabets (+ two framed bold variants for a "gamer" look).
   if (hasLatin(trimmed)) {
     for (const font of LATIN_FONTS) out.push(mapLatinFont(trimmed, font));
+    const bold = mapLatinFont(trimmed, LATIN_FONTS[0]);
+    out.push(`꧁ ${bold} ꧂`, `༺ ${bold} ༻`);
   }
 
-  // Combining-mark styles — the core for Arabic (and extra flair for Latin).
-  for (const mark of MARKS) out.push(applyMark(trimmed, mark));
-
-  // Separator styles.
+  // A few clean separators.
   for (const sep of SEPARATORS) out.push(joinWith(trimmed, sep));
+
+  // A couple of subtle combining-mark styles (the cluttered ones are dropped).
+  for (const mark of MARKS.slice(0, 4)) out.push(applyMark(trimmed, mark));
 
   // De-duplicate while preserving order, then cap.
   return [...new Set(out)].filter((v) => v !== trimmed).slice(0, limit);
