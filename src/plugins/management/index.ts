@@ -52,6 +52,7 @@ export const managementPlugin: Plugin = {
     { command: 'nightmode', description: '🌙 وضع الليل: /nightmode on 23 6', staffOnly: true },
     { command: 'all', description: '📢 منشن كل الأعضاء', staffOnly: true },
     { command: 'admins', description: '👮 قائمة الأدمن' },
+    { command: 'checkup', description: '🩺 فحص صلاحيات البوت وإعداداته', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -105,6 +106,51 @@ export const managementPlugin: Plugin = {
       } catch {
         await ctx.reply('❌ تعذّر جلب قائمة المشرفين.');
       }
+    });
+
+    // --- Diagnostic checkup: bot rights + feature toggles ---
+    bot.command('checkup', requireRole('moderator'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const yn = (v: boolean) => (v ? '✅' : '❌');
+      const s = ctx.state.settings;
+      let admin = false;
+      let canDelete = false;
+      let canRestrict = false;
+      let canPin = false;
+      try {
+        const me = await ctx.telegram.getChatMember(ctx.chat.id, ctx.botInfo!.id);
+        admin = me.status === 'administrator' || me.status === 'creator';
+        const a = me as { can_delete_messages?: boolean; can_restrict_members?: boolean; can_pin_messages?: boolean };
+        canDelete = admin && !!a.can_delete_messages;
+        canRestrict = admin && !!a.can_restrict_members;
+        canPin = admin && !!a.can_pin_messages;
+      } catch {
+        /* couldn't read own membership */
+      }
+
+      const lines = [
+        '🩺 فحص البوت',
+        '',
+        '👮 الصلاحيات:',
+        `${yn(admin)} البوت مشرف (أدمن)`,
+        `${yn(canDelete)} حذف الرسائل — لازم لـ منع السب/الفلتر/التنظيف`,
+        `${yn(canRestrict)} حظر/تقييد الأعضاء — لازم لـ الكتم/الحظر/الحارس`,
+        `${yn(canPin)} تثبيت الرسائل`,
+        '',
+        '🛡 الحمايات المفعّلة:',
+        `${yn(!!s?.antispamEnabled)} مكافحة السبام   ${yn(!!s?.floodEnabled)} التكرار`,
+        `${yn(!!(s as { badwordsEnabled?: boolean })?.badwordsEnabled)} منع السب   ${yn(!!s?.antiLinkEnabled)} منع الروابط`,
+        `${yn(!!s?.antiRaidEnabled)} مكافحة الغارات   ${yn(!!s?.filtersEnabled)} فلتر الكلمات`,
+      ];
+
+      const tips: string[] = [];
+      if (!admin) tips.push('• خلّي البوت **مشرف** حتى تشتغل أوامر الإدارة والحمايات.');
+      if (admin && !canDelete) tips.push('• فعّل صلاحية **حذف الرسائل** للبوت.');
+      if (admin && !canRestrict) tips.push('• فعّل صلاحية **حظر الأعضاء** للبوت.');
+      tips.push('• لو الأوامر النصية (@all، «صراحة») ما تشتغل: أطفئ **Group Privacy** من BotFather، أو خلّي البوت أدمن.');
+      lines.push('', '💡 نصائح:', ...tips);
+
+      await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' }).catch(() => ctx.reply(lines.join('\n')));
     });
 
     // --- Auto-delete service messages (join/leave) ---

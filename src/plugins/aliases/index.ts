@@ -102,6 +102,7 @@ const ALIASES: Alias[] = [
   { command: 'unban', triggers: ['الغاء حظر', 'فك حظر', 'رفع حظر', 'الغاء الحظر'] },
   { command: 'kick', triggers: ['طرد', 'اطرد', 'طرده'] },
   { command: 'antiswear', triggers: ['منع السب', 'منع الشتم', 'مكافحة السب', 'حظر السب'] },
+  { command: 'checkup', triggers: ['فحص', 'فحص البوت', 'تشخيص', 'حالة البوت'] },
   { command: 'guard', triggers: ['حارس', 'حماية قصوى', 'وضع الحارس', 'حارس الجروب'] },
   { command: 'guardall', triggers: ['حارس الكل', 'حماية كل القروبات'] },
   // Islamic
