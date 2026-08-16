@@ -69,17 +69,27 @@ export async function queryLogs(f: LogFilter): Promise<MessageLog[]> {
 export async function listConversants(limit = 200): Promise<
   { userId: string; name: string; count: number; last: string | null }[]
 > {
+  // Group by userId ONLY. Grouping by userName too would split one person into
+  // several conversations whenever they rename themselves — the id is the identity.
   const rows = await prisma.messageLog.groupBy({
-    by: ['userId', 'userName'],
+    by: ['userId'],
     where: { chatId: { gt: 0 } }, // DM only
     _count: { _all: true },
     _max: { createdAt: true },
     orderBy: { _max: { createdAt: 'desc' } },
     take: Math.min(limit, 500),
   });
+  // Resolve each id's most recent display name in one query, then map.
+  const latest = await prisma.messageLog.findMany({
+    where: { chatId: { gt: 0 }, userId: { in: rows.map((r) => r.userId) } },
+    distinct: ['userId'],
+    orderBy: { id: 'desc' },
+    select: { userId: true, userName: true },
+  });
+  const nameOf = new Map(latest.map((l) => [l.userId.toString(), l.userName ?? '-']));
   return rows.map((r) => ({
     userId: r.userId.toString(),
-    name: r.userName ?? '-',
+    name: nameOf.get(r.userId.toString()) ?? '-',
     count: r._count._all,
     last: r._max.createdAt ? r._max.createdAt.toISOString() : null,
   }));
