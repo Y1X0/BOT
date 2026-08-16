@@ -13,10 +13,12 @@ export interface Whisper {
 
 export interface PendingWhisper {
   senderId: number;
+  senderName: string;
   targetId: number;
   targetUsername?: string;
   targetName: string;
   chatId: number;
+  chatTitle?: string;
   promptMsgId: number;
 }
 

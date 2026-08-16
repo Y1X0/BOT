@@ -131,7 +131,7 @@ function cleanName(s){ const raw=String(s??'');
   return t||raw; }
 /* Stable, legible color per user so you can track who's who at a glance. */
 function uColor(id){ let h=0; const s=String(id); for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0; return 'hsl('+(h%360)+',62%,68%)'; }
-const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
+const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['whispers','الهمسات'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
 let current=null, tab='groups', monTimer=null;
 
 async function boot(){ const me=await api('/me');
@@ -140,7 +140,7 @@ async function boot(){ const me=await api('/me');
 
 function renderNav(){ document.getElementById('nav').innerHTML=TABS.map(([k,l])=>'<button id="t-'+k+'" class="'+(k===tab?'active':'')+'" onclick="showTab(\\''+k+'\\')">'+l+'</button>').join(''); }
 function showTab(t){ tab=t; if(monTimer){clearInterval(monTimer);monTimer=null;} renderNav();
-  ({groups:loadGroups,monitor:loadMonitor,users:loadUsers,musaraha:loadMusaraha,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
+  ({groups:loadGroups,monitor:loadMonitor,users:loadUsers,musaraha:loadMusaraha,whispers:loadWhispers,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
 
 async function showLogin(){ document.getElementById('login').style.display='block'; const c=await api('/config');
   if(!c.botUsername){document.getElementById('loginNote').textContent='⚠️ BOT_USERNAME غير مضبوط.';return;}
@@ -240,6 +240,15 @@ async function sendDM(){ const el=document.getElementById('convMsg'); const t=el
 async function loadMusaraha(){ const rows=await api('/musaraha?limit=100');
   const body=rows.length?rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleString('ar')+'</td><td>'+esc(r.senderName||String(r.senderId))+'<br><span class="muted">'+r.senderId+'</span></td><td>'+r.recipientId+'</td><td>'+(r.isReply?'↩️ رد':'📩')+'</td><td>'+esc((r.text||'').slice(0,140))+'</td></tr>').join(''):'';
   document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">💌 سجل المصارحة</h3><p class="muted">الرسائل المجهولة عبر البوت — هوية المرسِل مكشوفة لك كمالك فقط لأغراض الرقابة.</p><table><tr><th>الوقت</th><th>المرسِل</th><th>المستقبِل</th><th>النوع</th><th>النص</th></tr>'+body+'</table>'+(rows.length?'':'<p class="muted">لا رسائل بعد.</p>')+'</div>'; }
+
+/* ---- Whispers (همسات) ---- */
+async function loadWhispers(){ const rows=await api('/whispers?limit=100');
+  const body=rows.length?rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleString('ar')+'</td>'
+    +'<td>'+esc(cleanName(r.senderName)||r.senderId)+'<br><span class="muted">'+r.senderId+'</span></td>'
+    +'<td>'+esc(cleanName(r.targetName)||r.targetId)+'<br><span class="muted">'+r.targetId+'</span></td>'
+    +'<td>'+esc(cleanName(r.chatTitle)||r.chatId)+'</td>'
+    +'<td>'+esc(r.text||'')+'</td></tr>').join(''):'';
+  document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">🤫 سجل الهمسات</h3><p class="muted">الهمسات السرية داخل الجروبات — محتواها ومن أرسلها لمن، مكشوف لك كمالك فقط لأغراض الرقابة.</p><table><tr><th>الوقت</th><th>من</th><th>إلى</th><th>الجروب</th><th>الهمسة</th></tr>'+body+'</table>'+(rows.length?'':'<p class="muted">لا همسات بعد.</p>')+'</div>'; }
 
 /* ---- Media ---- */
 async function loadMedia(type){ const rows=await api('/media?limit=60'+(type?'&type='+type:'')); const types=['','photo','video','voice','audio','animation','sticker','document'];

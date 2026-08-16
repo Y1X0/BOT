@@ -10,6 +10,7 @@ import { addFilter, deleteFilter, listFilters } from '../services/filters.servic
 import { TOGGLEABLE_SETTINGS } from '../services/settings.service';
 import { queryLogs, queryMedia, logAnalytics, listConversants, userConversation } from '../services/logging.service';
 import { recentMessages as recentMusaraha } from '../services/musaraha.service';
+import { recentWhispers } from '../services/whisper.service';
 import { youtubeQueue } from '../services/youtube/queue';
 import { recentErrors, clearErrors } from '../core/errors';
 import {
@@ -258,6 +259,11 @@ export function createDashboardApi(telegram: Telegram): express.Router {
   router.get('/musaraha', async (req, res) => {
     const q = req.query as Record<string, string>;
     json(res, await recentMusaraha(Number(q.limit) || 80));
+  });
+
+  router.get('/whispers', async (req, res) => {
+    const q = req.query as Record<string, string>;
+    json(res, await recentWhispers(Number(q.limit) || 80));
   });
 
   router.get('/audit', async (_req, res) => {

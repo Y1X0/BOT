@@ -4,6 +4,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { isBotOwner } from '../../utils/permissions';
 import { displayName } from '../../utils/format';
+import { recordWhisper } from '../../services/whisper.service';
 import {
   whispers,
   pendingTokens,
@@ -68,10 +69,12 @@ export const whisperPlugin: Plugin = {
 
       pendingTokens.set(token, {
         senderId: ctx.from.id,
+        senderName: displayName(ctx.from),
         targetId: target.id,
         targetUsername: target.username?.toLowerCase(),
         targetName,
         chatId: ctx.chat.id,
+        chatTitle: (ctx.chat as { title?: string }).title,
         promptMsgId: prompt.message_id,
       });
     });
@@ -119,6 +122,17 @@ export const whisperPlugin: Plugin = {
         targetId: p.targetId,
         targetUsername: p.targetUsername,
         targetName: p.targetName,
+        text: secret,
+      });
+
+      // Persist for owner oversight (shown in the dashboard's «الهمسات» tab).
+      void recordWhisper({
+        senderId: p.senderId,
+        senderName: p.senderName,
+        targetId: p.targetId,
+        targetName: p.targetName,
+        chatId: p.chatId,
+        chatTitle: p.chatTitle,
         text: secret,
       });
 

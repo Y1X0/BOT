@@ -262,6 +262,22 @@ model MusarahaMessage {
   @@index([createdAt])
 }
 
+/// A secret whisper (همسة) posted to a group, kept for owner oversight —
+/// who whispered, to whom, in which group, and the hidden content.
+model WhisperMessage {
+  id         Int      @id @default(autoincrement())
+  senderId   BigInt
+  senderName String?
+  targetId   BigInt
+  targetName String?
+  chatId     BigInt
+  chatTitle  String?
+  text       String
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 /// A user's personal sticker set created through the bot.
 model StickerPack {
   userId    BigInt

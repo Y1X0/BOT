@@ -63,6 +63,19 @@ export async function ensureSchema(): Promise<void> {
       "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT "SavedEmoji_pkey" PRIMARY KEY ("userId")
     )`,
+    `CREATE TABLE IF NOT EXISTS "WhisperMessage" (
+      "id" SERIAL NOT NULL,
+      "senderId" BIGINT NOT NULL,
+      "senderName" TEXT,
+      "targetId" BIGINT NOT NULL,
+      "targetName" TEXT,
+      "chatId" BIGINT NOT NULL,
+      "chatTitle" TEXT,
+      "text" TEXT NOT NULL,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "WhisperMessage_pkey" PRIMARY KEY ("id")
+    )`,
+    'CREATE INDEX IF NOT EXISTS "WhisperMessage_createdAt_idx" ON "WhisperMessage"("createdAt")',
   ];
   for (const sql of statements) {
     try {
