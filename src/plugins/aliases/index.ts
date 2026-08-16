@@ -94,6 +94,12 @@ const ALIASES: Alias[] = [
   // Moderation (reply-based staff actions)
   { command: 'promote', triggers: ['رفع ادمن', 'رفع مشرف', 'ترقيه', 'ترقية', 'رقي'] },
   { command: 'demote', triggers: ['تنزيل ادمن', 'تنزيل مشرف', 'نزل ادمن', 'نزل مشرف', 'تنزيل الادمن'] },
+  // Custom in-bot ranks (3-word phrases win over the 2-word Telegram promote above)
+  { command: 'radmin', triggers: ['رفع ادمن بوت', 'رتبة ادمن', 'ادمن بوت', 'رتبه ادمن'] },
+  { command: 'rmod', triggers: ['رفع مشرف بوت', 'رتبة مشرف', 'مشرف بوت', 'رتبه مشرف'] },
+  { command: 'rvip', triggers: ['رفع مميز', 'رتبة مميز', 'مميز بوت', 'رتبه مميز', 'عضو مميز'] },
+  { command: 'unrank', triggers: ['شيل رتبه', 'شيل الرتبه', 'حذف رتبه', 'سحب رتبه', 'ازالة رتبه', 'تنزيل رتبه'] },
+  { command: 'roles', triggers: ['رتب البوت', 'الرتب الاداريه', 'مشرفين البوت', 'رتب الاداره'] },
   { command: 'mute', triggers: ['كتم', 'اكتم', 'كتمه'] },
   { command: 'unmute', triggers: ['الغاء كتم', 'فك كتم', 'رفع كتم', 'الغاء الكتم'] },
   { command: 'restrict', triggers: ['تقييد', 'قيد', 'قيده'] },
@@ -240,6 +246,10 @@ const REPLY_ONLY_COMMANDS = new Set([
   '/ban',
   '/unban',
   '/kick',
+  '/radmin',
+  '/rmod',
+  '/rvip',
+  '/unrank',
 ]);
 
 export const aliasesPlugin: Plugin = {

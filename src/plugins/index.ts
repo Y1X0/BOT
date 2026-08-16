@@ -26,6 +26,7 @@ import { voiceChatPlugin } from './voicechat';
 import { islamicPlugin } from './islamic';
 import { toolboxPlugin } from './toolbox';
 import { managementPlugin } from './management';
+import { botRolesPlugin } from './botroles';
 import { moreGamesPlugin } from './moregames';
 import { newGamesPlugin } from './newgames';
 import { socialPlugin } from './social';
@@ -78,6 +79,7 @@ allPlugins.push(
   infoPlugin,
   adminPlugin,
   moderationPlugin,
+  botRolesPlugin, // custom in-bot ranks (admin/moderator/vip)
   protectionPlugin, // anti-raid: must run before welcome on new_chat_members
   welcomePlugin,
   voiceChatPlugin,

@@ -8,6 +8,8 @@ import { resolveTarget, displayName, pickRandom } from '../../utils/format';
 import { BIO_QUOTES } from './bios';
 import { getSettings } from '../../services/settings.service';
 import { getMember } from '../../services/member.service';
+import { getChatRole } from '../../services/roles.service';
+import { hasRole, type Role } from '../../utils/permissions';
 import { statLabel, interactionLabel, buildIdCard } from './card';
 import { createLogger } from '../../core/logger';
 
@@ -145,7 +147,12 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
 
   // Pull group-scoped stats (role, equipped title, message count) when in a group.
   const member = ctx.chat ? await getMember(ctx.chat.id, target.id).catch(() => null) : null;
-  const role = target.is_bot ? 'member' : member?.role ?? 'member';
+  let role = target.is_bot ? 'member' : member?.role ?? 'member';
+  // A custom bot rank overrides the stored member role when it's stronger.
+  if (!target.is_bot && ctx.chat) {
+    const custom = await getChatRole(ctx.chat.id, target.id).catch(() => null);
+    if (custom && hasRole(custom, role as Role)) role = custom;
+  }
   const messageCount = member?.messageCount ?? 0;
   const stats = target.is_bot ? 'بوت 🤖' : statLabel(role, messageCount);
   const title = member?.title ? escapeHtml(member.title) : 'لا يوجد';

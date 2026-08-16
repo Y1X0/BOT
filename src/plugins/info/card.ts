@@ -5,6 +5,7 @@ export function statLabel(role: string, messageCount: number): string {
   if (role === 'owner') return 'المالك 👑';
   if (role === 'admin') return 'مشرف 🛡';
   if (role === 'moderator') return 'مشرف مساعد 🚨';
+  if (role === 'vip') return 'عضو مميّز ⭐';
   if (messageCount >= 5000) return 'أسطورة الجروب 🐉';
   if (messageCount >= 2000) return 'عضو محترف 💪';
   if (messageCount >= 500) return 'عضو نشيط 🔥';

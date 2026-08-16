@@ -1,14 +1,16 @@
 import type { BotContext } from '../core/context';
 import { env } from '../config/env';
+import { getChatRole } from '../services/roles.service';
 
 /** Role hierarchy, ordered from most to least privileged. */
-export const ROLES = ['owner', 'admin', 'moderator', 'member'] as const;
+export const ROLES = ['owner', 'admin', 'moderator', 'vip', 'member'] as const;
 export type Role = (typeof ROLES)[number];
 
 const RANK: Record<Role, number> = {
-  owner: 3,
-  admin: 2,
-  moderator: 1,
+  owner: 4,
+  admin: 3,
+  moderator: 2,
+  vip: 1,
   member: 0,
 };
 
@@ -36,15 +38,21 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
 
   if (chat.type === 'private') return 'member';
 
+  let tgRole: Role = 'member';
   try {
     const member = await ctx.telegram.getChatMember(chat.id, userId);
     if (member.status === 'creator') return 'owner';
-    if (member.status === 'administrator') return 'admin';
+    if (member.status === 'administrator') tgRole = 'admin';
   } catch {
     // getChatMember can fail transiently; fall through to member.
   }
 
-  return 'member';
+  // A rank assigned through the bot grants powers even if the user isn't a
+  // Telegram admin. Take whichever is higher: their Telegram status or the
+  // custom bot rank stored for this chat.
+  const custom = await getChatRole(chat.id, userId).catch(() => null);
+  if (custom && RANK[custom] > RANK[tgRole]) return custom;
+  return tgRole;
 }
 
 /** Guard: only allow handler to run for users with at least `required` role. */

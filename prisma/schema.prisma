@@ -278,6 +278,20 @@ model WhisperMessage {
   @@index([createdAt])
 }
 
+/// A custom bot rank assigned to a user in a chat (independent of Telegram's
+/// own admin status). Grants bot-command permissions to whoever holds it.
+model ChatRole {
+  chatId     BigInt
+  userId     BigInt
+  role       String // admin | moderator | vip
+  name       String? // display name at assignment time (for the /roles list)
+  assignedBy BigInt?
+  createdAt  DateTime @default(now())
+
+  @@id([chatId, userId])
+  @@index([chatId])
+}
+
 /// A user's personal sticker set created through the bot.
 model StickerPack {
   userId    BigInt
