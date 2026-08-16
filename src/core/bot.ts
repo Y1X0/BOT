@@ -70,13 +70,17 @@ export async function createBot(): Promise<{
  * Edit this list to show/hide a command in the popup.
  */
 export const MENU_COMMANDS = [
-  'menu', 'help', 'id', 'rules',
-  'prayer', 'ayah', 'athkar',
-  'balance', 'daily', 'top', 'rank', 'pet',
-  'sticker', 'song', 'pdf',
-  'quiz', 'spy', 'stats',
-  'tr', 'weather', 'remind',
-  'marry', 'musaraha', 'giveaway',
+  'menu', // ← the gateway to everything, kept first
+  'help',
+  'id',
+  'rules',
+  'prayer',
+  'quiz',
+  'balance',
+  'pet',
+  'song',
+  'pdf',
+  'checkup',
 ];
 
 /** Publish the curated command list to Telegram (autocomplete menu). */

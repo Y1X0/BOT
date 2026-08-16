@@ -32,7 +32,7 @@ export const menuPlugin: Plugin = {
   name: 'menu',
   description: 'Organized interactive command menu',
   commands: [
-    { command: 'menu', description: '📋 قائمة الأوامر المنظّمة' },
+    { command: 'menu', description: '📋 كل الأوامر مرتّبة بالأقسام (ابدأ من هنا)' },
     { command: 'find', description: '🔍 ابحث عن أمر: /find بنك' },
   ],
 
