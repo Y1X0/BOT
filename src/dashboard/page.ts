@@ -97,6 +97,8 @@ export const DASHBOARD_HTML = `<!doctype html>
   .gbubble { background:#212b36; border-radius:9px; padding:6px 10px; margin-inline-start:29px; }
   .gtext { font-size:14px; line-height:1.5; word-break:break-word; white-space:pre-wrap; }
   .greply { font-size:11px; color:var(--muted); border-inline-start:2px solid var(--accent2); padding-inline-start:6px; margin-bottom:3px; opacity:.85; }
+  .gmedia { display:block; max-width:220px; max-height:260px; width:auto; height:auto; border-radius:8px; cursor:pointer; background:#0b1016; }
+  .gcap { font-size:13px; line-height:1.45; margin-top:4px; word-break:break-word; white-space:pre-wrap; }
   .chat-input { display:flex; gap:8px; align-items:center; padding:9px 10px; border-top:1px solid var(--line); background:var(--card); }
   .chat-input input { flex:1; border-radius:20px; padding:10px 15px; }
   .sendbtn { width:40px; height:40px; border-radius:50%; border:none; background:var(--accent); color:#fff; font-size:16px; cursor:pointer; flex-shrink:0; }
@@ -164,7 +166,7 @@ async function groupChat(id){ current=id; gtab(true); const rows=await api('/mon
     const tm=d.toLocaleTimeString('ar',{hour:'2-digit',minute:'2-digit'});
     const uid=String(r.userId), col=uColor(uid), nm=cleanName(r.userName)||uid;
     const rep=r.replyToName?'<div class="greply">↩️ رداً على '+esc(cleanName(r.replyToName))+'</div>':'';
-    const body=r.text?esc(r.text):('<span class="muted">'+mediaIcon(r.type)+' '+r.type+'</span>');
+    const body=msgBody(r);
     // Group consecutive messages from the same user under one name header.
     const head=uid!==lastUid?'<div class="ghead"><span class="gavatar" style="background:'+col+'">'+esc(cleanName(nm).charAt(0)||'?')+'</span><span class="gname" style="color:'+col+'">'+esc(nm)+'</span><span class="guid">'+esc(uid)+'</span></div>':'';
     lastUid=uid;
@@ -224,7 +226,7 @@ async function renderConv(){ if(!convUid)return; const q=document.getElementById
     if(day!==lastDay){ html+='<div class="daysep">'+day+'</div>'; lastDay=day; }
     const out=r.outgoing, tm=d.toLocaleTimeString('ar',{hour:'2-digit',minute:'2-digit'});
     const grp=(r.chatTitle&&r.chatTitle!=='خاص (البوت)')?'<div class="muted" style="font-size:10px;margin-bottom:1px">'+esc(r.chatTitle)+'</div>':'';
-    const body=r.text?esc(r.text):('<span class="muted">'+mediaIcon(r.type)+' '+r.type+'</span>');
+    const body=msgBody(r);
     html+='<div class="bubble '+(out?'out':'in')+'">'+grp+body+'<div class="btime">'+tm+(r.flagged?' 🚩':'')+'</div></div>';
   }
   const b=document.getElementById('convBody'); if(b){ b.innerHTML=html||'<div class="center muted">لا رسائل</div>'; b.scrollTop=b.scrollHeight; } }
@@ -245,6 +247,18 @@ async function loadMedia(type){ const rows=await api('/media?limit=60'+(type?'&t
   const items=rows.map(r=>'<div class="media-item"><div class="thumb" onclick="openMedia('+r.id+')">'+mediaIcon(r.type)+'</div><div class="muted">'+esc((r.chatTitle||'').slice(0,14))+'</div></div>').join('')||'<p class="muted">لا وسائط.</p>';
   document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">🖼 الوسائط</h3><div class="row">'+filt+'</div><div>'+items+'</div></div>'; }
 function mediaIcon(t){ return {photo:'🖼',video:'🎬',voice:'🎤',audio:'🎵',animation:'🎞',sticker:'🩷',document:'📎'}[t]||'📄'; }
+/* Called when an inline image/video can't be decoded (e.g. animated .tgs
+   sticker or an expired/oversized file) — swap it back to the icon+label. */
+function mediaFail(el){ const t=el.getAttribute('data-t')||''; el.outerHTML='<span class="muted">'+mediaIcon(t)+' '+t+'</span>'; }
+/* Render one logged message body: media shows inline (photo/sticker as image,
+   video/audio with a player), text as text, with any caption underneath. */
+function msgBody(r){ const t=r.type, id=r.id, cap=r.text?'<div class="gcap">'+esc(r.text)+'</div>':'';
+  if(t==='photo'||t==='sticker'||t==='animation') return '<img class="gmedia" loading="lazy" data-t="'+t+'" src="/api/media/'+id+'/raw" onclick="window.open(this.src)" onerror="mediaFail(this)">'+cap;
+  if(t==='video') return '<video class="gmedia" controls preload="none" data-t="video" src="/api/media/'+id+'/raw" onerror="mediaFail(this)"></video>'+cap;
+  if(t==='voice'||t==='audio') return '<audio controls preload="none" src="/api/media/'+id+'/raw" style="width:230px;max-width:100%"></audio>'+cap;
+  if(t==='document') return '<a class="muted" href="/api/media/'+id+'/raw" target="_blank" rel="noopener">📎 '+esc(r.text||'ملف')+'</a>';
+  if(r.text) return esc(r.text);
+  return '<span class="muted">'+mediaIcon(t)+' '+t+'</span>'; }
 async function openMedia(id){ const r=await api('/media/'+id+'/link'); if(r.url)window.open(r.url,'_blank'); else alert('تعذّر (الملف أكبر من 20MB أو منتهي).'); }
 
 /* ---- Logs / Search ---- */

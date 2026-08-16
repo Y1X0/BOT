@@ -214,6 +214,32 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     }
   });
 
+  // Stream a media file's bytes through the server so photos/stickers render
+  // inline in the dashboard WITHOUT leaking the bot token into the browser
+  // (the raw Telegram file URL embeds the token). Owner-only, ≤20MB.
+  router.get('/media/:id/raw', async (req, res) => {
+    const row = await prisma.messageLog.findUnique({ where: { id: Number(req.params.id) } });
+    if (!row?.fileId) return void res.status(404).end();
+    try {
+      const link = await telegram.getFileLink(row.fileId);
+      const upstream = await fetch(link.toString());
+      if (!upstream.ok || !upstream.body) return void res.status(502).end();
+      const path = new URL(link.toString()).pathname.toLowerCase();
+      const ext = path.slice(path.lastIndexOf('.') + 1);
+      const mime: Record<string, string> = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+        gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg',
+        ogg: 'audio/ogg', oga: 'audio/ogg', tgs: 'application/gzip',
+      };
+      res.setHeader('Content-Type', mime[ext] ?? 'application/octet-stream');
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.end(buf);
+    } catch {
+      res.status(502).end();
+    }
+  });
+
   router.get('/analytics', async (_req, res) => json(res, await logAnalytics()));
 
   router.get('/system', (_req, res) => {
