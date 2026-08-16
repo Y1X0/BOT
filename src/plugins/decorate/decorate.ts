@@ -100,6 +100,28 @@ function wrapLetters(text: string, l: string, r: string): string {
     .join('');
 }
 
+// Arabic vowel marks (حركات) for tashkeel-style decoration.
+const HARAKAT = ['َ', 'ُ', 'ِ', 'ْ', 'ّ', 'ً', 'ٌ', 'ٍ', 'ٰ', 'ٓ', 'ٖ', 'ۣ'];
+
+/** Give each letter a different haraka, cycling through the set (offset varies). */
+function harakatCycle(text: string, offset: number): string {
+  let i = 0;
+  return Array.from(text)
+    .map((ch) => (ch === ' ' ? ch : ch + HARAKAT[(i++ + offset) % HARAKAT.length]))
+    .join('');
+}
+
+/** Two stacked marks per letter — one above, one below — for a fuller look. */
+const DOUBLE_MARKS: [string, string][] = [
+  ['ّ', 'ٍ'], ['ً', 'ٖ'], ['ٰ', 'ۣ'], ['ٓ', 'ٜ'], ['ۨ', 'ٖ'], ['̑', '̭'],
+];
+
+function applyDouble(text: string, above: string, below: string): string {
+  return Array.from(text)
+    .map((ch) => (ch === ' ' ? ch : ch + above + below))
+    .join('');
+}
+
 /**
  * Decorative frames — [left, right] wrappers placed around the whole word.
  * These are the prettiest and work for BOTH Arabic and Latin, so they lead.
@@ -143,7 +165,7 @@ const hasLatin = (t: string) => /[A-Za-z]/.test(t);
  * frames lead (prettiest, work for Arabic & Latin), then Latin fancy alphabets,
  * then a few clean separators and subtle marks. `limit` caps the count.
  */
-export function decorate(text: string, limit = 44): string[] {
+export function decorate(text: string, limit = 55): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
@@ -156,8 +178,11 @@ export function decorate(text: string, limit = 44): string[] {
     out.push(`꧁ ${bold} ꧂`, `༺ ${bold} ༻`);
   }
 
-  // Per-letter decoration — the core "زخرفة الحروف" (marks, wraps, separators).
+  // Per-letter decoration — the core "زخرفة الحروف" (marks, harakat, wraps).
   for (const mark of MARKS) out.push(applyMark(trimmed, mark));
+  // Tashkeel-style: varied harakat across the letters (a few offsets).
+  for (let off = 0; off < 6; off++) out.push(harakatCycle(trimmed, off));
+  for (const [a, b] of DOUBLE_MARKS) out.push(applyDouble(trimmed, a, b));
   for (const [l, r] of WRAPS) out.push(wrapLetters(trimmed, l, r));
   for (const sep of SEPARATORS) out.push(joinWith(trimmed, sep));
 
