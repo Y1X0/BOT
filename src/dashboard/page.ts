@@ -86,6 +86,17 @@ export const DASHBOARD_HTML = `<!doctype html>
   .bubble.in { align-self:flex-start; background:#212b36; border-top-left-radius:3px; }
   .bubble.out { align-self:flex-end; background:#0f5c47; border-top-right-radius:3px; }
   .bubble .btime { font-size:9.5px; color:rgba(255,255,255,.5); margin-top:2px; text-align:left; }
+  /* Group monitor feed — a readable log, not a two-party chat. One header per
+     speaker (color-coded), messages stacked full-width so long threads scan easily. */
+  .gfeed { gap:0; padding:10px 10px; font-family:system-ui,'Segoe UI','Noto Sans','Noto Sans Arabic',Tahoma,'Segoe UI Symbol','Noto Color Emoji',sans-serif; }
+  .gmsg { margin-top:9px; }
+  .ghead { display:flex; align-items:center; gap:7px; margin:0 0 3px; }
+  .gavatar { width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#0b1016; flex-shrink:0; }
+  .gname { font-size:12.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .guid { font-size:10px; color:var(--muted); direction:ltr; }
+  .gbubble { background:#212b36; border-radius:9px; padding:6px 10px; margin-inline-start:29px; }
+  .gtext { font-size:14px; line-height:1.5; word-break:break-word; white-space:pre-wrap; }
+  .greply { font-size:11px; color:var(--muted); border-inline-start:2px solid var(--accent2); padding-inline-start:6px; margin-bottom:3px; opacity:.85; }
   .chat-input { display:flex; gap:8px; align-items:center; padding:9px 10px; border-top:1px solid var(--line); background:var(--card); }
   .chat-input input { flex:1; border-radius:20px; padding:10px 15px; }
   .sendbtn { width:40px; height:40px; border-radius:50%; border:none; background:var(--accent); color:#fff; font-size:16px; cursor:pointer; flex-shrink:0; }
@@ -109,6 +120,15 @@ export const DASHBOARD_HTML = `<!doctype html>
 <script>
 const api=(p,o={})=>fetch('/api'+p,{credentials:'include',headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+/* Turn a decorated Telegram name into something a phone browser can actually render.
+   NFKD folds fancy math/fraktur/bold letters back to plain ones; \p{M} drops the
+   stacked harakat/combining marks; the last range strips zero-width & bidi controls.
+   If nothing readable survives, fall back to the raw string (then the id upstream). */
+function cleanName(s){ const raw=String(s??'');
+  let t=raw.normalize('NFKD').replace(/\\p{M}/gu,'').replace(/[\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]/g,'').trim();
+  return t||raw; }
+/* Stable, legible color per user so you can track who's who at a glance. */
+function uColor(id){ let h=0; const s=String(id); for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0; return 'hsl('+(h%360)+',62%,68%)'; }
 const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
 let current=null, tab='groups', monTimer=null;
 
@@ -129,7 +149,7 @@ async function logout(){ await api('/auth/logout',{method:'POST'}); location.rel
 
 /* ---- Groups ---- */
 async function loadGroups(){ const chats=await api('/chats'); const c=document.getElementById('content');
-  c.innerHTML='<div class="grid2"><div class="card" style="max-width:280px"><h3 style="margin-top:0">الجروبات</h3><div id="chatList">'+(chats.length?chats.map(x=>'<div class="chat-item" onclick="selChat(\\''+x.id+'\\',this)">'+esc(x.title||x.id)+'<div class="muted">'+x.type+'</div></div>').join(''):'<p class="muted">لا جروبات</p>')+'</div></div><div class="card" id="gpanel"><p class="muted">اختر جروباً.</p></div></div>'; }
+  c.innerHTML='<div class="grid2"><div class="card" style="max-width:280px"><h3 style="margin-top:0">الجروبات</h3><div id="chatList">'+(chats.length?chats.map(x=>'<div class="chat-item" onclick="selChat(\\''+x.id+'\\',this)">'+esc(cleanName(x.title)||x.id)+'<div class="muted">'+x.type+'</div></div>').join(''):'<p class="muted">لا جروبات</p>')+'</div></div><div class="card" id="gpanel"><p class="muted">اختر جروباً.</p></div></div>'; }
 
 const TOGGLES=[['welcomeEnabled','الترحيب'],['captchaEnabled','CAPTCHA'],['antispamEnabled','مكافحة السبام'],['antiLinkEnabled','منع الروابط'],['filtersEnabled','الكلمات الممنوعة'],['moderationEnabled','فحص AI'],['repliesEnabled','الردود'],['gamesEnabled','الألعاب'],['economyEnabled','الاقتصاد'],['xpEnabled','النقاط'],['cleanServiceEnabled','حذف رسائل الانضمام'],['antiRaidEnabled','مكافحة الغارات'],['weeklyReportEnabled','التقرير الأسبوعي'],['qotdEnabled','سؤال اليوم'],['athkarEnabled','الأذكار التلقائية'],['dailyAyahEnabled','آية اليوم'],['prayerNotifyEnabled','تنبيه الصلاة'],['aiEnabled','الذكاء الاصطناعي']];
 function selChat(id,node){ current=id; document.querySelectorAll('.chat-item').forEach(n=>n.classList.remove('active')); if(node)node.classList.add('active');
@@ -138,15 +158,19 @@ function selChat(id,node){ current=id; document.querySelectorAll('.chat-item').f
 function gtab(chat){ const c=document.getElementById('gtabC'),s=document.getElementById('gtabS'); if(c)c.className=chat?'act':'ghost'; if(s)s.className=chat?'ghost':'act'; }
 async function groupChat(id){ current=id; gtab(true); const rows=await api('/monitor?chatId='+id+'&limit=150'); rows.reverse();
   const b=document.getElementById('gbody'); if(!b)return;
-  let html='',lastDay='';
+  let html='',lastDay='',lastUid='';
   for(const r of rows){ const d=new Date(r.createdAt), day=d.toLocaleDateString('ar');
-    if(day!==lastDay){ html+='<div class="daysep">'+day+'</div>'; lastDay=day; }
+    if(day!==lastDay){ html+='<div class="daysep">'+day+'</div>'; lastDay=day; lastUid=''; }
     const tm=d.toLocaleTimeString('ar',{hour:'2-digit',minute:'2-digit'});
-    const rep=r.replyToName?'<div class="muted" style="font-size:10px;margin-bottom:1px">↩️ رداً على '+esc(r.replyToName)+'</div>':'';
+    const uid=String(r.userId), col=uColor(uid), nm=cleanName(r.userName)||uid;
+    const rep=r.replyToName?'<div class="greply">↩️ رداً على '+esc(cleanName(r.replyToName))+'</div>':'';
     const body=r.text?esc(r.text):('<span class="muted">'+mediaIcon(r.type)+' '+r.type+'</span>');
-    html+='<div class="bubble in"><div style="font-size:11px;color:var(--accent2);font-weight:600">'+esc(r.userName||String(r.userId))+'</div>'+rep+body+'<div class="btime">'+tm+(r.flagged?' 🚩':'')+'</div></div>';
+    // Group consecutive messages from the same user under one name header.
+    const head=uid!==lastUid?'<div class="ghead"><span class="gavatar" style="background:'+col+'">'+esc(cleanName(nm).charAt(0)||'?')+'</span><span class="gname" style="color:'+col+'">'+esc(nm)+'</span><span class="guid">'+esc(uid)+'</span></div>':'';
+    lastUid=uid;
+    html+='<div class="gmsg"'+(head?'':' style="margin-top:1px"')+'>'+head+'<div class="gbubble" style="border-right:3px solid '+col+'">'+rep+'<div class="gtext">'+body+'</div><div class="btime">'+tm+(r.flagged?' 🚩':'')+'</div></div></div>';
   }
-  b.innerHTML='<div class="chat-body" style="height:60vh;border-radius:10px">'+(html||'<div class="center muted">لا رسائل في هذا الجروب بعد.</div>')+'</div>';
+  b.innerHTML='<div class="chat-body gfeed" style="height:60vh;border-radius:10px">'+(html||'<div class="center muted">لا رسائل في هذا الجروب بعد.</div>')+'</div>';
   const cb=b.querySelector('.chat-body'); if(cb)cb.scrollTop=cb.scrollHeight; }
 async function groupSettings(id){ current=id; gtab(false);
   const [s,st,rep,fil]=await Promise.all([api('/chats/'+id+'/settings'),api('/chats/'+id+'/stats'),api('/chats/'+id+'/replies'),api('/chats/'+id+'/filters')]);
@@ -173,13 +197,13 @@ function refreshChat(){ if(current)groupSettings(current); }
 /* ---- Monitor (live) ---- */
 async function loadMonitor(){ document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">📡 المراقبة المباشرة</h3><p class="muted">آخر الرسائل (تحديث تلقائي كل 5 ثوان). يتطلب MESSAGE_LOG_ENABLED=true.</p><div id="mon"></div></div>'; await tickMon(); monTimer=setInterval(tickMon,5000); }
 async function tickMon(){ const rows=await api('/monitor?limit=60'); const el=document.getElementById('mon'); if(!el)return;
-  el.innerHTML='<table><tr><th>الوقت</th><th>الجروب</th><th>المستخدم</th><th>النوع</th><th>الرسالة</th></tr>'+rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleTimeString('ar')+'</td><td>'+esc(r.chatTitle||r.chatId)+'</td><td>'+esc(r.userName)+'<br><span class="muted">'+r.userId+'</span></td><td>'+r.type+'</td><td>'+esc((r.text||'').slice(0,80))+'</td></tr>').join('')+'</table>'+(rows.length?'':'<p class="muted">لا سجلّات بعد.</p>'); }
+  el.innerHTML='<table><tr><th>الوقت</th><th>الجروب</th><th>المستخدم</th><th>النوع</th><th>الرسالة</th></tr>'+rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleTimeString('ar')+'</td><td>'+esc(cleanName(r.chatTitle)||r.chatId)+'</td><td>'+esc(cleanName(r.userName)||r.userId)+'<br><span class="muted">'+r.userId+'</span></td><td>'+r.type+'</td><td>'+esc((r.text||'').slice(0,80))+'</td></tr>').join('')+'</table>'+(rows.length?'':'<p class="muted">لا سجلّات بعد.</p>'); }
 
 /* ---- Chats (WhatsApp/Telegram-style) ---- */
 let convUid=null, convName='';
-function initial(s){ return esc((String(s||'?').trim().charAt(0))||'?'); }
+function initial(s){ return esc((cleanName(s||'?').trim().charAt(0))||'?'); }
 async function loadUsers(){ const users=await api('/users'); const c=document.getElementById('content');
-  const items=users.length?users.map(u=>'<div class="chatlist-item" onclick="openConv(\\''+u.userId+'\\',this)"><div class="avatar">'+initial(u.name)+'</div><div class="ci-main"><div class="ci-name">'+esc(u.name)+'</div><div class="ci-sub">'+u.count+' رسالة</div></div><div class="ci-time">'+(u.last?new Date(u.last).toLocaleDateString('ar'):'')+'</div></div>').join(''):'<p class="muted" style="padding:12px">لا محادثات خاصة بعد. رسائل الجروبات تظهر في تبويبَي «الجروبات» و«المراقبة».</p>';
+  const items=users.length?users.map(u=>'<div class="chatlist-item" onclick="openConv(\\''+u.userId+'\\',this)"><div class="avatar">'+initial(u.name)+'</div><div class="ci-main"><div class="ci-name">'+esc(cleanName(u.name)||u.userId)+'</div><div class="ci-sub">'+u.count+' رسالة</div></div><div class="ci-time">'+(u.last?new Date(u.last).toLocaleDateString('ar'):'')+'</div></div>').join(''):'<p class="muted" style="padding:12px">لا محادثات خاصة بعد. رسائل الجروبات تظهر في تبويبَي «الجروبات» و«المراقبة».</p>';
   c.innerHTML='<div class="grid2"><div class="card" style="max-width:330px;padding:8px"><h3 style="padding:4px 6px 6px;margin:0">💬 المحادثات</h3><div id="uList">'+items+'</div></div><div class="card" id="convPanel" style="padding:0;overflow:hidden"><div class="center muted" style="padding:70px 20px">اختر محادثة من القائمة</div></div></div>'; }
 async function openConv(uid,node){ document.querySelectorAll('#uList .chatlist-item').forEach(n=>n.classList.remove('active')); if(node)node.classList.add('active');
   convUid=uid; convName=node?node.querySelector('.ci-name').textContent:uid;
@@ -226,7 +250,7 @@ async function openMedia(id){ const r=await api('/media/'+id+'/link'); if(r.url)
 /* ---- Logs / Search ---- */
 function loadLogsForm(){ document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">🔎 بحث السجلات</h3><div class="row"><input id="lq" placeholder="كلمة"><input id="lu" placeholder="User ID"><input id="lc" placeholder="Chat ID"></div><div class="row"><select id="lt"><option value="">كل الأنواع</option><option>text</option><option>photo</option><option>video</option><option>edit</option><option>sticker</option></select><label class="muted"><input type="checkbox" id="lf" style="flex:none"> المخالفة فقط</label><button class="act" onclick="doSearch()">بحث</button></div><div id="lres"></div></div>'; }
 async function doSearch(){ const q=new URLSearchParams({q:document.getElementById('lq').value,userId:document.getElementById('lu').value,chatId:document.getElementById('lc').value,type:document.getElementById('lt').value,flagged:document.getElementById('lf').checked?'true':'',limit:'80'}); const rows=await api('/logs?'+q);
-  document.getElementById('lres').innerHTML='<table><tr><th>الوقت</th><th>الجروب</th><th>المستخدم</th><th>النوع</th><th>النص</th></tr>'+rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleString('ar')+'</td><td>'+esc(r.chatTitle||r.chatId)+'</td><td>'+esc(r.userName)+'</td><td>'+r.type+(r.flagged?' 🚩':'')+'</td><td>'+esc((r.text||'').slice(0,100))+'</td></tr>').join('')+'</table>'+(rows.length?'':'<p class="muted">لا نتائج.</p>'); }
+  document.getElementById('lres').innerHTML='<table><tr><th>الوقت</th><th>الجروب</th><th>المستخدم</th><th>النوع</th><th>النص</th></tr>'+rows.map(r=>'<tr><td>'+new Date(r.createdAt).toLocaleString('ar')+'</td><td>'+esc(cleanName(r.chatTitle)||r.chatId)+'</td><td>'+esc(cleanName(r.userName)||r.userId)+'</td><td>'+r.type+(r.flagged?' 🚩':'')+'</td><td>'+esc((r.text||'').slice(0,100))+'</td></tr>').join('')+'</table>'+(rows.length?'':'<p class="muted">لا نتائج.</p>'); }
 
 /* ---- Analytics ---- */
 async function loadAnalytics(){ const a=await api('/analytics'); const list=(arr,f)=>arr.map((x,i)=>(i+1)+'. '+f(x)).join('<br>')||'-';
