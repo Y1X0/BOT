@@ -51,7 +51,46 @@ const LATIN_FONTS: LatinFont[] = [
   { upper: 0x1d670, lower: 0x1d68a, digit: 0x1d7f6 }, // monospace
   { upper: 0xff21, lower: 0xff41, digit: 0xff10 }, // fullwidth
   { upper: 0x24b6, lower: 0x24d0 }, // circled
+  { upper: 0x1f150, lower: 0x1f150 }, // negative circled 🅐
+  { upper: 0x1f130, lower: 0x1f130 }, // squared 🄰
+  { upper: 0x1f170, lower: 0x1f170 }, // negative squared 🅰
+  { upper: 0x1f110, lower: 0x249c }, // parenthesized 🄐 / ⒜
 ];
+
+/** Map-based Latin fonts (irregular Unicode) — applied per character. */
+const MAP_FONTS: { map: Record<string, string>; reverse?: boolean }[] = [
+  {
+    // small caps
+    map: {
+      a: 'ᴀ', b: 'ʙ', c: 'ᴄ', d: 'ᴅ', e: 'ᴇ', f: 'ꜰ', g: 'ɢ', h: 'ʜ', i: 'ɪ', j: 'ᴊ', k: 'ᴋ',
+      l: 'ʟ', m: 'ᴍ', n: 'ɴ', o: 'ᴏ', p: 'ᴘ', q: 'ǫ', r: 'ʀ', s: 'ꜱ', t: 'ᴛ', u: 'ᴜ', v: 'ᴠ',
+      w: 'ᴡ', x: 'x', y: 'ʏ', z: 'ᴢ',
+    },
+  },
+  {
+    // superscript
+    map: {
+      a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', d: 'ᵈ', e: 'ᵉ', f: 'ᶠ', g: 'ᵍ', h: 'ʰ', i: 'ⁱ', j: 'ʲ', k: 'ᵏ',
+      l: 'ˡ', m: 'ᵐ', n: 'ⁿ', o: 'ᵒ', p: 'ᵖ', q: 'q', r: 'ʳ', s: 'ˢ', t: 'ᵗ', u: 'ᵘ', v: 'ᵛ',
+      w: 'ʷ', x: 'ˣ', y: 'ʸ', z: 'ᶻ',
+    },
+  },
+  {
+    // upside-down (string is also reversed)
+    reverse: true,
+    map: {
+      a: 'ɐ', b: 'q', c: 'ɔ', d: 'p', e: 'ǝ', f: 'ɟ', g: 'ƃ', h: 'ɥ', i: 'ᴉ', j: 'ɾ', k: 'ʞ',
+      l: 'ʅ', m: 'ɯ', n: 'u', o: 'o', p: 'd', q: 'b', r: 'ɹ', s: 's', t: 'ʇ', u: 'n', v: 'ʌ',
+      w: 'ʍ', x: 'x', y: 'ʎ', z: 'z',
+    },
+  },
+];
+
+function mapCharFont(text: string, spec: { map: Record<string, string>; reverse?: boolean }): string {
+  const chars = Array.from(text.toLowerCase()).map((ch) => spec.map[ch] ?? ch);
+  if (spec.reverse) chars.reverse();
+  return chars.join('');
+}
 
 function mapLatinFont(text: string, font: LatinFont): string {
   return Array.from(text)
@@ -156,6 +195,16 @@ const FRAMES: [string, string][] = [
   ['⟢ ', ' ⟣'],
   ['ღ ', ' ღ'],
   ['᯽ ', ' ᯽'],
+  ['⊰ ', ' ⊱'],
+  ['≋ ', ' ≋'],
+  ['⧉ ', ' ⧉'],
+  ['⩩ ', ' ⩩'],
+  ['⫷ ', ' ⫸'],
+  ['⇜ ', ' ⇝'],
+  ['❣ ', ' ❣'],
+  ['ঔ ', ' ঔ'],
+  ['⌜ ', ' ⌟'],
+  ['⏣ ', ' ⏣'],
 ];
 
 const hasLatin = (t: string) => /[A-Za-z]/.test(t);
@@ -165,7 +214,7 @@ const hasLatin = (t: string) => /[A-Za-z]/.test(t);
  * frames lead (prettiest, work for Arabic & Latin), then Latin fancy alphabets,
  * then a few clean separators and subtle marks. `limit` caps the count.
  */
-export function decorate(text: string, limit = 55): string[] {
+export function decorate(text: string, limit = 72): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
@@ -174,8 +223,9 @@ export function decorate(text: string, limit = 55): string[] {
   // Latin fancy alphabets first for ASCII (the real per-letter restyle).
   if (hasLatin(trimmed)) {
     for (const font of LATIN_FONTS) out.push(mapLatinFont(trimmed, font));
+    for (const spec of MAP_FONTS) out.push(mapCharFont(trimmed, spec));
     const bold = mapLatinFont(trimmed, LATIN_FONTS[0]);
-    out.push(`꧁ ${bold} ꧂`, `༺ ${bold} ༻`);
+    out.push(`꧁ ${bold} ꧂`, `༺ ${bold} ༻`, `▁▂▃ ${bold} ▃▂▁`);
   }
 
   // Per-letter decoration — the core "زخرفة الحروف" (marks, harakat, wraps).
