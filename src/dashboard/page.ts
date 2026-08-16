@@ -132,13 +132,30 @@ async function loadGroups(){ const chats=await api('/chats'); const c=document.g
   c.innerHTML='<div class="grid2"><div class="card" style="max-width:280px"><h3 style="margin-top:0">الجروبات</h3><div id="chatList">'+(chats.length?chats.map(x=>'<div class="chat-item" onclick="selChat(\\''+x.id+'\\',this)">'+esc(x.title||x.id)+'<div class="muted">'+x.type+'</div></div>').join(''):'<p class="muted">لا جروبات</p>')+'</div></div><div class="card" id="gpanel"><p class="muted">اختر جروباً.</p></div></div>'; }
 
 const TOGGLES=[['welcomeEnabled','الترحيب'],['captchaEnabled','CAPTCHA'],['antispamEnabled','مكافحة السبام'],['antiLinkEnabled','منع الروابط'],['filtersEnabled','الكلمات الممنوعة'],['moderationEnabled','فحص AI'],['repliesEnabled','الردود'],['gamesEnabled','الألعاب'],['economyEnabled','الاقتصاد'],['xpEnabled','النقاط'],['cleanServiceEnabled','حذف رسائل الانضمام'],['antiRaidEnabled','مكافحة الغارات'],['weeklyReportEnabled','التقرير الأسبوعي'],['qotdEnabled','سؤال اليوم'],['athkarEnabled','الأذكار التلقائية'],['dailyAyahEnabled','آية اليوم'],['prayerNotifyEnabled','تنبيه الصلاة'],['aiEnabled','الذكاء الاصطناعي']];
-async function selChat(id,node){ current=id; document.querySelectorAll('.chat-item').forEach(n=>n.classList.remove('active')); node.classList.add('active');
+function selChat(id,node){ current=id; document.querySelectorAll('.chat-item').forEach(n=>n.classList.remove('active')); if(node)node.classList.add('active');
+  document.getElementById('gpanel').innerHTML='<div class="row" style="margin:0 0 10px"><button class="act" id="gtabC" onclick="groupChat(\\''+id+'\\')">💬 المحادثة</button><button class="ghost" id="gtabS" onclick="groupSettings(\\''+id+'\\')">⚙️ الإعدادات</button></div><div id="gbody"><p class="muted">جاري التحميل...</p></div>';
+  groupChat(id); }
+function gtab(chat){ const c=document.getElementById('gtabC'),s=document.getElementById('gtabS'); if(c)c.className=chat?'act':'ghost'; if(s)s.className=chat?'ghost':'act'; }
+async function groupChat(id){ current=id; gtab(true); const rows=await api('/monitor?chatId='+id+'&limit=150'); rows.reverse();
+  const b=document.getElementById('gbody'); if(!b)return;
+  let html='',lastDay='';
+  for(const r of rows){ const d=new Date(r.createdAt), day=d.toLocaleDateString('ar');
+    if(day!==lastDay){ html+='<div class="daysep">'+day+'</div>'; lastDay=day; }
+    const tm=d.toLocaleTimeString('ar',{hour:'2-digit',minute:'2-digit'});
+    const rep=r.replyToName?'<div class="muted" style="font-size:10px;margin-bottom:1px">↩️ رداً على '+esc(r.replyToName)+'</div>':'';
+    const body=r.text?esc(r.text):('<span class="muted">'+mediaIcon(r.type)+' '+r.type+'</span>');
+    html+='<div class="bubble in"><div style="font-size:11px;color:var(--accent2);font-weight:600">'+esc(r.userName||String(r.userId))+'</div>'+rep+body+'<div class="btime">'+tm+(r.flagged?' 🚩':'')+'</div></div>';
+  }
+  b.innerHTML='<div class="chat-body" style="height:60vh;border-radius:10px">'+(html||'<div class="center muted">لا رسائل في هذا الجروب بعد.</div>')+'</div>';
+  const cb=b.querySelector('.chat-body'); if(cb)cb.scrollTop=cb.scrollHeight; }
+async function groupSettings(id){ current=id; gtab(false);
   const [s,st,rep,fil]=await Promise.all([api('/chats/'+id+'/settings'),api('/chats/'+id+'/stats'),api('/chats/'+id+'/replies'),api('/chats/'+id+'/filters')]);
   const tog=TOGGLES.map(([k,l])=>'<div class="toggle"><span>'+l+'</span><label class="switch"><input type="checkbox" '+(s[k]?'checked':'')+' onchange="setTog(\\''+k+'\\',this.checked)"><span class="slider"></span></label></div>').join('');
   const top=(st.top||[]).slice(0,5).map((m,i)=>(i+1)+'. '+esc(m.name)+' — '+m.messages+' 💬').join('<br>')||'-';
   const rl=rep.map(r=>'<span class="pill">'+esc(r.trigger)+' <button class="del" onclick="delRep(\\''+encodeURIComponent(r.trigger)+'\\')">×</button></span>').join('')||'<span class="muted">لا شيء</span>';
   const fl=fil.map(f=>'<span class="pill">'+esc(f.word)+' <button class="del" onclick="delFil(\\''+encodeURIComponent(f.word)+'\\')">×</button></span>').join('')||'<span class="muted">لا شيء</span>';
-  document.getElementById('gpanel').innerHTML='<h3 style="margin-top:0">📊 الإحصائيات</h3><div class="stat"><div class="box"><b>'+st.members+'</b>أعضاء</div><div class="box"><b>'+st.messages+'</b>رسائل</div></div><div class="muted" style="margin-top:8px">الأكثر نشاطاً:<br>'+top+'</div>'
+  const b=document.getElementById('gbody'); if(!b)return;
+  b.innerHTML='<h3 style="margin-top:0">📊 الإحصائيات</h3><div class="stat"><div class="box"><b>'+st.members+'</b>أعضاء</div><div class="box"><b>'+st.messages+'</b>رسائل</div></div><div class="muted" style="margin-top:8px">الأكثر نشاطاً:<br>'+top+'</div>'
    +'<h3>📣 إرسال رسالة للجروب</h3><div class="row"><input id="bc" placeholder="نص الرسالة"><button class="act" onclick="broadcast()">إرسال</button></div>'
    +'<h3>⚙️ الإعدادات</h3>'+tog
    +'<h3>📜 القوانين</h3><textarea id="rules" rows="2">'+esc(s.rules||'')+'</textarea><div class="row"><button class="act" onclick="saveRules()">حفظ</button></div>'
@@ -151,7 +168,7 @@ async function addRep(){ const trigger=document.getElementById('rt').value.trim(
 async function delRep(t){ await api('/chats/'+current+'/replies/'+t,{method:'DELETE'}); refreshChat(); }
 async function addFil(){ const w=document.getElementById('fw').value.trim(); if(!w)return; await api('/chats/'+current+'/filters',{method:'POST',body:JSON.stringify({word:w})}); refreshChat(); }
 async function delFil(w){ await api('/chats/'+current+'/filters/'+w,{method:'DELETE'}); refreshChat(); }
-function refreshChat(){ const n=document.querySelector('.chat-item.active'); if(n)selChat(current,n); }
+function refreshChat(){ if(current)groupSettings(current); }
 
 /* ---- Monitor (live) ---- */
 async function loadMonitor(){ document.getElementById('content').innerHTML='<div class="card"><h3 style="margin-top:0">📡 المراقبة المباشرة</h3><p class="muted">آخر الرسائل (تحديث تلقائي كل 5 ثوان). يتطلب MESSAGE_LOG_ENABLED=true.</p><div id="mon"></div></div>'; await tickMon(); monTimer=setInterval(tickMon,5000); }

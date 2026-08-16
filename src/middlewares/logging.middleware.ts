@@ -38,6 +38,7 @@ export const loggingMiddleware: MiddlewareFn<BotContext> = async (ctx, next) => 
   if (raw && chat && from && loggable) {
     const isPrivate = chat.type === 'private';
     const info = ctx.editedMessage ? { type: 'edit', text: (raw.text as string) ?? (raw.caption as string) } : classify(raw);
+    const repliedTo = (raw.reply_to_message as { from?: { first_name?: string; username?: string; id?: number } } | undefined)?.from;
     void logMessage({
       chatId: BigInt(chat.id),
       chatTitle: isPrivate ? 'خاص (البوت)' : ((chat as { title?: string }).title ?? null),
@@ -47,6 +48,7 @@ export const loggingMiddleware: MiddlewareFn<BotContext> = async (ctx, next) => 
       type: info.type,
       text: info.text ?? null,
       fileId: (info as { fileId?: string }).fileId ?? null,
+      replyToName: repliedTo ? displayName(repliedTo) : null,
     });
   }
   return next();

@@ -12,6 +12,7 @@ export interface LogInput {
   fileId?: string | null;
   flagged?: boolean;
   outgoing?: boolean;
+  replyToName?: string | null;
 }
 
 export async function logMessage(input: LogInput): Promise<void> {

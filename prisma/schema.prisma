@@ -232,6 +232,7 @@ model MessageLog {
   fileId    String?
   flagged   Boolean  @default(false) // set by AI moderation
   outgoing  Boolean  @default(false) // true = message sent BY the bot
+  replyToName String? // display name of the user this message replied to (if any)
   createdAt DateTime @default(now())
 
   @@index([chatId, createdAt])
