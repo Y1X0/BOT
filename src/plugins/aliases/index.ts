@@ -100,6 +100,7 @@ const ALIASES: Alias[] = [
   { command: 'rvip', triggers: ['رفع مميز', 'رتبة مميز', 'مميز بوت', 'رتبه مميز', 'عضو مميز'] },
   { command: 'unrank', triggers: ['شيل رتبه', 'شيل الرتبه', 'حذف رتبه', 'سحب رتبه', 'ازالة رتبه', 'تنزيل رتبه'] },
   { command: 'roles', triggers: ['رتب البوت', 'الرتب الاداريه', 'مشرفين البوت', 'رتب الاداره'] },
+  { command: 'setreply', triggers: ['رد مميز', 'احفظ رد مميز', 'حفظ رد مميز', 'رد بايموجي'] },
   { command: 'mute', triggers: ['كتم', 'اكتم', 'كتمه'] },
   { command: 'unmute', triggers: ['الغاء كتم', 'فك كتم', 'رفع كتم', 'الغاء الكتم'] },
   { command: 'restrict', triggers: ['تقييد', 'قيد', 'قيده'] },
@@ -250,6 +251,7 @@ const REPLY_ONLY_COMMANDS = new Set([
   '/rmod',
   '/rvip',
   '/unrank',
+  '/setreply',
 ]);
 
 export const aliasesPlugin: Plugin = {

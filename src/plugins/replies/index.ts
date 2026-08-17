@@ -5,6 +5,7 @@ import type { Plugin } from '../../core/plugin';
 import { requireRole } from '../../utils/permissions';
 import {
   addReply,
+  addRichReply,
   deleteReply,
   listReplies,
   matchReply,
@@ -27,6 +28,7 @@ export const repliesPlugin: Plugin = {
   description: 'Smart & custom keyword replies with reactions',
   commands: [
     { command: 'addreply', description: '➕ إضافة رد مخصص (أدمن)', staffOnly: true },
+    { command: 'setreply', description: '✨ رد مميّز بإيموجي (بالرد على رسالة)', staffOnly: true },
     { command: 'delreply', description: '➖ حذف رد مخصص (أدمن)', staffOnly: true },
     { command: 'replies', description: '📋 عرض الردود المخصصة', staffOnly: true },
   ],
@@ -51,6 +53,32 @@ export const repliesPlugin: Plugin = {
       }
       await addReply(ctx.chat.id, trigger, responses, ctx.from.id);
       await ctx.reply(t('replies.added', { trigger }));
+    });
+
+    // /setreply <trigger> — used AS A REPLY to a message. Captures that
+    // message's exact text + entities (premium/custom emoji, bold…) and stores
+    // it as the reply for <trigger>. This is how a keyword gets a fancy reply.
+    bot.command('setreply', requireRole('admin'), async (ctx) => {
+      const trigger = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      const replied = (ctx.message as {
+        reply_to_message?: { text?: string; caption?: string; entities?: unknown[]; caption_entities?: unknown[] };
+      }).reply_to_message;
+      if (!trigger || !replied) {
+        await ctx.reply('📌 الطريقة:\n1) ابعت رسالة فيها الكلمة والإيموجي المميّز اللي بدك ياه.\n2) ردّ عليها واكتب: رد مميز <الكلمة المحفّزة>\nمثال: ردّ على «أهلاً بكم 🎉» بـ «رد مميز هاي».');
+        return;
+      }
+      const body = replied.text ?? replied.caption;
+      const entities = (replied.entities ?? replied.caption_entities ?? []) as unknown[];
+      if (!body) {
+        await ctx.reply('⚠️ لازم ترد على رسالة نصية (تحتوي كلمات وإيموجي).');
+        return;
+      }
+      await addRichReply(ctx.chat.id, trigger, body, entities, ctx.from.id);
+      const hasPremium = entities.some((e) => (e as { type?: string }).type === 'custom_emoji');
+      await ctx.reply(
+        `✅ تم حفظ الرد المميّز للكلمة «${trigger}».` +
+          (hasPremium ? '\n✨ فيه إيموجي مميّز — لازم مالك البوت عنده Telegram Premium حتى يبيّن متحرّك.' : ''),
+      );
     });
 
     bot.command('delreply', requireRole('admin'), async (ctx) => {
@@ -93,7 +121,15 @@ export const repliesPlugin: Plugin = {
       // 1) Admin-defined custom replies take priority.
       const custom = await matchReply(chat.id, text);
       if (custom) {
-        await ctx.reply(custom).catch(() => undefined);
+        if (custom.entities?.length) {
+          // Rich reply: re-send with entities so premium/custom emoji render.
+          // If the bot owner lacks Premium, Telegram rejects it → fall back to plain.
+          await ctx.reply(custom.text, { entities: custom.entities as never }).catch(async () => {
+            await ctx.reply(custom.text).catch(() => undefined);
+          });
+        } else {
+          await ctx.reply(custom.text).catch(() => undefined);
+        }
         return;
       }
 

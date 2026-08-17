@@ -181,6 +181,7 @@ model CustomReply {
 
   trigger   String
   responses String   // JSON string array
+  entities  String? // JSON of Telegram message entities (for premium/custom-emoji replies)
   matchType String   @default("contains") // exact | contains | regex
   createdBy BigInt
   createdAt DateTime @default(now())
