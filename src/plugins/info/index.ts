@@ -59,17 +59,24 @@ export const infoPlugin: Plugin = {
     bot.command('id', infoHandler);
     bot.command('info', infoHandler);
 
-    // /idcardhelp — show the placeholders usable in a custom card.
+    // /idcardhelp — explain customization AND hand back the current template
+    // ready to copy, so the user just swaps the emoji for premium ones.
     bot.command('idcardhelp', async (ctx) => {
       const ph = ID_PLACEHOLDERS.map((p) => `{${p}}`).join('  ');
       await ctx.reply(
-        '🆔 تخصيص بطاقة «ايدي»:\n\n' +
-          '1) اكتب رسالة فيها شكل البطاقة اللي بدك ياه، وحُط المتغيّرات هاي مكان المعلومات (وتقدر تحط إيموجي مميّز):\n' +
-          `${ph}\n\n` +
-          '2) ردّ على تلك الرسالة واكتب: بطاقة ايدي (أو /setidcard)\n\n' +
-          'مثال:\n👤 {name}\n🏅 {rank} — مستوى {level}\n🆔 {id}\n\n' +
-          'للرجوع للافتراضي: /residcard (أو «رجع بطاقة ايدي»).',
+        '🆔 تخصيص بطاقة «ايدي» (وإضافة إيموجي مميّز):\n\n' +
+          '1) انسخ القالب الحالي من الرسالة الجاية 👇\n' +
+          '2) الصقه برسالة جديدة، وبدّل الإيموجي العادية بإيموجي مميّز من كيبورد تيليجرام (يلزم حسابك Premium)، وخلّي المتغيّرات { } زي ما هي.\n' +
+          '3) ردّ على رسالتك واكتب: بطاقة ايدي\n\n' +
+          `المتغيّرات المتاحة:\n${ph}\n\n` +
+          '✨ عشان الإيموجي المميّز يبيّن متحرّك للكل، لازم مالك البوت كمان عندو Premium.\n' +
+          'للرجوع للافتراضي: رجع بطاقة ايدي',
       );
+      // Second message: the current effective template, tap-to-copy.
+      const settings = ctx.chat ? await getSettings(ctx.chat.id).catch(() => null) : null;
+      const current = settings?.idCardTemplate || DEFAULT_ID_CARD;
+      const escaped = current.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      await ctx.reply(`<pre>${escaped}</pre>`, { parse_mode: 'HTML' }).catch(() => ctx.reply(current).catch(() => undefined));
     });
 
     // /setidcard — capture the replied message (text + premium-emoji entities)
