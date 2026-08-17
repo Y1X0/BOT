@@ -220,12 +220,28 @@ export function decorate(text: string, limit = 72): string[] {
 
   const out: string[] = [];
 
-  // Latin fancy alphabets first for ASCII (the real per-letter restyle).
+  // Latin fancy alphabets. Bold variants lead — most users want the boldest
+  // look — and the bold text is then dressed in frames/separators so there are
+  // plenty of *bold* decorated options before the lighter styles.
   if (hasLatin(trimmed)) {
+    const bold = mapLatinFont(trimmed, LATIN_FONTS[0]); // 𝐀𝐁𝐂 math bold
+    const sansBold = mapLatinFont(trimmed, LATIN_FONTS[9]); // 𝗔𝗕𝗖 sans-serif bold
+    const boldItalic = mapLatinFont(trimmed, LATIN_FONTS[2]); // 𝑨𝑩𝑪
+    const boldScript = mapLatinFont(trimmed, LATIN_FONTS[4]); // 𝓐𝓑𝓒
+    const boldFraktur = mapLatinFont(trimmed, LATIN_FONTS[7]); // 𝕬𝕭𝕮
+
+    // Plain bold alphabets first.
+    out.push(bold, sansBold, boldItalic, boldScript, boldFraktur);
+
+    // Bold text inside every frame, plus a few separators → lots of bold "زخرفة".
+    for (const [l, r] of FRAMES) out.push(`${l}${bold}${r}`);
+    for (const [l, r] of FRAMES) out.push(`${l}${sansBold}${r}`);
+    for (const sep of SEPARATORS.slice(0, 8)) out.push(joinWith(bold, sep));
+    out.push(`꧁ ${bold} ꧂`, `༺ ${bold} ༻`, `▁▂▃ ${bold} ▃▂▁`);
+
+    // Then the remaining lighter alphabets for variety.
     for (const font of LATIN_FONTS) out.push(mapLatinFont(trimmed, font));
     for (const spec of MAP_FONTS) out.push(mapCharFont(trimmed, spec));
-    const bold = mapLatinFont(trimmed, LATIN_FONTS[0]);
-    out.push(`꧁ ${bold} ꧂`, `༺ ${bold} ༻`, `▁▂▃ ${bold} ▃▂▁`);
   }
 
   // Per-letter decoration — the core "زخرفة الحروف" (marks, harakat, wraps).
