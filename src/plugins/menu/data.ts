@@ -167,6 +167,8 @@ export const MENU: MenuCategory[] = [
       { ar: 'تقرير', cmd: 'groupreport', desc: 'تقرير كامل' },
       { ar: 'تقرير اسبوعي', cmd: 'weekly', desc: 'تقرير الأسبوع' },
       { ar: 'ايدي', cmd: 'id', desc: 'معلوماتك' },
+      { ar: 'بطاقة ايدي', cmd: 'setidcard', desc: 'تخصيص شكل بطاقة الايدي (بالرد)' },
+      { ar: 'مساعدة الايدي', cmd: 'idcardhelp', desc: 'شرح تخصيص البطاقة' },
     ],
   },
   {

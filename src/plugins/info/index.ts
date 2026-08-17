@@ -6,11 +6,12 @@ import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
 import { resolveTarget, displayName, pickRandom } from '../../utils/format';
 import { BIO_QUOTES } from './bios';
-import { getSettings } from '../../services/settings.service';
+import { getSettings, setIdCard } from '../../services/settings.service';
 import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
-import { hasRole, type Role } from '../../utils/permissions';
-import { statLabel, interactionLabel, buildIdCard } from './card';
+import { hasRole, requireRole, type Role } from '../../utils/permissions';
+import { rankForLevel } from '../ranks/logic';
+import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:info');
@@ -25,6 +26,9 @@ export const infoPlugin: Plugin = {
     { command: 'weather', description: '🌤 حالة الطقس' },
     { command: 'id', description: '🆔 معلوماتك (صورة، بايو، آيدي)' },
     { command: 'info', description: '👤 معلومات عضو (بالرد عليه)' },
+    { command: 'idcardhelp', description: '🎨 كيف تخصّص بطاقة الايدي' },
+    { command: 'setidcard', description: '🖌 ضبط بطاقة ايدي مخصّصة (بالرد)', staffOnly: true },
+    { command: 'residcard', description: '♻️ إرجاع بطاقة ايدي الافتراضية', staffOnly: true },
     { command: 'bio', description: '📝 بايو عضو (بالرد عليه)' },
     { command: 'rules', description: '📜 قوانين الجروب' },
   ],
@@ -54,6 +58,51 @@ export const infoPlugin: Plugin = {
     };
     bot.command('id', infoHandler);
     bot.command('info', infoHandler);
+
+    // /idcardhelp — show the placeholders usable in a custom card.
+    bot.command('idcardhelp', async (ctx) => {
+      const ph = ID_PLACEHOLDERS.map((p) => `{${p}}`).join('  ');
+      await ctx.reply(
+        '🆔 تخصيص بطاقة «ايدي»:\n\n' +
+          '1) اكتب رسالة فيها شكل البطاقة اللي بدك ياه، وحُط المتغيّرات هاي مكان المعلومات (وتقدر تحط إيموجي مميّز):\n' +
+          `${ph}\n\n` +
+          '2) ردّ على تلك الرسالة واكتب: بطاقة ايدي (أو /setidcard)\n\n' +
+          'مثال:\n👤 {name}\n🏅 {rank} — مستوى {level}\n🆔 {id}\n\n' +
+          'للرجوع للافتراضي: /residcard (أو «رجع بطاقة ايدي»).',
+      );
+    });
+
+    // /setidcard — capture the replied message (text + premium-emoji entities)
+    // as this group's custom id-card template.
+    bot.command('setidcard', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const replied = (ctx.message as {
+        reply_to_message?: { text?: string; caption?: string; entities?: unknown[]; caption_entities?: unknown[] };
+      }).reply_to_message;
+      const body = replied?.text ?? replied?.caption;
+      if (!body) {
+        await ctx.reply('↩️ ردّ على رسالة فيها شكل البطاقة والمتغيّرات ({name} {id}…) ثم اكتب: بطاقة ايدي.\nللمساعدة: /idcardhelp');
+        return;
+      }
+      const entities = (replied?.entities ?? replied?.caption_entities ?? []) as unknown[];
+      if (!/\{(name|id|username|rank|level|stats)\}/.test(body)) {
+        await ctx.reply('⚠️ البطاقة لازم تحتوي متغيّر واحد على الأقل مثل {name} أو {id}. شوف /idcardhelp.');
+        return;
+      }
+      await setIdCard(ctx.chat.id, body, entities);
+      const hasPremium = entities.some((e) => (e as { type?: string }).type === 'custom_emoji');
+      await ctx.reply(
+        '✅ تم ضبط بطاقة «ايدي» المخصّصة لهذا الجروب. جرّب: ايدي' +
+          (hasPremium ? '\n✨ فيها إيموجي مميّز — لازم مالك البوت عندو Telegram Premium حتى يبيّن متحرّك.' : ''),
+      );
+    });
+
+    // /residcard — restore the default card.
+    bot.command('residcard', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      await setIdCard(ctx.chat.id, null, null);
+      await ctx.reply('♻️ رجّعت بطاقة «ايدي» للشكل الافتراضي.');
+    });
 
     // /bio (reply) → the member's Telegram bio, or a bot-picked phrase if none.
     bot.command('bio', async (ctx) => {
@@ -123,10 +172,6 @@ export const infoPlugin: Plugin = {
   },
 };
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 interface TargetUser {
   id: number;
   first_name?: string;
@@ -154,18 +199,41 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
     if (custom && hasRole(custom, role as Role)) role = custom;
   }
   const messageCount = member?.messageCount ?? 0;
+  const level = member?.level ?? 0;
+  const rankInfo = rankForLevel(level);
   const stats = target.is_bot ? 'بوت 🤖' : statLabel(role, messageCount);
-  const title = member?.title ? escapeHtml(member.title) : 'لا يوجد';
   const interaction = target.is_bot ? 'بوت 🤖' : interactionLabel(messageCount);
+  const joined = member?.joinedAt ? new Date(member.joinedAt).toLocaleDateString('ar') : '—';
 
-  const caption = buildIdCard({
-    name: escapeHtml(fullName),
-    username: escapeHtml(username),
+  // Values are inserted verbatim (no parse_mode, entities keep formatting), so
+  // no HTML-escaping is needed — nothing is interpreted as markup.
+  const vars: Record<string, string> = {
+    name: fullName,
+    username,
+    id: String(target.id),
     stats,
-    title,
+    title: member?.title || 'لا يوجد',
     interaction,
-    id: target.id,
-  });
+    level: String(level),
+    xp: String(member?.xp ?? 0),
+    messages: String(messageCount),
+    rank: `${rankInfo.emoji} ${rankInfo.name}`,
+    joined,
+  };
+
+  // Use the group's custom template if set, else the default.
+  const settings = ctx.chat ? ctx.state.settings ?? (await getSettings(ctx.chat.id).catch(() => null)) : null;
+  const template = settings?.idCardTemplate || DEFAULT_ID_CARD;
+  let templateEntities: Entity[] = [];
+  if (settings?.idCardTemplate && settings.idCardEntities) {
+    try {
+      const parsed = JSON.parse(settings.idCardEntities);
+      if (Array.isArray(parsed)) templateEntities = parsed as Entity[];
+    } catch {
+      /* ignore malformed entities */
+    }
+  }
+  const { text, entities } = renderIdCard(template, templateEntities, vars);
 
   // Fetch the latest profile photo (largest size), if available.
   let photoFileId: string | undefined;
@@ -177,12 +245,14 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
     log.debug({ err, userId: target.id }, 'getUserProfilePhotos failed');
   }
 
+  const ents = entities as never;
   if (photoFileId) {
     await ctx
-      .replyWithPhoto(photoFileId, { caption, parse_mode: 'HTML' })
-      .catch(() => ctx.reply(caption, { parse_mode: 'HTML' }).catch(() => undefined));
+      .replyWithPhoto(photoFileId, { caption: text, caption_entities: ents })
+      // A premium-emoji entity fails if the bot owner lacks Premium → retry plain.
+      .catch(() => ctx.replyWithPhoto(photoFileId!, { caption: text }).catch(() => ctx.reply(text).catch(() => undefined)));
   } else {
-    await ctx.reply(caption, { parse_mode: 'HTML' }).catch(() => undefined);
+    await ctx.reply(text, { entities: ents }).catch(() => ctx.reply(text).catch(() => undefined));
   }
 }
 

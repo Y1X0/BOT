@@ -107,6 +107,10 @@ model ChatSettings {
   // Rules
   rules               String?
 
+  // Custom "id" card: a template with {placeholders} + optional premium-emoji entities
+  idCardTemplate      String?
+  idCardEntities      String? // JSON of Telegram entities captured with the template
+
   updatedAt           DateTime @updatedAt
 }
 

@@ -98,3 +98,18 @@ export async function setRules(chatId: number | bigint, rules: string): Promise<
     data: { rules },
   });
 }
+
+/** Store (or clear, when template is null) a custom id-card template + entities. */
+export async function setIdCard(
+  chatId: number | bigint,
+  template: string | null,
+  entities: unknown[] | null,
+): Promise<void> {
+  await prisma.chatSettings.update({
+    where: { chatId: BigInt(chatId) },
+    data: {
+      idCardTemplate: template,
+      idCardEntities: template && entities && entities.length ? JSON.stringify(entities) : null,
+    },
+  });
+}

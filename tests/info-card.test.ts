@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statLabel, interactionLabel, buildIdCard } from '../src/plugins/info/card';
+import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD } from '../src/plugins/info/card';
 
 describe('statLabel', () => {
   it('maps staff roles regardless of activity', () => {
@@ -26,27 +26,54 @@ describe('interactionLabel', () => {
   });
 });
 
-describe('buildIdCard', () => {
-  const card = buildIdCard({
+describe('renderIdCard', () => {
+  const vars = {
     name: 'أحمد',
     username: '@ahmad',
+    id: '12345',
     stats: 'عضو مسكين 🦦',
     title: 'لا يوجد',
     interaction: 'غير متفاعل',
-    id: 12345,
+    level: '3',
+    xp: '120',
+    messages: '40',
+    rank: '🥉 مبتدئ',
+    joined: '2024/01/01',
+  };
+
+  it('fills the default template with every value', () => {
+    const { text } = renderIdCard(DEFAULT_ID_CARD, [], vars);
+    expect(text).toContain('أحمد');
+    expect(text).toContain('@ahmad');
+    expect(text).toContain('عضو مسكين 🦦');
+    expect(text).toContain('🥉 مبتدئ');
+    expect(text).toContain('12345');
+    expect(text).not.toContain('{'); // no leftover placeholders
   });
 
-  it('includes every field and the copyable id', () => {
-    expect(card).toContain('ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ɢʀᴏᴜᴘ');
-    expect(card).toContain('أحمد');
-    expect(card).toContain('@ahmad');
-    expect(card).toContain('عضو مسكين 🦦');
-    expect(card).toContain('<code>12345</code>');
+  it('wraps the id value in a copyable code entity', () => {
+    const { text, entities } = renderIdCard('id: {id}', [], vars);
+    const code = entities.find((e) => e.type === 'code');
+    expect(code).toBeTruthy();
+    expect(text.slice(code!.offset, code!.offset + code!.length)).toBe('12345');
   });
 
-  it('keeps the six labelled lines in order', () => {
-    const idx = ['ɴᴀᴍᴇ', 'ᴜѕᴇʀɴᴀᴍᴇ', 'ѕᴛᴀᴛѕ', 'ᴛɪᴛʟᴇ', 'ɪɴᴛᴇʀᴀᴄᴛɪᴏɴ', 'ɪᴅ'].map((k) => card.indexOf(k));
-    expect(idx.every((i) => i >= 0)).toBe(true);
-    expect([...idx]).toEqual([...idx].sort((a, b) => a - b));
+  it('shifts a custom-emoji entity that follows a placeholder', () => {
+    // Template: "x {name} 😀" — the emoji entity sits after {name} (offset 9,
+    // len 2). After substituting name→أحمد (4 chars, delta = 4 - 6 = -2), the
+    // emoji moves to offset 7.
+    const tmpl = 'x {name} 😀';
+    const emoji = { type: 'custom_emoji', offset: 9, length: 2, custom_emoji_id: '5' };
+    const { text, entities } = renderIdCard(tmpl, [emoji], vars);
+    const ce = entities.find((e) => e.type === 'custom_emoji');
+    expect(ce).toBeTruthy();
+    expect(text.slice(ce!.offset, ce!.offset + ce!.length)).toBe('😀');
+  });
+
+  it('drops an entity that overlaps a substituted placeholder', () => {
+    const tmpl = 'hi {name}!';
+    const bold = { type: 'bold', offset: 3, length: 6 }; // covers "{name}"
+    const { entities } = renderIdCard(tmpl, [bold], vars);
+    expect(entities.some((e) => e.type === 'bold')).toBe(false);
   });
 });
