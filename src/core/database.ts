@@ -42,6 +42,12 @@ export async function ensureSchema(): Promise<void> {
     'ALTER TABLE "CustomReply" ADD COLUMN IF NOT EXISTS "entities" TEXT',
     'ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "idCardTemplate" TEXT',
     'ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "idCardEntities" TEXT',
+    `CREATE TABLE IF NOT EXISTS "GlobalConfig" (
+      "key" TEXT NOT NULL,
+      "value" TEXT NOT NULL,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "GlobalConfig_pkey" PRIMARY KEY ("key")
+    )`,
     // Virtual-pet table (matches Prisma's Postgres DDL so a later db push is a no-op).
     `CREATE TABLE IF NOT EXISTS "Pet" (
       "id" SERIAL NOT NULL,

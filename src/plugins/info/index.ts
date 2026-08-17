@@ -9,7 +9,8 @@ import { BIO_QUOTES } from './bios';
 import { getSettings, setIdCard } from '../../services/settings.service';
 import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
-import { hasRole, requireRole, type Role } from '../../utils/permissions';
+import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
+import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
 import { createLogger } from '../../core/logger';
@@ -28,7 +29,9 @@ export const infoPlugin: Plugin = {
     { command: 'info', description: '👤 معلومات عضو (بالرد عليه)' },
     { command: 'idcardhelp', description: '🎨 كيف تخصّص بطاقة الايدي' },
     { command: 'setidcard', description: '🖌 ضبط بطاقة ايدي مخصّصة (بالرد)', staffOnly: true },
+    { command: 'setidcardall', description: '🌐 ضبط بطاقة ايدي لكل القروبات (المالك)', staffOnly: true },
     { command: 'residcard', description: '♻️ إرجاع بطاقة ايدي الافتراضية', staffOnly: true },
+    { command: 'residcardall', description: '♻️ إرجاع بطاقة ايدي العامة (المالك)', staffOnly: true },
     { command: 'bio', description: '📝 بايو عضو (بالرد عليه)' },
     { command: 'rules', description: '📜 قوانين الجروب' },
   ],
@@ -70,6 +73,7 @@ export const infoPlugin: Plugin = {
           '3) ردّ على رسالتك واكتب: بطاقة ايدي\n\n' +
           `المتغيّرات المتاحة:\n${ph}\n\n` +
           '✨ عشان الإيموجي المميّز يبيّن متحرّك للكل، لازم مالك البوت كمان عندو Premium.\n' +
+          '🌐 مالك البوت يقدر يطبّقها على *كل* القروبات: ردّ واكتب «بطاقة ايدي للكل».\n' +
           'للرجوع للافتراضي: رجع بطاقة ايدي',
       );
       // Second message: the current effective template, tap-to-copy.
@@ -109,6 +113,44 @@ export const infoPlugin: Plugin = {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCard(ctx.chat.id, null, null);
       await ctx.reply('♻️ رجّعت بطاقة «ايدي» للشكل الافتراضي.');
+    });
+
+    // /setidcardall — bot-owner only. Sets a GLOBAL card applied to every group
+    // that hasn't set its own. Same reply-capture flow as /setidcard.
+    bot.command('setidcardall', async (ctx) => {
+      if (!ctx.from || !isBotOwner(ctx.from.id)) {
+        await ctx.reply('🔒 هذا الأمر لمالك البوت فقط.');
+        return;
+      }
+      const replied = (ctx.message as {
+        reply_to_message?: { text?: string; caption?: string; entities?: unknown[]; caption_entities?: unknown[] };
+      }).reply_to_message;
+      const body = replied?.text ?? replied?.caption;
+      if (!body) {
+        await ctx.reply('↩️ ردّ على رسالة فيها شكل البطاقة والمتغيّرات ({name} {id}…) ثم اكتب: بطاقة ايدي للكل.\nللمساعدة: /idcardhelp');
+        return;
+      }
+      const entities = (replied?.entities ?? replied?.caption_entities ?? []) as unknown[];
+      if (!/\{(name|id|username|rank|level|stats)\}/.test(body)) {
+        await ctx.reply('⚠️ البطاقة لازم تحتوي متغيّر واحد على الأقل مثل {name} أو {id}. شوف /idcardhelp.');
+        return;
+      }
+      await setGlobalIdCard(body, entities);
+      const hasPremium = entities.some((e) => (e as { type?: string }).type === 'custom_emoji');
+      await ctx.reply(
+        '✅ صار هذا شكل بطاقة «ايدي» في *كل* القروبات (إلا القروبات اللي عاملة شكل خاص فيها).' +
+          (hasPremium ? '\n✨ فيها إيموجي مميّز — لازم مالك البوت عندو Telegram Premium حتى يبيّن متحرّك.' : ''),
+      );
+    });
+
+    // /residcardall — bot-owner only. Clears the global card (back to default).
+    bot.command('residcardall', async (ctx) => {
+      if (!ctx.from || !isBotOwner(ctx.from.id)) {
+        await ctx.reply('🔒 هذا الأمر لمالك البوت فقط.');
+        return;
+      }
+      await setGlobalIdCard(null, null);
+      await ctx.reply('♻️ رجّعت بطاقة «ايدي» العامة للشكل الافتراضي في كل القروبات.');
     });
 
     // /bio (reply) → the member's Telegram bio, or a bot-picked phrase if none.
@@ -228,16 +270,26 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
     joined,
   };
 
-  // Use the group's custom template if set, else the default.
+  // Template resolution: this group's own custom card → the bot-wide global
+  // card (set by the owner) → the built-in default.
   const settings = ctx.chat ? ctx.state.settings ?? (await getSettings(ctx.chat.id).catch(() => null)) : null;
-  const template = settings?.idCardTemplate || DEFAULT_ID_CARD;
+  let template = DEFAULT_ID_CARD;
   let templateEntities: Entity[] = [];
-  if (settings?.idCardTemplate && settings.idCardEntities) {
-    try {
-      const parsed = JSON.parse(settings.idCardEntities);
-      if (Array.isArray(parsed)) templateEntities = parsed as Entity[];
-    } catch {
-      /* ignore malformed entities */
+  if (settings?.idCardTemplate) {
+    template = settings.idCardTemplate;
+    if (settings.idCardEntities) {
+      try {
+        const parsed = JSON.parse(settings.idCardEntities);
+        if (Array.isArray(parsed)) templateEntities = parsed as Entity[];
+      } catch {
+        /* ignore malformed entities */
+      }
+    }
+  } else {
+    const global = await getGlobalIdCard().catch(() => null);
+    if (global) {
+      template = global.template;
+      templateEntities = global.entities as Entity[];
     }
   }
   const { text, entities } = renderIdCard(template, templateEntities, vars);

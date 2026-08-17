@@ -283,6 +283,14 @@ model WhisperMessage {
   @@index([createdAt])
 }
 
+/// Bot-wide key/value settings set by the bot owner (e.g. a global id-card
+/// template that applies to every group unless a group overrides it).
+model GlobalConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 /// A custom bot rank assigned to a user in a chat (independent of Telegram's
 /// own admin status). Grants bot-command permissions to whoever holds it.
 model ChatRole {
