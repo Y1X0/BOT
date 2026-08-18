@@ -268,7 +268,9 @@ class HuggingFaceImageProvider implements ImageProvider {
     try {
       const model = env.IMAGE_MODEL.includes('/') ? env.IMAGE_MODEL : 'black-forest-labs/FLUX.1-dev';
       const [w, h] = env.IMAGE_SIZE.split('x').map((n) => Number(n));
-      const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+      // Current HF serverless endpoint — the old api-inference.huggingface.co
+      // host is deprecated (its DNS no longer resolves → ENOTFOUND).
+      const res = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${env.IMAGE_API_KEY}`,
