@@ -97,7 +97,11 @@ export async function renderIdCardImage(d: IdCardImageData): Promise<Buffer> {
   const browser = await getBrowser();
   const page = await browser.newPage({ viewport: { width: 680, height: 1000 }, deviceScaleFactor: 2 });
   try {
-    await page.setContent(buildCardHtml(d), { waitUntil: 'networkidle', timeout: 30_000 });
+    // 'load' (not 'networkidle') so an embedded-only page never stalls waiting
+    // for network quiet; then explicitly wait for the embedded fonts to shape.
+    await page.setContent(buildCardHtml(d), { waitUntil: 'load', timeout: 20_000 });
+    // Wait for embedded fonts to finish shaping (string form avoids DOM types).
+    await page.evaluate('document.fonts && document.fonts.ready').catch(() => undefined);
     const el = await page.$('.card');
     const shot = await (el ?? page).screenshot({ type: 'png', omitBackground: true });
     return Buffer.from(shot);

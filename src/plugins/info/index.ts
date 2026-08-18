@@ -65,10 +65,9 @@ export const infoPlugin: Plugin = {
     bot.command('id', infoHandler);
     bot.command('info', infoHandler);
 
-    // /idcardtest — owner-only diagnostic: try to render the image card and
-    // report success or the exact error (so we know if Chromium works here).
-    bot.command('idcardtest', async (ctx) => {
-      if (!ctx.from || !isBotOwner(ctx.from.id)) return;
+    // /idcardtest — admin diagnostic: try to render the image card and report
+    // success or the exact error (so we know if Chromium works on this host).
+    bot.command('idcardtest', requireRole('admin'), async (ctx) => {
       await ctx.reply('⏳ بجرّب أعمل صورة البطاقة...').catch(() => undefined);
       try {
         const png = await renderIdCardImage({
