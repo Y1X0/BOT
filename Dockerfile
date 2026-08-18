@@ -20,12 +20,18 @@ RUN npm run build
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# System Chromium for HTML→PDF and the image "id" card. Never let playwright
+# download its own browser — use the apt one below.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PDF_CHROME_PATH=/usr/bin/chromium
 
-# openssl for Prisma; ffmpeg + yt-dlp for the audio feature.
-# Use the nightly build — it tracks YouTube extractor fixes far more closely
-# than the stable release, which matters for bot-detection bypass.
+# openssl for Prisma; ffmpeg + yt-dlp for audio; chromium for rendering.
+# Font packages give Chromium real glyphs: noto-core (Latin), noto-color-emoji
+# (the card's 👑🔥 etc.), dejavu, and noto Arabic as a system fallback.
+# Use the nightly yt-dlp — it tracks YouTube extractor fixes far more closely.
 RUN apt-get update -y \
-    && apt-get install -y openssl ffmpeg ca-certificates wget fonts-noto-core fonts-dejavu-core \
+    && apt-get install -y openssl ffmpeg ca-certificates wget \
+       chromium fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core \
     && wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux -O /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
