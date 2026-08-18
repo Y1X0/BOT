@@ -7,7 +7,7 @@ import { getImageProvider, getLastImageError, effectiveModel, POLLINATIONS_MODEL
 import { EFFECTS, EFFECT_GROUPS, findEffect } from '../../services/image/effects';
 import { isPromptAllowed, PG_SUFFIX } from '../../services/image/safety';
 import { STYLE_PRESETS, DEFAULT_STYLE, styleSuffix, findStyle } from '../../services/image/styles';
-import { enhanceImage } from '../../services/image/postprocess';
+import { enhanceImage, pickBestImage } from '../../services/image/postprocess';
 import { isBotOwner, requireRole } from '../../utils/permissions';
 import { setGlobal, getGlobal } from '../../services/global.service';
 import { QueueManager } from '../../services/youtube/queue';
@@ -235,11 +235,18 @@ export const imageEditorPlugin: Plugin = {
       imageQueue.enqueue(chatId, async () => {
         // Style preset (keyword template) → clean, consistent output on free models.
         const styleId = (await getGlobal('imageStyle').catch(() => null)) || DEFAULT_STYLE;
-        const out = await getImageProvider().generate(prompt + styleSuffix(styleId) + PG_SUFFIX);
-        if (!out) return void edit(telegram, chatId, status, failureMessage('⚠️ تعذّر التوليد.', requesterId));
+        const finalPrompt = prompt + styleSuffix(styleId) + PG_SUFFIX;
+        // Best-of-N: generate a couple of candidates (different seeds) in parallel
+        // and keep the crispest — free models are hit-or-miss per seed.
+        const provider = getImageProvider();
+        const candidates = (
+          await Promise.all([provider.generate(finalPrompt), provider.generate(finalPrompt)])
+        ).filter((b): b is Buffer => Boolean(b));
+        if (!candidates.length) return void edit(telegram, chatId, status, failureMessage('⚠️ تعذّر التوليد.', requesterId));
         bump(chatId);
-        // Post-process (contrast/saturation/sharpen) to mask the free model's flatness.
-        const finished = await enhanceImage(out);
+        // Pick the best candidate, then post-process (contrast/saturation/sharpen).
+        const best = await pickBestImage(candidates);
+        const finished = await enhanceImage(best);
         await telegram.sendPhoto(chatId, Input.fromBuffer(finished, 'img.png'), { caption: `🖼 ${prompt.slice(0, 100)}` }).catch(() => undefined);
         if (status) await telegram.deleteMessage(chatId, status.message_id).catch(() => undefined);
       }, 1, 20);

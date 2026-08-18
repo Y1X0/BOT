@@ -22,3 +22,27 @@ export async function enhanceImage(buf: Buffer): Promise<Buffer> {
     return buf;
   }
 }
+
+/**
+ * Cheap "detail" score for an image: the mean per-channel standard deviation.
+ * Flat/washed/mushy free-model outputs score low; crisp, contrasty ones score
+ * high. Used to pick the better of several candidates (best-of-N).
+ */
+async function detailScore(buf: Buffer): Promise<number> {
+  try {
+    const { channels } = await sharp(buf).stats();
+    if (!channels.length) return 0;
+    return channels.reduce((sum, c) => sum + c.stdev, 0) / channels.length;
+  } catch {
+    return 0;
+  }
+}
+
+/** From several candidate images, return the one with the most detail/contrast. */
+export async function pickBestImage(buffers: Buffer[]): Promise<Buffer> {
+  const valid = buffers.filter((b) => b && b.length > 0);
+  if (valid.length <= 1) return valid[0] ?? buffers[0];
+  const scored = await Promise.all(valid.map(async (b) => ({ b, score: await detailScore(b) })));
+  scored.sort((x, y) => y.score - x.score);
+  return scored[0].b;
+}
