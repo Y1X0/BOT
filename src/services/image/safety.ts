@@ -65,6 +65,11 @@ const BLOCKLIST: string[] = [
   'جثه',
 ];
 
+/** Quality booster appended to generation prompts — noticeably sharpens the
+ * fast (FLUX-schnell) free models, which otherwise look flat. */
+export const QUALITY_SUFFIX =
+  ', highly detailed, sharp focus, intricate details, professional lighting, high quality, 8k, masterpiece';
+
 /** PG guardrail appended to every free-text generation prompt. */
 export const PG_SUFFIX =
   ' — The image must be strictly PG and suitable for all ages: fully clothed,' +

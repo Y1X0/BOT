@@ -5,7 +5,7 @@ import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { getImageProvider, getLastImageError, effectiveModel, POLLINATIONS_MODELS } from '../../services/image/provider';
 import { EFFECTS, EFFECT_GROUPS, findEffect } from '../../services/image/effects';
-import { isPromptAllowed, PG_SUFFIX } from '../../services/image/safety';
+import { isPromptAllowed, PG_SUFFIX, QUALITY_SUFFIX } from '../../services/image/safety';
 import { isBotOwner, requireRole } from '../../utils/permissions';
 import { setGlobal } from '../../services/global.service';
 import { QueueManager } from '../../services/youtube/queue';
@@ -203,7 +203,7 @@ export const imageEditorPlugin: Plugin = {
       const telegram = ctx.telegram;
       const status = await ctx.reply('⏳ جاري توليد الصورة...').catch(() => undefined);
       imageQueue.enqueue(chatId, async () => {
-        const out = await getImageProvider().generate(prompt + PG_SUFFIX);
+        const out = await getImageProvider().generate(prompt + QUALITY_SUFFIX + PG_SUFFIX);
         if (!out) return void edit(telegram, chatId, status, failureMessage('⚠️ تعذّر التوليد.', requesterId));
         bump(chatId);
         await telegram.sendPhoto(chatId, Input.fromBuffer(out, 'img.png'), { caption: `🖼 ${prompt.slice(0, 100)}` }).catch(() => undefined);
