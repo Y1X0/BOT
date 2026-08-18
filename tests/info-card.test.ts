@@ -70,10 +70,17 @@ describe('renderIdCard', () => {
     expect(text.slice(ce!.offset, ce!.offset + ce!.length)).toBe('😀');
   });
 
-  it('drops an entity that overlaps a substituted placeholder', () => {
+  it('drops a template entity that overlaps a substituted placeholder', () => {
     const tmpl = 'hi {name}!';
-    const bold = { type: 'bold', offset: 3, length: 6 }; // covers "{name}"
-    const { entities } = renderIdCard(tmpl, [bold], vars);
-    expect(entities.some((e) => e.type === 'bold')).toBe(false);
+    const italic = { type: 'italic', offset: 3, length: 6 }; // covers "{name}"
+    const { entities } = renderIdCard(tmpl, [italic], vars);
+    expect(entities.some((e) => e.type === 'italic')).toBe(false);
+  });
+
+  it('auto-bolds the name value', () => {
+    const { text, entities } = renderIdCard('الاسم: {name}', [], vars);
+    const bold = entities.find((e) => e.type === 'bold');
+    expect(bold).toBeTruthy();
+    expect(text.slice(bold!.offset, bold!.offset + bold!.length)).toBe('أحمد');
   });
 });

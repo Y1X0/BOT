@@ -39,17 +39,17 @@ export const ID_PLACEHOLDERS = [
 
 /** The default card, as a placeholder template (rendered the same way as a custom one). */
 export const DEFAULT_ID_CARD =
-  '╭──── 🦋 بطاقة العضو ────╮\n' +
-  '👤 الاسم: {name}\n' +
-  '🔗 المعرّف: {username}\n' +
-  '🏅 الرتبة: {rank}\n' +
-  '🛡 الحالة: {stats}\n' +
-  '🎖 اللقب: {title}\n' +
-  '⭐ المستوى: {level}  •  🔥 النقاط: {xp}\n' +
-  '💬 الرسائل: {messages}  •  {interaction}\n' +
-  '📅 انضمّ: {joined}\n' +
-  '🆔 الآيدي: {id}\n' +
-  '╰───────────────────╯';
+  '╔═══ 👑 بطاقة العضو 👑 ═══╗\n' +
+  '✦ ⇜ {name}\n' +
+  '🔗 المعرّف ⇜ {username}\n' +
+  '👑 الرتبة ⇜ {rank}\n' +
+  '🛡 الحالة ⇜ {stats}\n' +
+  '🎖 اللقب ⇜ {title}\n' +
+  '⭐ المستوى ⇜ {level}  •  🔥 النقاط ⇜ {xp}\n' +
+  '💬 الرسائل ⇜ {messages}  •  {interaction}\n' +
+  '📅 انضمّ ⇜ {joined}\n' +
+  '🆔 الآيدي ⇜ {id}\n' +
+  '╚═══ ✦ 𝐕𝐈𝐏 ✦ ═══╝';
 
 export interface Entity {
   type: string;
@@ -106,9 +106,13 @@ export function renderIdCard(template: string, entities: Entity[], vars: Record<
     for (const r of repls) if (r.end <= e.offset) add += r.value.length - (r.end - r.start);
     result.push({ ...e, offset: e.offset + add });
   }
-  // Keep the id copyable.
+  // Emphasis: the id stays copyable (code), the name is bold for a bit of
+  // prestige. These entities sit on inserted values, so they never clash with
+  // the template's own (premium-emoji) entities.
   for (const p of placed) {
-    if (p.key === 'id' && p.outLen > 0) result.push({ type: 'code', offset: p.outStart, length: p.outLen });
+    if (p.outLen <= 0) continue;
+    if (p.key === 'id') result.push({ type: 'code', offset: p.outStart, length: p.outLen });
+    if (p.key === 'name') result.push({ type: 'bold', offset: p.outStart, length: p.outLen });
   }
   return { text: out, entities: result };
 }
