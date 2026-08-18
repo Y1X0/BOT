@@ -10,7 +10,7 @@ import { getSettings, setIdCard, setIdCardImage, setIdCardTheme } from '../../se
 import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
 import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
-import { renderIdCardImage, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
+import { renderIdCardImage, renderIdCardVideo, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
 import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
@@ -376,7 +376,7 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
       // Pick a color theme so people don't see the same card every time:
       // 'auto' gives each member a stable-but-different look; 'random' varies it.
       const themeId = resolveCardTheme(settings?.idCardTheme, String(target.id), Date.now());
-      const png = await renderIdCardImage({
+      const cardData = {
         name: fullName,
         username,
         id: String(target.id),
@@ -390,7 +390,23 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
         joined,
         avatarDataUri,
         initial: (fullName.trim()[0] || '?').toUpperCase(),
-      }, themeId);
+      };
+      // Telegram Premium members get an animated video card; everyone else the
+      // static image. Video render falls back to the image if it fails.
+      const isPremium = Boolean((target as { is_premium?: boolean }).is_premium);
+      if (isPremium) {
+        const vid = await renderIdCardVideo(cardData, themeId).catch(() => null);
+        if (vid) {
+          await ctx
+            .replyWithAnimation({ source: vid.buffer, filename: `card.${vid.ext}` }, { caption: `💎 ${fullName}` })
+            .catch(async () => {
+              const png = await renderIdCardImage(cardData, themeId);
+              await ctx.replyWithPhoto({ source: png }).catch(() => undefined);
+            });
+          return;
+        }
+      }
+      const png = await renderIdCardImage(cardData, themeId);
       await ctx.replyWithPhoto({ source: png });
       return;
     } catch (err) {

@@ -1,5 +1,13 @@
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { BrowserContext } from 'playwright-core';
 import { getBrowser } from '../pdf/browser';
 import { fontFaceCss } from '../pdf/fonts';
+import { createLogger } from '../../core/logger';
+
+const vlog = createLogger('idcard:video');
 
 export interface IdCardImageData {
   name: string;
@@ -70,7 +78,14 @@ function stat(icon: string, label: string, value: string): string {
   return `<div class="stat"><div class="ico">${icon}</div><div class="col"><div class="lab">${esc(label)}</div><div class="val">${esc(value)}</div></div></div>`;
 }
 
-function buildCardHtml(d: IdCardImageData, theme: CardTheme): string {
+interface CardOpts {
+  animated?: boolean; // add a shine sweep + glow pulse (for the video card)
+  premium?: boolean; // add a PREMIUM badge (Telegram Premium members)
+}
+
+function buildCardHtml(d: IdCardImageData, theme: CardTheme, opts: CardOpts = {}): string {
+  const anim = !!opts.animated;
+  const prem = !!opts.premium;
   const avatar = d.avatarDataUri
     ? `<img class="ava" src="${d.avatarDataUri}" alt="">`
     : `<div class="ava ava-ph">${esc(d.initial)}</div>`;
@@ -79,10 +94,22 @@ function buildCardHtml(d: IdCardImageData, theme: CardTheme): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 ${fontFaceCss()}
 *{margin:0;padding:0;box-sizing:border-box;}
-html,body{background:transparent;}
+html,body{background:${anim ? t.bg2.replace(/rgba\(([^)]+),[^,]+\)/, 'rgb($1)') : 'transparent'};}
+${anim ? 'body{display:flex;align-items:center;justify-content:center;min-height:100vh;}' : ''}
 .card{width:640px;position:relative;overflow:hidden;border-radius:34px;
   font-family:'Cairo','Amiri',sans-serif;color:#fff;direction:rtl;
-  border:2px solid ${t.a}8c;box-shadow:0 24px 70px rgba(0,0,0,.6);}
+  border:2px solid ${t.a}8c;box-shadow:0 24px 70px rgba(0,0,0,.6);${anim ? `animation:glow 2.6s ease-in-out infinite;` : ''}}
+${anim ? `
+@keyframes glow{0%,100%{box-shadow:0 24px 70px rgba(0,0,0,.6),0 0 0 0 ${t.a}00;}50%{box-shadow:0 24px 70px rgba(0,0,0,.6),0 0 34px 2px ${t.a}66;}}
+@keyframes sweep{0%{transform:translateX(-160%) rotate(20deg);}100%{transform:translateX(160%) rotate(20deg);}}
+@keyframes nameshift{0%,100%{filter:brightness(1);}50%{filter:brightness(1.25);}}
+.shine{position:absolute;top:0;bottom:0;width:55%;left:-30%;pointer-events:none;z-index:5;
+  background:linear-gradient(90deg,transparent,${t.a}22,#ffffff33,${t.a}22,transparent);
+  animation:sweep 3s ease-in-out infinite;}
+.name{animation:nameshift 2.6s ease-in-out infinite;}
+.premium{position:absolute;top:14px;left:14px;z-index:6;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:700;
+  color:#141018;background:linear-gradient(90deg,${t.a},${t.a2});box-shadow:0 4px 14px ${t.a}66;letter-spacing:1px;}
+` : ''}
 .bgimg{position:absolute;inset:0;${bg}background-size:cover;background-position:center;filter:blur(26px) brightness(.42) saturate(1.2);transform:scale(1.25);}
 .tint{position:absolute;inset:0;background:linear-gradient(160deg,${t.bg1},${t.bg2});}
 .frame{position:relative;padding:36px 34px 30px;}
@@ -114,6 +141,8 @@ html,body{background:transparent;}
 .foot{text-align:center;margin-top:18px;font-size:15px;letter-spacing:6px;color:${t.a}d9;}
 </style></head><body>
 <div class="card"><div class="bgimg"></div><div class="tint"></div>
+  ${anim ? '<div class="shine"></div>' : ''}
+  ${prem ? '<div class="premium">PREMIUM 💎</div>' : ''}
   <div class="frame">
     <div class="crown">${t.top}</div>
     <div class="head">${avatar}
@@ -155,4 +184,70 @@ export async function renderIdCardImage(d: IdCardImageData, themeId?: string): P
   } finally {
     await page.close().catch(() => undefined);
   }
+}
+
+/**
+ * Render an ANIMATED profile card (shine sweep + glow) as a short looping MP4,
+ * for Telegram Premium members. Records the animated page with Playwright, then
+ * transcodes webm→mp4 with ffmpeg. Returns null on any failure (the caller then
+ * falls back to the static image card).
+ */
+export async function renderIdCardVideo(d: IdCardImageData, themeId?: string): Promise<{ buffer: Buffer; ext: string } | null> {
+  const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
+  const width = 640;
+  const height = 940;
+  const dir = await mkdtemp(join(tmpdir(), 'idcard-')).catch(() => null);
+  if (!dir) return null;
+  let context: BrowserContext | null = null;
+  let webmPath: string | undefined;
+  try {
+    const browser = await getBrowser();
+    context = await browser.newContext({ viewport: { width, height }, recordVideo: { dir, size: { width, height } } });
+    const page = await context.newPage();
+    await page.setContent(buildCardHtml(d, theme, { animated: true, premium: true }), { waitUntil: 'load', timeout: 20_000 });
+    await page.evaluate('document.fonts && document.fonts.ready').catch(() => undefined);
+    await page.waitForTimeout(3200); // capture ~3s of the loop
+    const video = page.video();
+    await page.close();
+    await context.close();
+    context = null;
+    webmPath = video ? await video.path().catch(() => undefined) : undefined;
+  } catch (err) {
+    vlog.warn({ err }, 'card video record failed');
+    await context?.close().catch(() => undefined);
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    return null;
+  }
+  if (!webmPath) {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    return null;
+  }
+  // Prefer H.264 mp4 (crisp, small, autoplays as a loop); fall back to gif if
+  // this ffmpeg build lacks libx264.
+  const mp4 = join(dir, 'card.mp4');
+  if (await runFfmpeg(['-y', '-i', webmPath, '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', mp4])) {
+    const buffer = await readFile(mp4).catch(() => null);
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    return buffer ? { buffer, ext: 'mp4' } : null;
+  }
+  const gif = join(dir, 'card.gif');
+  if (await runFfmpeg(['-y', '-i', webmPath, '-vf', 'fps=15,scale=480:-1:flags=lanczos', '-loop', '0', gif])) {
+    const buffer = await readFile(gif).catch(() => null);
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    return buffer ? { buffer, ext: 'gif' } : null;
+  }
+  await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  return null;
+}
+
+function runFfmpeg(args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    const p = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'ignore'] });
+    const timer = setTimeout(() => p.kill('SIGKILL'), 60_000);
+    p.on('error', () => resolve(false));
+    p.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
 }
