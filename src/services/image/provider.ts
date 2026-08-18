@@ -27,6 +27,14 @@ function setError(reason: string): null {
   return null;
 }
 
+/** Node's fetch throws a generic "fetch failed" and hides the real reason in
+ * `err.cause` (ENOTFOUND, ECONNREFUSED, TLS…). Surface it so errors are useful. */
+function errDetail(err: unknown): string {
+  const e = err as { message?: string; cause?: { code?: string; message?: string } };
+  const cause = e?.cause ? ` [${e.cause.code ?? e.cause.message ?? ''}]` : '';
+  return `${String(e?.message ?? err)}${cause}`.slice(0, 180);
+}
+
 /** OpenAI images (gpt-image-1): /v1/images/edits and /v1/images/generations. */
 class OpenAIImageProvider implements ImageProvider {
   readonly name = 'openai';
@@ -190,36 +198,50 @@ class PollinationsImageProvider implements ImageProvider {
   }
 
   async generate(prompt: string): Promise<Buffer | null> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const [w, h] = env.IMAGE_SIZE.split('x').map((n) => Number(n));
-      const width = Number.isFinite(w) && w > 0 ? w : 1024;
-      const height = Number.isFinite(h) && h > 0 ? h : 1024;
-      const models = ['flux', 'turbo', 'flux-realism', 'flux-anime', 'flux-3d'];
-      const model = models.includes(env.IMAGE_MODEL) ? env.IMAGE_MODEL : 'flux';
-      const seed = Date.now() % 1_000_000;
-      // enhance=true lets Pollinations' own LLM rewrite/expand the prompt (and
-      // handle Arabic), which massively improves weak or short descriptions.
-      const url =
-        `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
-        `?width=${width}&height=${height}&model=${model}&seed=${seed}&enhance=true&nologo=true&safe=true`;
-      const res = await fetch(url, { signal: controller.signal, headers: { accept: 'image/*' } });
-      if (!res.ok) {
-        const body = (await res.text().catch(() => '')).slice(0, 200);
-        log.warn({ status: res.status, body }, 'pollinations image error');
-        return setError(`HTTP ${res.status}: ${body}`);
+    const [w, h] = env.IMAGE_SIZE.split('x').map((n) => Number(n));
+    const width = Number.isFinite(w) && w > 0 ? w : 1024;
+    const height = Number.isFinite(h) && h > 0 ? h : 1024;
+    const models = ['flux', 'turbo', 'flux-realism', 'flux-anime', 'flux-3d'];
+    const model = models.includes(env.IMAGE_MODEL) ? env.IMAGE_MODEL : 'flux';
+
+    // Two hostnames + up to 2 network attempts each — "fetch failed" is often a
+    // transient DNS/connection blip, and the second host is a live fallback.
+    const hosts = ['https://image.pollinations.ai', 'https://pollinations.ai'];
+    let lastErr = '';
+    for (const host of hosts) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        try {
+          const seed = (Date.now() + attempt) % 1_000_000;
+          // enhance=true lets Pollinations' own LLM rewrite/expand the prompt
+          // (and handle Arabic), a big quality jump for weak/short descriptions.
+          const url =
+            `${host}/prompt/${encodeURIComponent(prompt)}` +
+            `?width=${width}&height=${height}&model=${model}&seed=${seed}&enhance=true&nologo=true&safe=true`;
+          const res = await fetch(url, { signal: controller.signal, headers: { accept: 'image/*' } });
+          if (!res.ok) {
+            const body = (await res.text().catch(() => '')).slice(0, 200);
+            log.warn({ status: res.status, body, host }, 'pollinations image error');
+            lastErr = `HTTP ${res.status}: ${body}`;
+            if (res.status >= 400 && res.status < 500 && res.status !== 429) return setError(lastErr);
+            continue; // 429/5xx → retry / next host
+          }
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length < 1024) {
+            lastErr = 'أعادت صورة فارغة';
+            continue;
+          }
+          return buf;
+        } catch (err) {
+          lastErr = errDetail(err);
+          log.warn({ err, host }, 'pollinations request failed');
+        } finally {
+          clearTimeout(timer);
+        }
       }
-      const buf = Buffer.from(await res.arrayBuffer());
-      // A tiny body usually means an error page, not a real image.
-      if (buf.length < 1024) return setError('pollinations أعادت صورة فارغة، جرّب وصفاً آخر.');
-      return buf;
-    } catch (err) {
-      log.warn({ err }, 'pollinations request failed');
-      return setError(`request failed: ${String((err as Error)?.message ?? err).slice(0, 150)}`);
-    } finally {
-      clearTimeout(timer);
     }
+    return setError(`request failed: ${lastErr}`);
   }
 }
 
@@ -271,7 +293,7 @@ class HuggingFaceImageProvider implements ImageProvider {
       return buf;
     } catch (err) {
       log.warn({ err }, 'huggingface request failed');
-      return setError(`request failed: ${String((err as Error)?.message ?? err).slice(0, 150)}`);
+      return setError(`request failed: ${errDetail(err)}`);
     } finally {
       clearTimeout(timer);
     }
