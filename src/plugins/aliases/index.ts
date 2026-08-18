@@ -199,6 +199,7 @@ const ALIASES: Alias[] = [
   // Fun image editor
   { command: 'edit', triggers: ['تعديل', 'عدل الصوره', 'فن', 'محرر الصور'] },
   { command: 'imagine', triggers: ['تخيل', 'ولد صوره', 'ارسم', 'انشئ صوره'] },
+  { command: 'imgmodel', triggers: ['موديل الصور', 'غير موديل الصور', 'ستايل الصور'] },
   // Protection
   { command: 'lockdown', triggers: ['قفل الجروب', 'اقفل الجروب', 'اغلاق الجروب'] },
   { command: 'unlock', triggers: ['فتح الجروب', 'افتح الجروب'] },

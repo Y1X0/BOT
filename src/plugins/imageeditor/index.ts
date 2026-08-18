@@ -3,10 +3,11 @@ import { Input, Markup } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
-import { getImageProvider, getLastImageError } from '../../services/image/provider';
+import { getImageProvider, getLastImageError, effectiveModel, POLLINATIONS_MODELS } from '../../services/image/provider';
 import { EFFECTS, EFFECT_GROUPS, findEffect } from '../../services/image/effects';
 import { isPromptAllowed, PG_SUFFIX } from '../../services/image/safety';
-import { isBotOwner } from '../../utils/permissions';
+import { isBotOwner, requireRole } from '../../utils/permissions';
+import { setGlobal } from '../../services/global.service';
 import { QueueManager } from '../../services/youtube/queue';
 import { createLogger } from '../../core/logger';
 
@@ -82,9 +83,25 @@ export const imageEditorPlugin: Plugin = {
   commands: [
     { command: 'edit', description: '🎨 تعديل صورة (بالرد على صورة أو أرسلها)' },
     { command: 'imagine', description: '🖼 توليد صورة: /imagine وصف' },
+    { command: 'imgmodel', description: '🎛 تغيير موديل/ستايل الصور (أدمن)', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
+    // /imgmodel [name] — switch the image model/style at runtime (no redeploy).
+    bot.command('imgmodel', requireRole('admin'), async (ctx) => {
+      const arg = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      const list = POLLINATIONS_MODELS.join('، ');
+      if (!arg) {
+        const current = await effectiveModel();
+        await ctx.reply(
+          `🎛 الموديل الحالي: ${current}\n\nللتغيير اكتب: موديل الصور <الاسم>\n\nالستايلات المتاحة (Pollinations):\n${list}\n\nأمثلة:\n• موديل الصور flux-realism (واقعي)\n• موديل الصور flux-3d\n• موديل الصور flux-anime`,
+        );
+        return;
+      }
+      await setGlobal('imageModel', arg);
+      await ctx.reply(`✅ صار موديل الصور: ${arg}\nجرّب: تخيل <وصف>`);
+    });
+
     const editHandler = async (ctx: BotContext) => {
       if (!env.IMAGE_AI_ENABLED || !getImageProvider().isConfigured()) {
         await ctx.reply('🎨 محرّر الصور غير مفعّل (يلزم مفتاح IMAGE_API_KEY).');

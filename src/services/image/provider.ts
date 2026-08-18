@@ -1,7 +1,18 @@
 import { env } from '../../config/env';
 import { createLogger } from '../../core/logger';
+import { getGlobal } from '../global.service';
 
 const log = createLogger('image:provider');
+
+/** Pollinations styles a user can switch between at runtime via /imgmodel. */
+export const POLLINATIONS_MODELS = ['flux', 'flux-realism', 'flux-3d', 'flux-anime', 'flux-cablyai', 'turbo'];
+
+/** Effective image model: a runtime global override (set by /imgmodel) wins
+ * over the env default, so styles can be switched without a redeploy. */
+export async function effectiveModel(): Promise<string> {
+  const override = await getGlobal('imageModel').catch(() => null);
+  return override || env.IMAGE_MODEL;
+}
 
 /**
  * Image AI provider abstraction — swap implementations by setting IMAGE_PROVIDER.
@@ -201,8 +212,8 @@ class PollinationsImageProvider implements ImageProvider {
     const [w, h] = env.IMAGE_SIZE.split('x').map((n) => Number(n));
     const width = Number.isFinite(w) && w > 0 ? w : 1024;
     const height = Number.isFinite(h) && h > 0 ? h : 1024;
-    const models = ['flux', 'turbo', 'flux-realism', 'flux-anime', 'flux-3d'];
-    const model = models.includes(env.IMAGE_MODEL) ? env.IMAGE_MODEL : 'flux';
+    const requested = await effectiveModel();
+    const model = POLLINATIONS_MODELS.includes(requested) ? requested : 'flux';
 
     // Two hostnames + up to 2 network attempts each — "fetch failed" is often a
     // transient DNS/connection blip, and the second host is a live fallback.
@@ -266,7 +277,8 @@ class HuggingFaceImageProvider implements ImageProvider {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const model = env.IMAGE_MODEL.includes('/') ? env.IMAGE_MODEL : 'black-forest-labs/FLUX.1-dev';
+      const requested = await effectiveModel();
+      const model = requested.includes('/') ? requested : 'black-forest-labs/FLUX.1-dev';
       const [w, h] = env.IMAGE_SIZE.split('x').map((n) => Number(n));
       // Current HF serverless endpoint — the old api-inference.huggingface.co
       // host is deprecated (its DNS no longer resolves → ENOTFOUND).
@@ -323,7 +335,8 @@ class CloudflareImageProvider implements ImageProvider {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const model = env.IMAGE_MODEL.startsWith('@cf/') ? env.IMAGE_MODEL : '@cf/black-forest-labs/flux-1-schnell';
+      const requested = await effectiveModel();
+      const model = requested.startsWith('@cf/') ? requested : '@cf/black-forest-labs/flux-1-schnell';
       const url = `https://api.cloudflare.com/client/v4/accounts/${env.IMAGE_CF_ACCOUNT_ID}/ai/run/${model}`;
       const res = await fetch(url, {
         method: 'POST',
