@@ -65,6 +65,23 @@ export const infoPlugin: Plugin = {
     bot.command('id', infoHandler);
     bot.command('info', infoHandler);
 
+    // /idcardtest — owner-only diagnostic: try to render the image card and
+    // report success or the exact error (so we know if Chromium works here).
+    bot.command('idcardtest', async (ctx) => {
+      if (!ctx.from || !isBotOwner(ctx.from.id)) return;
+      await ctx.reply('⏳ بجرّب أعمل صورة البطاقة...').catch(() => undefined);
+      try {
+        const png = await renderIdCardImage({
+          name: 'اختبار', username: '@test', id: '123456', rank: '⭐ تجربة', stats: 'عضو 🙂',
+          title: 'لا يوجد', level: '1', xp: '0', messages: '0', interaction: 'تجربة', joined: 'اليوم', initial: 'T',
+        });
+        await ctx.replyWithPhoto({ source: png }, { caption: `✅ الصورة اشتغلت (${png.length} بايت). كرت «ايدي» رح يطلع صورة.` });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await ctx.reply(`❌ فشل إنشاء الصورة:\n${msg}\n\nيعني Chromium مش شغّال للصور على السيرفر — البوت رح يرجع للكرت النصي.`);
+      }
+    });
+
     // /idcardhelp — explain customization AND hand back the current template
     // ready to copy, so the user just swaps the emoji for premium ones.
     bot.command('idcardhelp', async (ctx) => {
