@@ -9,6 +9,12 @@ import { createLogger } from '../../core/logger';
 
 const vlog = createLogger('idcard:video');
 
+// Last video-render failure reason, surfaced by the /idcardtest diagnostic.
+let lastVideoError = '';
+export function getLastVideoError(): string {
+  return lastVideoError;
+}
+
 export interface IdCardImageData {
   name: string;
   username: string;
@@ -196,8 +202,12 @@ export async function renderIdCardVideo(d: IdCardImageData, themeId?: string): P
   const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
   const width = 640;
   const height = 940;
+  lastVideoError = '';
   const dir = await mkdtemp(join(tmpdir(), 'idcard-')).catch(() => null);
-  if (!dir) return null;
+  if (!dir) {
+    lastVideoError = 'tmpdir failed';
+    return null;
+  }
   let context: BrowserContext | null = null;
   let webmPath: string | undefined;
   try {
@@ -214,40 +224,49 @@ export async function renderIdCardVideo(d: IdCardImageData, themeId?: string): P
     webmPath = video ? await video.path().catch(() => undefined) : undefined;
   } catch (err) {
     vlog.warn({ err }, 'card video record failed');
+    lastVideoError = 'record: ' + String((err as Error)?.message ?? err).slice(0, 160);
     await context?.close().catch(() => undefined);
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     return null;
   }
   if (!webmPath) {
+    lastVideoError = 'no webm produced (video recording unsupported here)';
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     return null;
   }
   // Prefer H.264 mp4 (crisp, small, autoplays as a loop); fall back to gif if
   // this ffmpeg build lacks libx264.
   const mp4 = join(dir, 'card.mp4');
-  if (await runFfmpeg(['-y', '-i', webmPath, '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', mp4])) {
+  const mp4res = await runFfmpeg(['-y', '-i', webmPath, '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', mp4]);
+  if (mp4res.ok) {
     const buffer = await readFile(mp4).catch(() => null);
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     return buffer ? { buffer, ext: 'mp4' } : null;
   }
   const gif = join(dir, 'card.gif');
-  if (await runFfmpeg(['-y', '-i', webmPath, '-vf', 'fps=15,scale=480:-1:flags=lanczos', '-loop', '0', gif])) {
+  const gifres = await runFfmpeg(['-y', '-i', webmPath, '-vf', 'fps=15,scale=480:-1:flags=lanczos', '-loop', '0', gif]);
+  if (gifres.ok) {
     const buffer = await readFile(gif).catch(() => null);
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     return buffer ? { buffer, ext: 'gif' } : null;
   }
+  lastVideoError = `ffmpeg failed — mp4:[${mp4res.err}] gif:[${gifres.err}]`;
   await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   return null;
 }
 
-function runFfmpeg(args: string[]): Promise<boolean> {
+function runFfmpeg(args: string[]): Promise<{ ok: boolean; err: string }> {
   return new Promise((resolve) => {
-    const p = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'ignore'] });
+    let stderr = '';
+    const p = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    p.stderr?.on('data', (d) => {
+      stderr = (stderr + d.toString()).slice(-400);
+    });
     const timer = setTimeout(() => p.kill('SIGKILL'), 60_000);
-    p.on('error', () => resolve(false));
+    p.on('error', (e) => resolve({ ok: false, err: (e as { code?: string }).code === 'ENOENT' ? 'ffmpeg not installed' : e.message })); // ENOENT = binary missing
     p.on('close', (code) => {
       clearTimeout(timer);
-      resolve(code === 0);
+      resolve({ ok: code === 0, err: code === 0 ? '' : stderr.split('\n').filter(Boolean).pop()?.slice(0, 120) || `exit ${code}` });
     });
   });
 }

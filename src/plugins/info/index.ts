@@ -10,7 +10,7 @@ import { getSettings, setIdCard, setIdCardImage, setIdCardTheme } from '../../se
 import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
 import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
-import { renderIdCardImage, renderIdCardVideo, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
+import { renderIdCardImage, renderIdCardVideo, getLastVideoError, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
 import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
@@ -75,10 +75,22 @@ export const infoPlugin: Plugin = {
           name: 'اختبار', username: '@test', id: '123456', rank: '⭐ تجربة', stats: 'عضو 🙂',
           title: 'لا يوجد', level: '1', xp: '0', messages: '0', interaction: 'تجربة', joined: 'اليوم', initial: 'T',
         });
-        await ctx.replyWithPhoto({ source: png }, { caption: `✅ الصورة اشتغلت (${png.length} بايت). كرت «ايدي» رح يطلع صورة.` });
+        await ctx.replyWithPhoto({ source: png }, { caption: `✅ الصورة اشتغلت (${png.length} بايت).` });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await ctx.reply(`❌ فشل إنشاء الصورة:\n${msg}\n\nيعني Chromium مش شغّال للصور على السيرفر — البوت رح يرجع للكرت النصي.`);
+        return;
+      }
+      // Also test the animated video card (Premium members).
+      await ctx.reply('⏳ بجرّب فيديو البطاقة المميزة...').catch(() => undefined);
+      const vid = await renderIdCardVideo(
+        { name: 'اختبار', username: '@test', id: '123456', rank: '⭐ مميّز', stats: 'عضو 🙂', title: 'لا يوجد', level: '1', xp: '0', messages: '0', interaction: 'تجربة', joined: 'اليوم', initial: 'T' },
+        'gold',
+      ).catch(() => null);
+      if (vid) {
+        await ctx.replyWithAnimation({ source: vid.buffer, filename: `card.${vid.ext}` }, { caption: `✅ الفيديو اشتغل (${vid.ext}, ${vid.buffer.length} بايت).` }).catch((e) => ctx.reply(`⚠️ الفيديو تولّد بس تيليجرام رفضه: ${e instanceof Error ? e.message : e}`));
+      } else {
+        await ctx.reply(`❌ فشل فيديو البطاقة:\n${getLastVideoError() || 'سبب غير معروف'}\n\nالمشتركون المميزون رح ياخذوا صورة بدل الفيديو.`);
       }
     });
 
