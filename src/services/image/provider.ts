@@ -199,9 +199,11 @@ class PollinationsImageProvider implements ImageProvider {
       const models = ['flux', 'turbo', 'flux-realism', 'flux-anime', 'flux-3d'];
       const model = models.includes(env.IMAGE_MODEL) ? env.IMAGE_MODEL : 'flux';
       const seed = Date.now() % 1_000_000;
+      // enhance=true lets Pollinations' own LLM rewrite/expand the prompt (and
+      // handle Arabic), which massively improves weak or short descriptions.
       const url =
         `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
-        `?width=${width}&height=${height}&model=${model}&seed=${seed}&nologo=true&safe=true`;
+        `?width=${width}&height=${height}&model=${model}&seed=${seed}&enhance=true&nologo=true&safe=true`;
       const res = await fetch(url, { signal: controller.signal, headers: { accept: 'image/*' } });
       if (!res.ok) {
         const body = (await res.text().catch(() => '')).slice(0, 200);
@@ -221,6 +223,61 @@ class PollinationsImageProvider implements ImageProvider {
   }
 }
 
+/**
+ * Hugging Face Inference API — free tier with a free token. Higher quality than
+ * Pollinations when pointed at FLUX.1-dev. Set IMAGE_API_KEY to an HF token and
+ * IMAGE_MODEL to a repo id (default black-forest-labs/FLUX.1-dev). Generate only.
+ */
+class HuggingFaceImageProvider implements ImageProvider {
+  readonly name = 'huggingface';
+
+  isConfigured(): boolean {
+    return Boolean(env.IMAGE_API_KEY);
+  }
+
+  async edit(_image: Buffer, _prompt: string): Promise<Buffer | null> {
+    return setError('huggingface: تعديل الصور غير مدعوم — استخدم التوليد فقط.');
+  }
+
+  async generate(prompt: string): Promise<Buffer | null> {
+    if (!this.isConfigured()) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const model = env.IMAGE_MODEL.includes('/') ? env.IMAGE_MODEL : 'black-forest-labs/FLUX.1-dev';
+      const [w, h] = env.IMAGE_SIZE.split('x').map((n) => Number(n));
+      const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${env.IMAGE_API_KEY}`,
+          'content-type': 'application/json',
+          accept: 'image/png',
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: { width: Number.isFinite(w) ? w : 1024, height: Number.isFinite(h) ? h : 1024 },
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const body = (await res.text().catch(() => '')).slice(0, 250);
+        log.warn({ status: res.status, body }, 'huggingface image error');
+        // 503 = model is loading; the caller can just retry shortly.
+        if (res.status === 503) return setError('الموديل بيحمّل على Hugging Face، جرّب بعد ثواني.');
+        return setError(`HTTP ${res.status}: ${body}`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 1024) return setError('huggingface أعادت صورة فارغة، جرّب وصفاً آخر.');
+      return buf;
+    } catch (err) {
+      log.warn({ err }, 'huggingface request failed');
+      return setError(`request failed: ${String((err as Error)?.message ?? err).slice(0, 150)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 let provider: ImageProvider | null = null;
 export function getImageProvider(): ImageProvider {
   if (!provider) {
@@ -230,7 +287,9 @@ export function getImageProvider(): ImageProvider {
         ? new GeminiImageProvider()
         : env.IMAGE_PROVIDER === 'pollinations'
           ? new PollinationsImageProvider()
-          : new OpenAIImageProvider();
+          : env.IMAGE_PROVIDER === 'huggingface'
+            ? new HuggingFaceImageProvider()
+            : new OpenAIImageProvider();
   }
   return provider;
 }
