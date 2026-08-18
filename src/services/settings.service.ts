@@ -99,6 +99,14 @@ export async function setRules(chatId: number | bigint, rules: string): Promise<
   });
 }
 
+/** Toggle whether the id card renders as a designed image (true) or text. */
+export async function setIdCardImage(chatId: number | bigint, enabled: boolean): Promise<void> {
+  await prisma.chatSettings.update({
+    where: { chatId: BigInt(chatId) },
+    data: { idCardImage: enabled },
+  });
+}
+
 /** Store (or clear, when template is null) a custom id-card template + entities. */
 export async function setIdCard(
   chatId: number | bigint,

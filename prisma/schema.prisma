@@ -110,6 +110,7 @@ model ChatSettings {
   // Custom "id" card: a template with {placeholders} + optional premium-emoji entities
   idCardTemplate      String?
   idCardEntities      String? // JSON of Telegram entities captured with the template
+  idCardImage         Boolean  @default(true) // render the card as a designed image (else text)
 
   updatedAt           DateTime @updatedAt
 }

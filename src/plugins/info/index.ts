@@ -6,10 +6,11 @@ import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
 import { resolveTarget, displayName, pickRandom } from '../../utils/format';
 import { BIO_QUOTES } from './bios';
-import { getSettings, setIdCard } from '../../services/settings.service';
+import { getSettings, setIdCard, setIdCardImage } from '../../services/settings.service';
 import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
 import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
+import { renderIdCardImage } from '../../services/idcard/image';
 import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
@@ -30,6 +31,8 @@ export const infoPlugin: Plugin = {
     { command: 'idcardhelp', description: '🎨 كيف تخصّص بطاقة الايدي' },
     { command: 'setidcard', description: '🖌 ضبط بطاقة ايدي مخصّصة (بالرد)', staffOnly: true },
     { command: 'setidcardall', description: '🌐 ضبط بطاقة ايدي لكل القروبات (المالك)', staffOnly: true },
+    { command: 'idcardimage', description: '🖼 كرت ايدي كصورة مصمّمة', staffOnly: true },
+    { command: 'idcardtext', description: '📝 كرت ايدي كنص', staffOnly: true },
     { command: 'residcard', description: '♻️ إرجاع بطاقة ايدي الافتراضية', staffOnly: true },
     { command: 'residcardall', description: '♻️ إرجاع بطاقة ايدي العامة (المالك)', staffOnly: true },
     { command: 'bio', description: '📝 بايو عضو (بالرد عليه)' },
@@ -113,6 +116,18 @@ export const infoPlugin: Plugin = {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCard(ctx.chat.id, null, null);
       await ctx.reply('♻️ رجّعت بطاقة «ايدي» للشكل الافتراضي.');
+    });
+
+    // Switch the card between a designed image and the text template.
+    bot.command('idcardimage', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      await setIdCardImage(ctx.chat.id, true);
+      await ctx.reply('🖼 صار كرت «ايدي» يطلع كـ *صورة* مصمّمة. جرّب: ايدي');
+    });
+    bot.command('idcardtext', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      await setIdCardImage(ctx.chat.id, false);
+      await ctx.reply('📝 صار كرت «ايدي» يطلع كـ *نص* (تقدر تخصصه بـ «بطاقة ايدي»).');
     });
 
     // /setidcardall — bot-owner only. Sets a GLOBAL card applied to every group
@@ -302,6 +317,40 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
     if (sizes?.length) photoFileId = sizes[sizes.length - 1].file_id;
   } catch (err) {
     log.debug({ err, userId: target.id }, 'getUserProfilePhotos failed');
+  }
+
+  // Preferred look: a designed IMAGE card (rendered via the Chromium pipeline).
+  // Disabled per-group with idCardImage=false, and it silently falls back to the
+  // text card if rendering fails (e.g. Chromium unavailable).
+  const wantImage = !target.is_bot && (settings ? settings.idCardImage !== false : true);
+  if (wantImage) {
+    try {
+      let avatarDataUri: string | undefined;
+      if (photoFileId) {
+        const link = await ctx.telegram.getFileLink(photoFileId);
+        const res = await fetch(link.toString());
+        if (res.ok) avatarDataUri = `data:image/jpeg;base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`;
+      }
+      const png = await renderIdCardImage({
+        name: fullName,
+        username,
+        id: String(target.id),
+        rank: vars.rank,
+        stats,
+        title: vars.title,
+        level: vars.level,
+        xp: vars.xp,
+        messages: vars.messages,
+        interaction,
+        joined,
+        avatarDataUri,
+        initial: (fullName.trim()[0] || '?').toUpperCase(),
+      });
+      await ctx.replyWithPhoto({ source: png });
+      return;
+    } catch (err) {
+      log.debug({ err }, 'id-card image render failed, falling back to text');
+    }
   }
 
   const ents = entities as never;
