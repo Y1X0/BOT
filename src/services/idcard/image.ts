@@ -20,41 +20,87 @@ export interface IdCardImageData {
 const esc = (s: string): string =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/** A color theme for the card. Alpha is applied via 8-digit hex (Chromium ok). */
+export interface CardTheme {
+  id: string;
+  label: string;
+  a: string; // accent
+  a2: string; // accent light
+  bg1: string; // tint gradient top (rgba)
+  bg2: string; // tint gradient bottom (rgba)
+  ph1: string; // placeholder-avatar gradient
+  ph2: string;
+  top: string; // header decoration
+  foot: string; // footer label
+}
+
+export const CARD_THEMES: CardTheme[] = [
+  { id: 'gold', label: '👑 ذهبي', a: '#e8c86a', a2: '#f6e3a6', bg1: 'rgba(20,14,40,.86)', bg2: 'rgba(8,8,16,.94)', ph1: '#2a2350', ph2: '#15131f', top: '👑 ✦ 👑', foot: 'V I P' },
+  { id: 'neon', label: '💎 نيون', a: '#37e0ff', a2: '#a8f6ff', bg1: 'rgba(6,20,34,.88)', bg2: 'rgba(4,6,16,.95)', ph1: '#10314a', ph2: '#0a1420', top: '⟨ ✦ ⟩', foot: 'C Y B E R' },
+  { id: 'emerald', label: '🌿 زمرّد', a: '#4be39a', a2: '#bff5cf', bg1: 'rgba(8,34,24,.88)', bg2: 'rgba(4,14,10,.95)', ph1: '#123f2d', ph2: '#0a1a12', top: '❦ ✦ ❦', foot: 'E L I T E' },
+  { id: 'sunset', label: '🌅 غروب', a: '#ff8a5c', a2: '#ffd08a', bg1: 'rgba(42,16,28,.88)', bg2: 'rgba(16,8,14,.95)', ph1: '#3a1626', ph2: '#180a12', top: '☀ ✦ ☀', foot: 'S T A R' },
+  { id: 'ocean', label: '🌊 محيط', a: '#5aa9ff', a2: '#b8dbff', bg1: 'rgba(10,24,46,.88)', bg2: 'rgba(5,10,22,.95)', ph1: '#123256', ph2: '#0a1526', top: '≈ ✦ ≈', foot: 'P R O' },
+  { id: 'rose', label: '🌸 وردي', a: '#ff7ab0', a2: '#ffc2dd', bg1: 'rgba(42,14,30,.88)', bg2: 'rgba(18,8,14,.95)', ph1: '#3a1428', ph2: '#180a12', top: '✿ ✦ ✿', foot: 'V I P' },
+  { id: 'mono', label: '⚪ فضّي', a: '#d9d9e0', a2: '#ffffff', bg1: 'rgba(28,28,36,.9)', bg2: 'rgba(10,10,14,.96)', ph1: '#2a2a34', ph2: '#131318', top: '◆ ✦ ◆', foot: 'M E M B E R' },
+];
+
+export const CARD_THEME_IDS = CARD_THEMES.map((t) => t.id);
+
+/** djb2-ish hash so a given id maps to a stable theme. */
+function hashId(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/**
+ * Resolve which theme to use. mode: 'auto' → a stable per-user theme (each
+ * member gets a different look, so the group sees variety); 'random' → a
+ * different one each time; a specific theme id → that theme; else default.
+ */
+export function resolveCardTheme(mode: string | null | undefined, userId: string, roll: number): string {
+  const m = mode || 'auto';
+  if (m === 'random') return CARD_THEME_IDS[roll % CARD_THEME_IDS.length];
+  if (m === 'auto') return CARD_THEME_IDS[hashId(userId) % CARD_THEME_IDS.length];
+  return CARD_THEME_IDS.includes(m) ? m : CARD_THEME_IDS[0];
+}
+
 /** A row of the stats grid. */
 function stat(icon: string, label: string, value: string): string {
   return `<div class="stat"><div class="ico">${icon}</div><div class="col"><div class="lab">${esc(label)}</div><div class="val">${esc(value)}</div></div></div>`;
 }
 
-function buildCardHtml(d: IdCardImageData): string {
+function buildCardHtml(d: IdCardImageData, theme: CardTheme): string {
   const avatar = d.avatarDataUri
     ? `<img class="ava" src="${d.avatarDataUri}" alt="">`
     : `<div class="ava ava-ph">${esc(d.initial)}</div>`;
   const bg = d.avatarDataUri ? `background-image:url('${d.avatarDataUri}');` : '';
+  const t = theme;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 ${fontFaceCss()}
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{background:transparent;}
 .card{width:640px;position:relative;overflow:hidden;border-radius:34px;
   font-family:'Cairo','Amiri',sans-serif;color:#fff;direction:rtl;
-  border:2px solid rgba(232,200,106,.55);box-shadow:0 24px 70px rgba(0,0,0,.6);}
+  border:2px solid ${t.a}8c;box-shadow:0 24px 70px rgba(0,0,0,.6);}
 .bgimg{position:absolute;inset:0;${bg}background-size:cover;background-position:center;filter:blur(26px) brightness(.42) saturate(1.2);transform:scale(1.25);}
-.tint{position:absolute;inset:0;background:linear-gradient(160deg,rgba(20,14,40,.86),rgba(8,8,16,.94));}
+.tint{position:absolute;inset:0;background:linear-gradient(160deg,${t.bg1},${t.bg2});}
 .frame{position:relative;padding:36px 34px 30px;}
-.crown{text-align:center;font-size:30px;letter-spacing:8px;color:#e8c86a;text-shadow:0 0 18px rgba(232,200,106,.6);}
+.crown{text-align:center;font-size:30px;letter-spacing:8px;color:${t.a};text-shadow:0 0 18px ${t.a}99;}
 .head{display:flex;flex-direction:column;align-items:center;margin-top:6px;}
-.ava{width:150px;height:150px;border-radius:50%;object-fit:cover;border:4px solid #e8c86a;
-  box-shadow:0 0 0 6px rgba(232,200,106,.16),0 10px 30px rgba(0,0,0,.55);background:#222;}
-.ava-ph{display:flex;align-items:center;justify-content:center;font-size:64px;font-weight:700;color:#e8c86a;background:linear-gradient(145deg,#2a2350,#15131f);}
+.ava{width:150px;height:150px;border-radius:50%;object-fit:cover;border:4px solid ${t.a};
+  box-shadow:0 0 0 6px ${t.a}29,0 10px 30px rgba(0,0,0,.55);background:#222;}
+.ava-ph{display:flex;align-items:center;justify-content:center;font-size:64px;font-weight:700;color:${t.a};background:linear-gradient(145deg,${t.ph1},${t.ph2});}
 .name{font-size:34px;font-weight:700;margin-top:16px;text-align:center;line-height:1.25;
-  background:linear-gradient(90deg,#fff7e0,#e8c86a,#fff7e0);-webkit-background-clip:text;background-clip:text;color:transparent;
-  text-shadow:0 2px 14px rgba(232,200,106,.25);max-width:100%;}
+  background:linear-gradient(90deg,#ffffff,${t.a},#ffffff);-webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 2px 14px ${t.a}40;max-width:100%;}
 .uname{font-size:17px;color:#b9c0d4;margin-top:4px;direction:ltr;}
 .rankpill{margin:14px auto 2px;display:inline-block;padding:7px 20px;border-radius:999px;font-size:18px;font-weight:700;
-  color:#1a1428;background:linear-gradient(90deg,#e8c86a,#f6e3a6);box-shadow:0 6px 18px rgba(232,200,106,.32);}
+  color:#141018;background:linear-gradient(90deg,${t.a},${t.a2});box-shadow:0 6px 18px ${t.a}52;}
 .rankwrap{text-align:center;}
-.divider{height:1px;margin:20px 2px 16px;background:linear-gradient(90deg,transparent,rgba(232,200,106,.55),transparent);}
+.divider{height:1px;margin:20px 2px 16px;background:linear-gradient(90deg,transparent,${t.a}8c,transparent);}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
-.stat{display:flex;align-items:center;gap:11px;background:rgba(255,255,255,.055);border:1px solid rgba(232,200,106,.16);
+.stat{display:flex;align-items:center;gap:11px;background:rgba(255,255,255,.055);border:1px solid ${t.a}29;
   border-radius:16px;padding:11px 13px;}
 .stat .ico{font-size:23px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));}
 .stat .col{min-width:0;flex:1;}
@@ -62,14 +108,14 @@ html,body{background:transparent;}
 .stat .val{font-size:16.5px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .full{grid-column:1 / -1;}
 .idbar{grid-column:1 / -1;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:9px;
-  background:rgba(232,200,106,.1);border:1px solid rgba(232,200,106,.3);border-radius:14px;padding:10px;}
-.idbar .k{font-size:14px;color:#e8c86a;}
+  background:${t.a}1a;border:1px solid ${t.a}4d;border-radius:14px;padding:10px;}
+.idbar .k{font-size:14px;color:${t.a};}
 .idbar .v{font-size:18px;font-weight:700;letter-spacing:1px;direction:ltr;}
-.foot{text-align:center;margin-top:18px;font-size:15px;letter-spacing:6px;color:rgba(232,200,106,.85);}
+.foot{text-align:center;margin-top:18px;font-size:15px;letter-spacing:6px;color:${t.a}d9;}
 </style></head><body>
 <div class="card"><div class="bgimg"></div><div class="tint"></div>
   <div class="frame">
-    <div class="crown">👑 ✦ 👑</div>
+    <div class="crown">${t.top}</div>
     <div class="head">${avatar}
       <div class="name">${esc(d.name)}</div>
       <div class="uname">${esc(d.username)}</div>
@@ -86,20 +132,21 @@ html,body{background:transparent;}
       <div class="stat full">${'<div class="ico">📅</div>'}<div class="col"><div class="lab">تاريخ الانضمام</div><div class="val">${esc(d.joined)}</div></div></div>
       <div class="idbar"><span class="k">🆔 الآيدي</span><span class="v">${esc(d.id)}</span></div>
     </div>
-    <div class="foot">V I P</div>
+    <div class="foot">${t.foot}</div>
   </div>
 </div>
 </body></html>`;
 }
 
 /** Render the profile card to a crisp PNG buffer. Throws if Chromium is unavailable. */
-export async function renderIdCardImage(d: IdCardImageData): Promise<Buffer> {
+export async function renderIdCardImage(d: IdCardImageData, themeId?: string): Promise<Buffer> {
+  const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
   const browser = await getBrowser();
   const page = await browser.newPage({ viewport: { width: 680, height: 1000 }, deviceScaleFactor: 2 });
   try {
     // 'load' (not 'networkidle') so an embedded-only page never stalls waiting
     // for network quiet; then explicitly wait for the embedded fonts to shape.
-    await page.setContent(buildCardHtml(d), { waitUntil: 'load', timeout: 20_000 });
+    await page.setContent(buildCardHtml(d, theme), { waitUntil: 'load', timeout: 20_000 });
     // Wait for embedded fonts to finish shaping (string form avoids DOM types).
     await page.evaluate('document.fonts && document.fonts.ready').catch(() => undefined);
     const el = await page.$('.card');

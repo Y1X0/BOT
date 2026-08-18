@@ -107,6 +107,14 @@ export async function setIdCardImage(chatId: number | bigint, enabled: boolean):
   });
 }
 
+/** Set the id-card color theme mode (auto | random | <theme id>). */
+export async function setIdCardTheme(chatId: number | bigint, theme: string): Promise<void> {
+  await prisma.chatSettings.update({
+    where: { chatId: BigInt(chatId) },
+    data: { idCardTheme: theme },
+  });
+}
+
 /** Store (or clear, when template is null) a custom id-card template + entities. */
 export async function setIdCard(
   chatId: number | bigint,

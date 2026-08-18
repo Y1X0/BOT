@@ -111,6 +111,7 @@ model ChatSettings {
   idCardTemplate      String?
   idCardEntities      String? // JSON of Telegram entities captured with the template
   idCardImage         Boolean  @default(true) // render the card as a designed image (else text)
+  idCardTheme         String   @default("auto") // color theme: auto | random | <theme id>
 
   updatedAt           DateTime @updatedAt
 }

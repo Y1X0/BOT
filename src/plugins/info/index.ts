@@ -6,11 +6,11 @@ import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
 import { resolveTarget, displayName, pickRandom } from '../../utils/format';
 import { BIO_QUOTES } from './bios';
-import { getSettings, setIdCard, setIdCardImage } from '../../services/settings.service';
+import { getSettings, setIdCard, setIdCardImage, setIdCardTheme } from '../../services/settings.service';
 import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
 import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
-import { renderIdCardImage } from '../../services/idcard/image';
+import { renderIdCardImage, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
 import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
@@ -32,6 +32,7 @@ export const infoPlugin: Plugin = {
     { command: 'setidcard', description: '🖌 ضبط بطاقة ايدي مخصّصة (بالرد)', staffOnly: true },
     { command: 'setidcardall', description: '🌐 ضبط بطاقة ايدي لكل القروبات (المالك)', staffOnly: true },
     { command: 'idcardimage', description: '🖼 كرت ايدي كصورة مصمّمة', staffOnly: true },
+    { command: 'idcardtheme', description: '🎨 ثيم/لون بطاقة ايدي', staffOnly: true },
     { command: 'idcardtext', description: '📝 كرت ايدي كنص', staffOnly: true },
     { command: 'residcard', description: '♻️ إرجاع بطاقة ايدي الافتراضية', staffOnly: true },
     { command: 'residcardall', description: '♻️ إرجاع بطاقة ايدي العامة (المالك)', staffOnly: true },
@@ -144,6 +145,31 @@ export const infoPlugin: Plugin = {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCardImage(ctx.chat.id, false);
       await ctx.reply('📝 صار كرت «ايدي» يطلع كـ *نص* (تقدر تخصصه بـ «بطاقة ايدي»).');
+    });
+
+    // /idcardtheme — pick the card's color theme (buttons). Includes «auto»
+    // (a different stable look per member) and «random» (varies each time).
+    const themeKeyboard = () => {
+      const rows = CARD_THEMES.map((th) => [{ text: th.label, callback_data: `idth:${th.id}` }]);
+      rows.unshift([
+        { text: '🎲 عشوائي', callback_data: 'idth:random' },
+        { text: '🧩 تلقائي (لكل عضو شكل)', callback_data: 'idth:auto' },
+      ]);
+      return { reply_markup: { inline_keyboard: rows } };
+    };
+    bot.command('idcardtheme', requireRole('admin'), async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      await ctx.reply('🎨 اختر ثيم بطاقة «ايدي»:\n(«تلقائي» = كل عضو بلون ثابت مختلف، «عشوائي» = يتغيّر كل مرة)', themeKeyboard());
+    });
+    bot.action(/^idth:(.+)$/, requireRole('admin'), async (ctx) => {
+      if (!ctx.chat) return;
+      const id = ctx.match[1];
+      const valid = id === 'auto' || id === 'random' || CARD_THEMES.some((th) => th.id === id);
+      if (!valid) return void ctx.answerCbQuery().catch(() => undefined);
+      await setIdCardTheme(ctx.chat.id, id);
+      const label = id === 'auto' ? '🧩 تلقائي' : id === 'random' ? '🎲 عشوائي' : CARD_THEMES.find((th) => th.id === id)?.label;
+      await ctx.answerCbQuery(`تم: ${label}`).catch(() => undefined);
+      await ctx.editMessageText(`✅ صار ثيم البطاقة: ${label}\nجرّب: ايدي`).catch(() => undefined);
     });
 
     // /setidcardall — bot-owner only. Sets a GLOBAL card applied to every group
@@ -347,6 +373,9 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
         const res = await fetch(link.toString());
         if (res.ok) avatarDataUri = `data:image/jpeg;base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`;
       }
+      // Pick a color theme so people don't see the same card every time:
+      // 'auto' gives each member a stable-but-different look; 'random' varies it.
+      const themeId = resolveCardTheme(settings?.idCardTheme, String(target.id), Date.now());
       const png = await renderIdCardImage({
         name: fullName,
         username,
@@ -361,7 +390,7 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
         joined,
         avatarDataUri,
         initial: (fullName.trim()[0] || '?').toUpperCase(),
-      });
+      }, themeId);
       await ctx.replyWithPhoto({ source: png });
       return;
     } catch (err) {

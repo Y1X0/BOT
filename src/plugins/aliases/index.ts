@@ -103,6 +103,7 @@ const ALIASES: Alias[] = [
   { command: 'setreply', triggers: ['رد مميز', 'احفظ رد مميز', 'حفظ رد مميز', 'رد بايموجي'] },
   { command: 'setidcardall', triggers: ['بطاقة ايدي للكل', 'بطاقة ايدي لكل القروبات', 'بطاقة عامه', 'ايدي لكل القروبات'] },
   { command: 'residcardall', triggers: ['رجع بطاقة ايدي للكل', 'رجع البطاقة العامه', 'ايدي افتراضي للكل'] },
+  { command: 'idcardtheme', triggers: ['ثيم البطاقة', 'ثيم ايدي', 'لون البطاقة', 'الوان البطاقة'] },
   { command: 'idcardimage', triggers: ['بطاقة صوره', 'بطاقة صورة', 'ايدي صوره', 'كرت صوره'] },
   { command: 'idcardtext', triggers: ['بطاقة نص', 'بطاقة كتابه', 'ايدي نص', 'كرت نص'] },
   { command: 'setidcard', triggers: ['بطاقة ايدي', 'ضبط بطاقة ايدي', 'خصص ايدي', 'تخصيص الايدي'] },
