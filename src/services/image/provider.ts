@@ -174,11 +174,63 @@ class GeminiImageProvider implements ImageProvider {
   }
 }
 
+/**
+ * Pollinations.ai — free, keyless text-to-image (FLUX). No API key, no billing,
+ * no quota to run out of. Generation only (no image-to-image edit).
+ */
+class PollinationsImageProvider implements ImageProvider {
+  readonly name = 'pollinations';
+
+  isConfigured(): boolean {
+    return true; // no key required
+  }
+
+  async edit(_image: Buffer, _prompt: string): Promise<Buffer | null> {
+    return setError('pollinations: تعديل الصور غير مدعوم — استخدم التوليد فقط.');
+  }
+
+  async generate(prompt: string): Promise<Buffer | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const [w, h] = env.IMAGE_SIZE.split('x').map((n) => Number(n));
+      const width = Number.isFinite(w) && w > 0 ? w : 1024;
+      const height = Number.isFinite(h) && h > 0 ? h : 1024;
+      const models = ['flux', 'turbo', 'flux-realism', 'flux-anime', 'flux-3d'];
+      const model = models.includes(env.IMAGE_MODEL) ? env.IMAGE_MODEL : 'flux';
+      const seed = Date.now() % 1_000_000;
+      const url =
+        `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
+        `?width=${width}&height=${height}&model=${model}&seed=${seed}&nologo=true&safe=true`;
+      const res = await fetch(url, { signal: controller.signal, headers: { accept: 'image/*' } });
+      if (!res.ok) {
+        const body = (await res.text().catch(() => '')).slice(0, 200);
+        log.warn({ status: res.status, body }, 'pollinations image error');
+        return setError(`HTTP ${res.status}: ${body}`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      // A tiny body usually means an error page, not a real image.
+      if (buf.length < 1024) return setError('pollinations أعادت صورة فارغة، جرّب وصفاً آخر.');
+      return buf;
+    } catch (err) {
+      log.warn({ err }, 'pollinations request failed');
+      return setError(`request failed: ${String((err as Error)?.message ?? err).slice(0, 150)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 let provider: ImageProvider | null = null;
 export function getImageProvider(): ImageProvider {
   if (!provider) {
     // Selected via IMAGE_PROVIDER. Add new providers to this switch.
-    provider = env.IMAGE_PROVIDER === 'gemini' ? new GeminiImageProvider() : new OpenAIImageProvider();
+    provider =
+      env.IMAGE_PROVIDER === 'gemini'
+        ? new GeminiImageProvider()
+        : env.IMAGE_PROVIDER === 'pollinations'
+          ? new PollinationsImageProvider()
+          : new OpenAIImageProvider();
   }
   return provider;
 }
