@@ -300,6 +300,60 @@ class HuggingFaceImageProvider implements ImageProvider {
   }
 }
 
+/**
+ * Cloudflare Workers AI — reliable free tier (FLUX-1-schnell) on a rock-solid
+ * domain (api.cloudflare.com), so it works where niche hosts fail DNS. Needs a
+ * free account id + API token. Generate only.
+ */
+class CloudflareImageProvider implements ImageProvider {
+  readonly name = 'cloudflare';
+
+  isConfigured(): boolean {
+    return Boolean(env.IMAGE_API_KEY && env.IMAGE_CF_ACCOUNT_ID);
+  }
+
+  async edit(_image: Buffer, _prompt: string): Promise<Buffer | null> {
+    return setError('cloudflare: تعديل الصور غير مدعوم — استخدم التوليد فقط.');
+  }
+
+  async generate(prompt: string): Promise<Buffer | null> {
+    if (!this.isConfigured()) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const model = env.IMAGE_MODEL.startsWith('@cf/') ? env.IMAGE_MODEL : '@cf/black-forest-labs/flux-1-schnell';
+      const url = `https://api.cloudflare.com/client/v4/accounts/${env.IMAGE_CF_ACCOUNT_ID}/ai/run/${model}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${env.IMAGE_API_KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt, steps: 6 }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const body = (await res.text().catch(() => '')).slice(0, 250);
+        log.warn({ status: res.status, body }, 'cloudflare image error');
+        return setError(`HTTP ${res.status}: ${body}`);
+      }
+      // flux-1-schnell returns JSON { result: { image: "<base64>" } }.
+      if ((res.headers.get('content-type') ?? '').includes('application/json')) {
+        const data = (await res.json()) as { result?: { image?: string }; errors?: unknown };
+        const b64 = data.result?.image;
+        if (typeof b64 === 'string' && b64.length > 100) return Buffer.from(b64, 'base64');
+        return setError(`cloudflare: لا صورة (${JSON.stringify(data.errors ?? '').slice(0, 150)})`);
+      }
+      // Other models may return raw image bytes.
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 1024) return setError('cloudflare أعادت صورة فارغة.');
+      return buf;
+    } catch (err) {
+      log.warn({ err }, 'cloudflare request failed');
+      return setError(`request failed: ${errDetail(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 let provider: ImageProvider | null = null;
 export function getImageProvider(): ImageProvider {
   if (!provider) {
@@ -311,7 +365,9 @@ export function getImageProvider(): ImageProvider {
           ? new PollinationsImageProvider()
           : env.IMAGE_PROVIDER === 'huggingface'
             ? new HuggingFaceImageProvider()
-            : new OpenAIImageProvider();
+            : env.IMAGE_PROVIDER === 'cloudflare'
+              ? new CloudflareImageProvider()
+              : new OpenAIImageProvider();
   }
   return provider;
 }
