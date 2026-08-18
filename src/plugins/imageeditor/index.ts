@@ -5,9 +5,11 @@ import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { getImageProvider, getLastImageError, effectiveModel, POLLINATIONS_MODELS } from '../../services/image/provider';
 import { EFFECTS, EFFECT_GROUPS, findEffect } from '../../services/image/effects';
-import { isPromptAllowed, PG_SUFFIX, QUALITY_SUFFIX } from '../../services/image/safety';
+import { isPromptAllowed, PG_SUFFIX } from '../../services/image/safety';
+import { STYLE_PRESETS, DEFAULT_STYLE, styleSuffix, findStyle } from '../../services/image/styles';
+import { enhanceImage } from '../../services/image/postprocess';
 import { isBotOwner, requireRole } from '../../utils/permissions';
-import { setGlobal } from '../../services/global.service';
+import { setGlobal, getGlobal } from '../../services/global.service';
 import { QueueManager } from '../../services/youtube/queue';
 import { createLogger } from '../../core/logger';
 
@@ -83,7 +85,8 @@ export const imageEditorPlugin: Plugin = {
   commands: [
     { command: 'edit', description: '🎨 تعديل صورة (بالرد على صورة أو أرسلها)' },
     { command: 'imagine', description: '🖼 توليد صورة: /imagine وصف' },
-    { command: 'imgmodel', description: '🎛 تغيير موديل/ستايل الصور (أدمن)', staffOnly: true },
+    { command: 'imgmodel', description: '🎛 تغيير موديل الصور (أدمن)', staffOnly: true },
+    { command: 'imgstyle', description: '🎨 اختيار نمط الصور (أدمن)', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -100,6 +103,33 @@ export const imageEditorPlugin: Plugin = {
       }
       await setGlobal('imageModel', arg);
       await ctx.reply(`✅ صار موديل الصور: ${arg}\nجرّب: تخيل <وصف>`);
+    });
+
+    // /imgstyle [name] — pick a tested style preset (buttons). Applied silently
+    // to every generation so free models produce clean, consistent results.
+    const styleKeyboard = () =>
+      Markup.inlineKeyboard(
+        STYLE_PRESETS.map((s) => [Markup.button.callback(s.label, `imgstyle:${s.id}`)]),
+      );
+    bot.command('imgstyle', requireRole('admin'), async (ctx) => {
+      const arg = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      if (arg) {
+        const found = findStyle(arg);
+        if (!found) return void ctx.reply('❓ نمط غير معروف. اكتب «نمط الصور» لعرض الأنماط.');
+        await setGlobal('imageStyle', found.id);
+        return void ctx.reply(`✅ صار نمط الصور: ${found.label}\nجرّب: تخيل <وصف>`);
+      }
+      const current = (await getGlobal('imageStyle').catch(() => null)) || DEFAULT_STYLE;
+      const cur = STYLE_PRESETS.find((s) => s.id === current);
+      await ctx.reply(`🎨 اختر نمط الصور (الحالي: ${cur?.label ?? current}):`, styleKeyboard());
+    });
+    bot.action(/^imgstyle:(.+)$/, async (ctx) => {
+      const id = ctx.match[1];
+      const found = STYLE_PRESETS.find((s) => s.id === id);
+      if (!found) return void ctx.answerCbQuery().catch(() => undefined);
+      await setGlobal('imageStyle', found.id);
+      await ctx.answerCbQuery(`تم: ${found.label}`).catch(() => undefined);
+      await ctx.editMessageText(`✅ صار نمط الصور: ${found.label}\nجرّب: تخيل <وصف>`).catch(() => undefined);
     });
 
     const editHandler = async (ctx: BotContext) => {
@@ -203,10 +233,14 @@ export const imageEditorPlugin: Plugin = {
       const telegram = ctx.telegram;
       const status = await ctx.reply('⏳ جاري توليد الصورة...').catch(() => undefined);
       imageQueue.enqueue(chatId, async () => {
-        const out = await getImageProvider().generate(prompt + QUALITY_SUFFIX + PG_SUFFIX);
+        // Style preset (keyword template) → clean, consistent output on free models.
+        const styleId = (await getGlobal('imageStyle').catch(() => null)) || DEFAULT_STYLE;
+        const out = await getImageProvider().generate(prompt + styleSuffix(styleId) + PG_SUFFIX);
         if (!out) return void edit(telegram, chatId, status, failureMessage('⚠️ تعذّر التوليد.', requesterId));
         bump(chatId);
-        await telegram.sendPhoto(chatId, Input.fromBuffer(out, 'img.png'), { caption: `🖼 ${prompt.slice(0, 100)}` }).catch(() => undefined);
+        // Post-process (contrast/saturation/sharpen) to mask the free model's flatness.
+        const finished = await enhanceImage(out);
+        await telegram.sendPhoto(chatId, Input.fromBuffer(finished, 'img.png'), { caption: `🖼 ${prompt.slice(0, 100)}` }).catch(() => undefined);
         if (status) await telegram.deleteMessage(chatId, status.message_id).catch(() => undefined);
       }, 1, 20);
     });
