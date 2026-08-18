@@ -1,6 +1,7 @@
 import { env } from '../../config/env';
 import { createLogger } from '../../core/logger';
 import { getGlobal } from '../global.service';
+import { describeImage } from './vision';
 
 const log = createLogger('image:provider');
 
@@ -204,8 +205,18 @@ class PollinationsImageProvider implements ImageProvider {
     return true; // no key required
   }
 
-  async edit(_image: Buffer, _prompt: string): Promise<Buffer | null> {
-    return setError('pollinations: تعديل الصور غير مدعوم — استخدم التوليد فقط.');
+  /**
+   * "Poor man's img2img": describe the photo → merge the description with the
+   * requested change → regenerate. The free model can't take an image input, so
+   * this keeps the subject's features far better than the edit instruction alone.
+   */
+  async edit(image: Buffer, prompt: string): Promise<Buffer | null> {
+    const caption = await describeImage(image).catch(() => null);
+    const base = caption ? `${caption}. ` : '';
+    const merged =
+      `${base}Apply this change: ${prompt}. ` +
+      'Keep the same subject, same face and identity, same overall composition and framing.';
+    return this.generate(merged);
   }
 
   async generate(prompt: string): Promise<Buffer | null> {

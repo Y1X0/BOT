@@ -142,9 +142,46 @@ export const imageEditorPlugin: Plugin = {
       const replied = photoOf(msg?.reply_to_message);
       const src = own ?? replied;
       if (!src || !ctx.from || !ctx.chat) {
-        await ctx.reply('🎨 أرسل صورة مع الأمر /edit، أو ردّ على صورة بـ /edit');
+        await ctx.reply('🎨 ردّ على صورة بـ «تعديل <وصف التعديل>» — مثال: تعديل خليه يلبس نظارة.\nأو «تعديل» لوحدها لقائمة التأثيرات الجاهزة.');
         return;
       }
+
+      // Free-text edit: "/edit <instruction>" → describe the photo + merge the
+      // change + regenerate (identity-preserving img2img on free models).
+      const instruction = ((ctx.message as { text?: string }).text ?? '').split(' ').slice(1).join(' ').trim();
+      if (instruction) {
+        const chatId = ctx.chat.id;
+        if (!canUse(chatId)) return void ctx.reply('🚦 تم بلوغ الحد اليومي لتعديل الصور.');
+        const requesterId = ctx.from.id;
+        const telegram = ctx.telegram;
+        const fileId = src.fileId;
+        const status = await ctx.reply('⏳ جاري تعديل الصورة (تحليل + إعادة رسم)...').catch(() => undefined);
+        imageQueue.enqueue(
+          chatId,
+          async () => {
+            try {
+              const link = await telegram.getFileLink(fileId).catch(() => null);
+              if (!link) return void edit(telegram, chatId, status, '❌ تعذّر جلب الصورة.');
+              const r = await fetch(link.toString());
+              if (!r.ok) return void edit(telegram, chatId, status, '❌ تعذّر تحميل الصورة.');
+              const buf = Buffer.from(await r.arrayBuffer());
+              const out = await getImageProvider().edit(buf, instruction);
+              if (!out) return void edit(telegram, chatId, status, failureMessage('⚠️ تعذّر التعديل الآن، حاول لاحقاً.', requesterId));
+              bump(chatId);
+              const finished = await enhanceImage(out);
+              await telegram.sendPhoto(chatId, Input.fromBuffer(finished, 'result.png'), { caption: `🎨 ${instruction.slice(0, 100)}` }).catch(() => undefined);
+              if (status) await telegram.deleteMessage(chatId, status.message_id).catch(() => undefined);
+            } catch (err) {
+              log.error({ err }, 'free-text edit failed');
+              await edit(telegram, chatId, status, '⚠️ حدث خطأ أثناء المعالجة.');
+            }
+          },
+          1,
+          20,
+        );
+        return;
+      }
+
       const note = !own && replied ? '\n⚠️ تعدّل صورة شخص آخر — تأكد من موافقته.' : '';
       const sent = await ctx.reply(`🎨 اختر تأثيراً:${note}`, groupsKeyboard());
       pending.set(`${ctx.chat.id}:${sent.message_id}`, {
