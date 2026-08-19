@@ -6,6 +6,7 @@ import type { BrowserContext } from 'playwright-core';
 import { getBrowser } from '../pdf/browser';
 import { fontFaceCss } from '../pdf/fonts';
 import { createLogger } from '../../core/logger';
+import { renderCardPng } from './canvas';
 
 const vlog = createLogger('idcard:video');
 
@@ -175,25 +176,14 @@ ${anim ? `
 </body></html>`;
 }
 
-/** Render the profile card to a crisp PNG buffer. Throws if Chromium is unavailable. */
+/**
+ * Render the static profile card to a PNG. Uses @napi-rs/canvas (pure CPU, no
+ * browser) — an order of magnitude faster and far lighter than Chromium, which
+ * matters on small hosts. The animated premium card still uses Chromium below.
+ */
 export async function renderIdCardImage(d: IdCardImageData, themeId?: string): Promise<Buffer> {
   const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
-  const browser = await getBrowser();
-  const page = await browser.newPage({ viewport: { width: 680, height: 1000 }, deviceScaleFactor: 1.5 });
-  try {
-    // 'domcontentloaded' + an explicit fonts wait is faster than 'load' (no wait
-    // for every subresource); the fonts wait is capped so it never blocks long.
-    await page.setContent(buildCardHtml(d, theme), { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    await Promise.race([
-      page.evaluate('document.fonts && document.fonts.ready'),
-      new Promise((r) => setTimeout(r, 1500)),
-    ]).catch(() => undefined);
-    const el = await page.$('.card');
-    const shot = await (el ?? page).screenshot({ type: 'png', omitBackground: true });
-    return Buffer.from(shot);
-  } finally {
-    await page.close().catch(() => undefined);
-  }
+  return renderCardPng(d, theme);
 }
 
 /**
