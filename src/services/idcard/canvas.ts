@@ -69,9 +69,10 @@ export async function renderCardPng(d: IdCardImageData, t: CardTheme): Promise<B
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
 
-  // Rounded-card clip (transparent corners).
-  roundRect(ctx, 0, 0, W, H, 34);
-  ctx.clip();
+  // Opaque backdrop so the whole frame is painted — lets us encode JPEG (a
+  // fraction of the PNG size → far faster upload) instead of a transparent PNG.
+  ctx.fillStyle = '#0e0b14';
+  ctx.fillRect(0, 0, W, H);
 
   // Background: darkened avatar cover if present, else theme gradient.
   let avatar = null as Awaited<ReturnType<typeof loadImage>> | null;
@@ -241,5 +242,7 @@ export async function renderCardPng(d: IdCardImageData, t: CardTheme): Promise<B
   ctx.font = FONT(400, 15);
   ctx.fillText(t.foot, cx, H - 24);
 
-  return canvas.encode('png');
+  // JPEG at q82: a 640×792 card with an avatar cover is ~50–80KB vs ~500KB PNG,
+  // so the Telegram upload drops from ~1s to a couple hundred ms.
+  return canvas.encode('jpeg', 82);
 }

@@ -87,7 +87,7 @@ export const infoPlugin: Plugin = {
       // 1) profile photos
       const photos = await ctx.telegram.getUserProfilePhotos(uid, 0, 1).catch(() => null);
       lap('صور البروفايل (getUserProfilePhotos)');
-      const fid = photos?.photos?.[0]?.slice(-1)[0]?.file_id;
+      const fid = pickAvatarFileId(photos?.photos?.[0] as PhotoSize[] | undefined);
 
       // 2) file link + 3) download
       let avatarDataUri: string | undefined;
@@ -356,6 +356,25 @@ interface TargetUser {
   is_bot?: boolean;
 }
 
+interface PhotoSize {
+  file_id: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Pick the smallest profile-photo size that's still ~320px wide. The largest
+ * size can be a multi-hundred-KB image that takes ~1s to download; a 320px
+ * source is more than enough for a 148px avatar circle and a darkened cover,
+ * and downloads in a fraction of the time.
+ */
+function pickAvatarFileId(sizes: PhotoSize[] | undefined): string | undefined {
+  if (!sizes?.length) return undefined;
+  const ordered = [...sizes].sort((a, b) => a.width - b.width);
+  const midOrUp = ordered.find((s) => s.width >= 300);
+  return (midOrUp ?? ordered[ordered.length - 1]).file_id;
+}
+
 /**
  * Build and send a decorated profile ("id") card for `target`: profile photo
  * (if any) plus name, username, group status, equipped title, interaction level
@@ -447,10 +466,9 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
   }
   const { text, entities } = renderIdCard(template, templateEntities, vars);
 
-  // Latest profile photo (largest size), if any.
-  let photoFileId: string | undefined;
-  const sizes = photos?.photos?.[0];
-  if (sizes?.length) photoFileId = sizes[sizes.length - 1].file_id;
+  // Latest profile photo — a mid-size (~320px), not the largest, to keep the
+  // avatar download fast.
+  const photoFileId = pickAvatarFileId(photos?.photos?.[0] as PhotoSize[] | undefined);
 
   // Preferred look: a designed IMAGE card (rendered on CPU via @napi-rs/canvas).
   // Disabled per-group with idCardImage=false, and it silently falls back to the
