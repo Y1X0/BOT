@@ -67,6 +67,63 @@ export const infoPlugin: Plugin = {
     bot.command('id', infoHandler);
     bot.command('info', infoHandler);
 
+    // /idping — admin diagnostic: run the real id-card pipeline for the caller
+    // and report how many ms each stage took, so we can see the actual
+    // bottleneck (Telegram API vs download vs render vs upload) in-chat.
+    bot.command('idping', requireRole('admin'), async (ctx) => {
+      if (!ctx.from) return;
+      const uid = ctx.from.id;
+      const now = () => Number(process.hrtime.bigint() / 1000000n);
+      const marks: string[] = [];
+      let t = now();
+      const lap = (label: string) => {
+        const d = now() - t;
+        t = now();
+        marks.push(`${label}: ${d}ms`);
+        return d;
+      };
+
+      const t0 = now();
+      // 1) profile photos
+      const photos = await ctx.telegram.getUserProfilePhotos(uid, 0, 1).catch(() => null);
+      lap('صور البروفايل (getUserProfilePhotos)');
+      const fid = photos?.photos?.[0]?.slice(-1)[0]?.file_id;
+
+      // 2) file link + 3) download
+      let avatarDataUri: string | undefined;
+      if (fid) {
+        const link = await ctx.telegram.getFileLink(fid).catch(() => null);
+        lap('رابط الملف (getFileLink)');
+        if (link) {
+          const res = await fetch(link.toString()).catch(() => null);
+          if (res?.ok) avatarDataUri = `data:image/jpeg;base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`;
+          lap('تنزيل الصورة');
+        }
+      } else {
+        marks.push('لا يوجد صورة بروفايل');
+      }
+
+      // 4) render
+      const name = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || '—';
+      const png = await renderIdCardImage({
+        name, username: ctx.from.username ? `@${ctx.from.username}` : 'لا يوجد', id: String(uid),
+        rank: '⭐ تجربة', stats: 'عضو 🙂', title: 'لا يوجد', level: '1', xp: '0', messages: '0',
+        interaction: 'تجربة', joined: 'اليوم', avatarDataUri, initial: (name.trim()[0] || '?').toUpperCase(),
+      }).catch((e) => { marks.push(`فشل الرسم: ${e instanceof Error ? e.message : e}`); return null; });
+      const renderMs = lap('رسم البطاقة (canvas)');
+
+      // 5) upload
+      if (png) {
+        await ctx.replyWithPhoto({ source: png }).catch(() => undefined);
+        lap('رفع الصورة لتيليجرام');
+      }
+      const total = now() - t0;
+      await ctx.reply(
+        `⏱ قياس بطاقة الايدي:\n\n${marks.join('\n')}\n\n📦 حجم الصورة: ${png ? (png.length / 1024).toFixed(0) : '—'}KB` +
+          `\n🎨 الرسم: ${renderMs}ms\n⏳ المجموع: ${total}ms`,
+      );
+    });
+
     // /idcardtest — admin diagnostic: try to render the image card and report
     // success or the exact error (so we know if Chromium works on this host).
     bot.command('idcardtest', requireRole('admin'), async (ctx) => {
