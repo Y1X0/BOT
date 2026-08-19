@@ -6,12 +6,22 @@ import type { Plugin } from '../../core/plugin';
 import { createLogger } from '../../core/logger';
 import { largestPhoto } from '../sticker/logic';
 import { createPdf } from '../../services/pdf/render';
+import { createDocx } from '../../services/office/docx';
+import { createPptx } from '../../services/office/pptx';
 import { DOC_TYPES } from '../../services/pdf/themes';
 import { startPdf, getPdf, clearPdf, parseCoverFields, type PdfState } from './state';
 
 const log = createLogger('plugin:pdf');
 const DONE_RE = /^(تم|خلص|انهاء|إنهاء|done|generate|انشئ|أنشئ)$/i;
 const MAX_IMG_BYTES = 8 * 1024 * 1024;
+
+type OutFormat = 'pdf' | 'docx' | 'pptx';
+const formatKeyboard = () =>
+  Markup.inlineKeyboard([
+    [Markup.button.callback('📄 PDF', 'pdff:pdf')],
+    [Markup.button.callback('📝 Word', 'pdff:docx')],
+    [Markup.button.callback('📊 PowerPoint', 'pdff:pptx')],
+  ]);
 
 const typeKeyboard = () =>
   Markup.inlineKeyboard(
@@ -34,15 +44,15 @@ export const pdfPlugin: Plugin = {
   name: 'pdf',
   description: 'Interactive professional PDF creator (Arabic + English)',
   commands: [
-    { command: 'pdf', description: '📄 أنشئ ملف PDF احترافي (مُرشد تفاعلي)' },
-    { command: 'pdfcancel', description: '❌ إلغاء إنشاء PDF' },
+    { command: 'pdf', description: '📄 أنشئ مستند احترافي: PDF / Word / PowerPoint' },
+    { command: 'pdfcancel', description: '❌ إلغاء إنشاء المستند' },
   ],
 
   register(bot: Telegraf<BotContext>) {
     bot.command('pdf', async (ctx) => {
       if (!ctx.from) return;
       startPdf(ctx.from.id, ctx.chat!.id);
-      await ctx.reply('📄 منشئ الـ PDF الذكي\n\nما عنوان المستند؟ اكتبه الآن.\n(للإلغاء: /pdfcancel)');
+      await ctx.reply('📑 منشئ المستندات الذكي (PDF / Word / PowerPoint)\n\nما عنوان المستند؟ اكتبه الآن.\n(للإلغاء: /pdfcancel)');
     });
 
     bot.command('pdfcancel', async (ctx) => {
@@ -87,6 +97,15 @@ export const pdfPlugin: Plugin = {
       await ctx.answerCbQuery().catch(() => undefined);
       await ctx.editMessageText('تم التخطّي ⏭').catch(() => undefined);
       await promptContent(ctx);
+    });
+
+    // Output format chosen → generate that file.
+    bot.action(/^pdff:(pdf|docx|pptx)$/, async (ctx) => {
+      const st = ctx.from ? getPdf(ctx.from.id) : undefined;
+      if (!st) return void ctx.answerCbQuery('انتهت الجلسة، ابدأ /pdf').catch(() => undefined);
+      await ctx.answerCbQuery().catch(() => undefined);
+      await ctx.editMessageText(`الصيغة: ${{ pdf: '📄 PDF', docx: '📝 Word', pptx: '📊 PowerPoint' }[ctx.match[1]]} ✅`).catch(() => undefined);
+      await generate(ctx, st, ctx.match[1] as OutFormat);
     });
 
     // Photos during the content step → embed as figures.
@@ -142,7 +161,8 @@ export const pdfPlugin: Plugin = {
       }
       if (st.step === 'content') {
         if (DONE_RE.test(text.trim())) {
-          await generate(ctx, st);
+          st.step = 'format';
+          await ctx.reply('بأي صيغة تريد المستند؟', formatKeyboard());
           return;
         }
         st.contentParts.push(text);
@@ -186,7 +206,7 @@ async function downloadText(ctx: BotContext, fileId: string): Promise<string | n
   return (await res.text()).slice(0, 100_000);
 }
 
-async function generate(ctx: BotContext, st: PdfState): Promise<void> {
+async function generate(ctx: BotContext, st: PdfState, format: OutFormat = 'pdf'): Promise<void> {
   if (!ctx.from) return;
   const content = st.contentParts.join('\n\n').trim();
   if (!content && !st.images.length) {
@@ -195,28 +215,36 @@ async function generate(ctx: BotContext, st: PdfState): Promise<void> {
   }
   await ctx.reply('⏳ جاري إنشاء المستند بتصميم احترافي...');
   await ctx.sendChatAction('upload_document').catch(() => undefined);
-  const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '/');
+  const date = new Date().toLocaleDateString('en-GB');
+  const req = {
+    title: st.title || 'مستند',
+    typeKey: st.typeKey || 'plain',
+    customType: st.customType,
+    cover: st.cover,
+    content,
+    images: st.images,
+    date,
+  };
+  const spec: Record<OutFormat, { ext: string; icon: string; build: () => Promise<Buffer> }> = {
+    pdf: { ext: 'pdf', icon: '📄', build: () => createPdf(req) },
+    docx: { ext: 'docx', icon: '📝', build: () => createDocx(req) },
+    pptx: { ext: 'pptx', icon: '📊', build: () => createPptx(req) },
+  };
+  const { ext, icon, build } = spec[format];
   try {
-    const pdf = await createPdf({
-      title: st.title || 'مستند',
-      typeKey: st.typeKey || 'plain',
-      customType: st.customType,
-      cover: st.cover,
-      content,
-      images: st.images,
-      date,
-    });
+    const buf = await build();
     const safe = (st.title || 'document').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
-    await ctx.replyWithDocument(Input.fromBuffer(pdf, `${safe}.pdf`), {
-      caption: `✅ تم إنشاء «${st.title}»\n📄 ${(pdf.length / 1024).toFixed(0)}KB`,
+    await ctx.replyWithDocument(Input.fromBuffer(buf, `${safe}.${ext}`), {
+      caption: `✅ تم إنشاء «${st.title}»\n${icon} ${(buf.length / 1024).toFixed(0)}KB`,
     });
     clearPdf(ctx.from.id);
   } catch (err) {
-    log.error({ err }, 'pdf generation failed');
+    log.error({ err, format }, 'document generation failed');
     const reason = err instanceof Error ? err.message : String(err);
-    const hint = /Chromium|Executable|launch|browserType/i.test(reason)
-      ? '\n\n⚠️ المتصفح (Chromium) غير مثبّت على الخادم — لازم يُثبّت لإنشاء الـ PDF.'
-      : '';
-    await ctx.reply(`⚠️ تعذّر إنشاء الـ PDF.\n\nالسبب: ${reason.slice(0, 200)}${hint}`);
+    const hint =
+      format === 'pdf' && /Chromium|Executable|launch|browserType/i.test(reason)
+        ? '\n\n⚠️ المتصفح (Chromium) غير مثبّت على الخادم — لازم يُثبّت لإنشاء الـ PDF.'
+        : '';
+    await ctx.reply(`⚠️ تعذّر إنشاء المستند.\n\nالسبب: ${reason.slice(0, 200)}${hint}`);
   }
 }

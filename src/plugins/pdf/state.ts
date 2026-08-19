@@ -1,4 +1,4 @@
-export type PdfStep = 'title' | 'type' | 'customtype' | 'cover' | 'content';
+export type PdfStep = 'title' | 'type' | 'customtype' | 'cover' | 'content' | 'format';
 
 export interface PdfState {
   chatId: number;
