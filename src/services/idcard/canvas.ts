@@ -102,6 +102,39 @@ function hexRgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+/**
+ * Fit a name into the card: one line at the largest size that fits, else wrap
+ * to two balanced lines at a smaller size, truncating only as a last resort.
+ */
+function fitName(ctx: SKRSContext2D, raw: string, maxW: number): { lines: string[]; size: number } {
+  const name = (raw || '—').trim();
+  ctx.direction = 'rtl';
+  // 1) single line, largest size 34→24 that fits.
+  for (let s = 34; s >= 24; s--) {
+    ctx.font = FONT(700, s);
+    if (ctx.measureText(name).width <= maxW) return { lines: [name], size: s };
+  }
+  // 2) split into two lines near the middle, preferring a space break.
+  const mid = Math.floor(name.length / 2);
+  let sp = -1;
+  for (let off = 0; off <= mid; off++) {
+    if (name[mid - off] === ' ') { sp = mid - off; break; }
+    if (name[mid + off] === ' ') { sp = mid + off; break; }
+  }
+  if (sp === -1) sp = mid;
+  let l1 = name.slice(0, sp).trim();
+  let l2 = name.slice(sp).trim();
+  for (let s = 27; s >= 18; s--) {
+    ctx.font = FONT(700, s);
+    if (ctx.measureText(l1).width <= maxW && ctx.measureText(l2).width <= maxW) return { lines: [l1, l2], size: s };
+  }
+  // 3) still too long at the minimum size → truncate each line to fit.
+  ctx.font = FONT(700, 18);
+  while (l1.length > 1 && ctx.measureText(l1).width > maxW) l1 = l1.slice(0, -1);
+  while (l2.length > 1 && ctx.measureText(l2 + '…').width > maxW) l2 = l2.slice(0, -1);
+  return { lines: [l1, l2 + '…'], size: 18 };
+}
+
 function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -181,36 +214,35 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.strokeStyle = t.a;
   ctx.stroke();
 
-  // Name (gold gradient) + username. Auto-shrink to fit the width instead of
-  // hard-truncating, so long names show in full (down to a readable minimum).
+  // Name — fit on one line if it can at a readable size, else wrap to two
+  // lines (like the old card did), so the full name always shows.
+  const maxNameW = W - 46;
+  const fit = fitName(ctx, d.name, maxNameW);
   ctx.textAlign = 'center';
   ctx.direction = 'rtl';
-  const maxNameW = W - 56;
-  let name = d.name.length > 42 ? d.name.slice(0, 41) + '…' : d.name;
-  let nameSize = 33;
-  ctx.font = FONT(700, nameSize);
-  while (ctx.measureText(name).width > maxNameW && nameSize > 17) {
-    nameSize -= 1;
-    ctx.font = FONT(700, nameSize);
+  ctx.font = FONT(700, fit.size);
+  const lineGap = fit.size + 6;
+  let ny = fit.lines.length === 2 ? 280 : 292;
+  for (const line of fit.lines) {
+    const w = Math.min(ctx.measureText(line).width, maxNameW);
+    const ng = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
+    ng.addColorStop(0, '#ffffff');
+    ng.addColorStop(0.5, t.a);
+    ng.addColorStop(1, '#ffffff');
+    ctx.fillStyle = ng;
+    ctx.fillText(line, cx, ny);
+    ny += lineGap;
   }
-  // If it's still too wide even at the minimum size, then truncate to fit.
-  if (ctx.measureText(name).width > maxNameW) {
-    while (name.length > 2 && ctx.measureText(name + '…').width > maxNameW) name = name.slice(0, -1);
-    name += '…';
-  }
-  const nameW = Math.min(ctx.measureText(name).width, maxNameW);
-  const ng = ctx.createLinearGradient(cx - nameW / 2, 0, cx + nameW / 2, 0);
-  ng.addColorStop(0, '#ffffff');
-  ng.addColorStop(0.5, t.a);
-  ng.addColorStop(1, '#ffffff');
-  ctx.fillStyle = ng;
-  ctx.fillText(name, cx, 292);
+
+  // Username, positioned under the (1- or 2-line) name.
+  const userY = fit.lines.length === 2 ? ny + 2 : 320;
   ctx.direction = 'ltr';
   ctx.fillStyle = '#b9c0d4';
   ctx.font = FONT(400, 17);
-  ctx.fillText(d.username, cx, 320);
+  ctx.fillText(d.username, cx, userY);
 
-  // Rank pill.
+  // Rank pill, under the username.
+  const pillY = userY + 16;
   ctx.font = FONT(700, 18);
   ctx.direction = 'rtl';
   const rankW = ctx.measureText(d.rank).width + 40;
@@ -219,11 +251,11 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   rg.addColorStop(0, t.a);
   rg.addColorStop(1, t.a2);
   ctx.fillStyle = rg;
-  roundRect(ctx, pillX, 336, rankW, 34, 17);
+  roundRect(ctx, pillX, pillY, rankW, 34, 17);
   ctx.fill();
   ctx.fillStyle = '#141018';
   ctx.textAlign = 'center';
-  ctx.fillText(d.rank, cx, 359);
+  ctx.fillText(d.rank, cx, pillY + 23);
 
   // Divider.
   const dv = ctx.createLinearGradient(28, 0, W - 28, 0);
