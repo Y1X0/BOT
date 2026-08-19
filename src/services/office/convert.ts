@@ -6,6 +6,10 @@ import { createLogger } from '../../core/logger';
 
 const log = createLogger('office:convert');
 
+// Last failure reason, surfaced to the user so conversion issues are diagnosable.
+let lastError = '';
+export const getLastConvertError = (): string => lastError;
+
 export type ConvertTarget = 'pdf' | 'docx' | 'pptx';
 
 // LibreOffice --convert-to filter strings per target format.
@@ -40,16 +44,19 @@ export const CONVERT_TARGETS: Record<string, ConvertTarget[]> = {
  * converted buffer, or null on failure.
  */
 export async function convertDocument(input: Buffer, sourceExt: string, target: ConvertTarget): Promise<Buffer | null> {
+  lastError = '';
   const dir = await mkdtemp(join(tmpdir(), 'conv-')).catch(() => null);
-  if (!dir) return null;
+  if (!dir) {
+    lastError = 'tmpdir failed';
+    return null;
+  }
   try {
     const inPath = join(dir, `input.${sourceExt.toLowerCase()}`);
     await writeFile(inPath, input);
-    const ok = await runSoffice([
+    const res = await runSoffice([
       '--headless',
       '--norestore',
       '--nolockcheck',
-      '--nodefault',
       '--convert-to',
       FILTER[target],
       '--outdir',
@@ -57,11 +64,15 @@ export async function convertDocument(input: Buffer, sourceExt: string, target: 
       inPath,
       `-env:UserInstallation=file://${join(dir, 'profile')}`,
     ], dir);
-    if (!ok) return null;
+    if (!res.ok) {
+      lastError = res.err;
+      return null;
+    }
     const files = await readdir(dir).catch(() => [] as string[]);
     const outName = files.find((f) => f !== `input.${sourceExt.toLowerCase()}` && f.endsWith(`.${target}`));
     if (!outName) {
-      log.warn({ files, target }, 'converted output not found');
+      lastError = res.err || 'لم يُنتج LibreOffice ملف الإخراج';
+      log.warn({ files, target, err: res.err }, 'converted output not found');
       return null;
     }
     return await readFile(join(dir, outName)).catch(() => null);
@@ -70,22 +81,25 @@ export async function convertDocument(input: Buffer, sourceExt: string, target: 
   }
 }
 
-function runSoffice(args: string[], home: string): Promise<boolean> {
+function runSoffice(args: string[], home: string): Promise<{ ok: boolean; err: string }> {
   return new Promise((resolve) => {
-    const p = spawn('soffice', args, { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, HOME: home } });
-    let err = '';
-    p.stderr?.on('data', (d) => {
-      err = (err + d.toString()).slice(-300);
-    });
+    let out = '';
+    const p = spawn('soffice', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, HOME: home } });
+    const grab = (d: Buffer) => {
+      out = (out + d.toString()).slice(-400);
+    };
+    p.stdout?.on('data', grab);
+    p.stderr?.on('data', grab);
     const timer = setTimeout(() => p.kill('SIGKILL'), 120_000);
     p.on('error', (e) => {
-      log.warn({ e }, 'soffice spawn error');
-      resolve(false);
+      const code = (e as { code?: string }).code;
+      resolve({ ok: false, err: code === 'ENOENT' ? 'LibreOffice غير مثبّت على الخادم' : e.message });
     });
     p.on('close', (code) => {
       clearTimeout(timer);
-      if (code !== 0) log.warn({ code, err }, 'soffice convert failed');
-      resolve(code === 0);
+      const line = out.split('\n').map((l) => l.trim()).filter((l) => l && !/javaldx/i.test(l)).pop() || `exit ${code}`;
+      if (code !== 0) log.warn({ code, out }, 'soffice convert failed');
+      resolve({ ok: code === 0, err: line });
     });
   });
 }

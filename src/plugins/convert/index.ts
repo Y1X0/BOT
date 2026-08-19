@@ -4,7 +4,7 @@ import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { createLogger } from '../../core/logger';
-import { convertDocument, CONVERT_TARGETS, type ConvertTarget } from '../../services/office/convert';
+import { convertDocument, getLastConvertError, CONVERT_TARGETS, type ConvertTarget } from '../../services/office/convert';
 
 const log = createLogger('plugin:convert');
 const CONVERT_RE = /^(\/convert|تحويل|حوّل الملف|حول الملف|تحويل الملف)$/i;
@@ -94,7 +94,7 @@ export const convertPlugin: Plugin = {
         if (buf.length > MAX_BYTES) return void ctx.reply('⚠️ الملف كبير جداً (الحد 25MB).');
         const out = await convertDocument(buf, src.ext, target);
         if (!out) {
-          await ctx.reply('⚠️ تعذّر التحويل. جرّب ملفاً آخر — بعض ملفات PDF المعقّدة صعبة التحويل.');
+          await ctx.reply(`⚠️ تعذّر التحويل.\n🛠 ${getLastConvertError() || 'سبب غير معروف'}`);
           return;
         }
         const base = src.name.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]/g, '_').slice(0, 50) || 'converted';
