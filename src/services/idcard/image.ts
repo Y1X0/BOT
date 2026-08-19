@@ -1,19 +1,8 @@
-import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type { BrowserContext } from 'playwright-core';
-import { getBrowser } from '../pdf/browser';
-import { fontFaceCss } from '../pdf/fonts';
-import { createLogger } from '../../core/logger';
-import { renderCardPng } from './canvas';
-
-const vlog = createLogger('idcard:video');
+import { renderCardPng, renderCardMp4, getLastMp4Error } from './canvas';
 
 // Last video-render failure reason, surfaced by the /idcardtest diagnostic.
-let lastVideoError = '';
 export function getLastVideoError(): string {
-  return lastVideoError;
+  return getLastMp4Error();
 }
 
 export interface IdCardImageData {
@@ -32,10 +21,7 @@ export interface IdCardImageData {
   initial: string; // fallback avatar letter
 }
 
-const esc = (s: string): string =>
-  String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-/** A color theme for the card. Alpha is applied via 8-digit hex (Chromium ok). */
+/** A color theme for the card. */
 export interface CardTheme {
   id: string;
   label: string;
@@ -80,106 +66,9 @@ export function resolveCardTheme(mode: string | null | undefined, userId: string
   return CARD_THEME_IDS.includes(m) ? m : CARD_THEME_IDS[0];
 }
 
-/** A row of the stats grid. */
-function stat(icon: string, label: string, value: string): string {
-  return `<div class="stat"><div class="ico">${icon}</div><div class="col"><div class="lab">${esc(label)}</div><div class="val">${esc(value)}</div></div></div>`;
-}
-
-interface CardOpts {
-  animated?: boolean; // add a shine sweep + glow pulse (for the video card)
-  premium?: boolean; // add a PREMIUM badge (Telegram Premium members)
-}
-
-function buildCardHtml(d: IdCardImageData, theme: CardTheme, opts: CardOpts = {}): string {
-  const anim = !!opts.animated;
-  const prem = !!opts.premium;
-  const avatar = d.avatarDataUri
-    ? `<img class="ava" src="${d.avatarDataUri}" alt="">`
-    : `<div class="ava ava-ph">${esc(d.initial)}</div>`;
-  const bg = d.avatarDataUri ? `background-image:url('${d.avatarDataUri}');` : '';
-  const t = theme;
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-${fontFaceCss('Cairo')}
-*{margin:0;padding:0;box-sizing:border-box;}
-html,body{background:${anim ? t.bg2.replace(/rgba\(([^)]+),[^,]+\)/, 'rgb($1)') : 'transparent'};}
-${anim ? 'body{display:flex;align-items:center;justify-content:center;min-height:100vh;perspective:1000px;}' : ''}
-.card{width:640px;position:relative;overflow:hidden;border-radius:34px;
-  font-family:'Cairo','Amiri',sans-serif;color:#fff;direction:rtl;
-  border:2px solid ${t.a}66;box-shadow:0 30px 80px rgba(0,0,0,0.85);
-  ${anim ? `animation:borderGlow 3.5s ease-in-out infinite, cardFloat 4s ease-in-out infinite;` : ''}}
-${anim ? `
-@keyframes cardFloat{0%,100%{transform:translateY(0) rotateX(0deg) rotateY(0deg);}50%{transform:translateY(-8px) rotateX(2deg) rotateY(-2deg);}}
-@keyframes borderGlow{0%,100%{border-color:${t.a}40;box-shadow:0 20px 50px rgba(0,0,0,0.8),inset 0 0 15px ${t.a}20;}50%{border-color:${t.a};box-shadow:0 30px 70px rgba(0,0,0,0.9),0 0 30px ${t.a}80,inset 0 0 25px ${t.a}50;}}
-@keyframes lightSweep{0%{transform:translateX(-150%) rotate(25deg);opacity:0;}20%{opacity:0.7;}80%{opacity:0.7;}100%{transform:translateX(200%) rotate(25deg);opacity:0;}}
-@keyframes pulseGlow{0%,100%{filter:brightness(1);}50%{filter:brightness(1.3);text-shadow:0 0 12px ${t.a};}}
-.shine{position:absolute;top:-50%;bottom:-50%;width:60%;left:-40%;pointer-events:none;z-index:10;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.03),rgba(255,255,255,0.25),rgba(255,255,255,0.03),transparent);
-  animation:lightSweep 3.5s cubic-bezier(0.4,0,0.2,1) infinite;}
-.name{animation:pulseGlow 3s ease-in-out infinite;}
-.premium{position:absolute;top:18px;right:18px;z-index:12;padding:6px 16px;border-radius:999px;font-size:12px;font-weight:800;
-  color:#0b0b0f;background:linear-gradient(135deg,${t.a},${t.a2});box-shadow:0 4px 20px ${t.a}88;letter-spacing:1.5px;text-transform:uppercase;border:1px solid rgba(255,255,255,0.4);}
-` : ''}
-.bgimg{position:absolute;inset:0;${bg}background-size:cover;background-position:center;filter:blur(26px) brightness(.42) saturate(1.2);transform:scale(1.25);}
-.tint{position:absolute;inset:0;background:linear-gradient(160deg,${t.bg1},${t.bg2});}
-.frame{position:relative;padding:36px 34px 30px;}
-.crown{text-align:center;font-size:30px;letter-spacing:8px;color:${t.a};text-shadow:0 0 18px ${t.a}99;}
-.head{display:flex;flex-direction:column;align-items:center;margin-top:6px;}
-.ava{width:150px;height:150px;border-radius:50%;object-fit:cover;border:4px solid ${t.a};
-  box-shadow:0 0 0 6px ${t.a}29,0 10px 30px rgba(0,0,0,.55);background:#222;}
-.ava-ph{display:flex;align-items:center;justify-content:center;font-size:64px;font-weight:700;color:${t.a};background:linear-gradient(145deg,${t.ph1},${t.ph2});}
-.name{font-size:34px;font-weight:700;margin-top:16px;text-align:center;line-height:1.25;
-  background:linear-gradient(90deg,#ffffff,${t.a},#ffffff);-webkit-background-clip:text;background-clip:text;color:transparent;
-  text-shadow:0 2px 14px ${t.a}40;max-width:100%;}
-.uname{font-size:17px;color:#b9c0d4;margin-top:4px;direction:ltr;}
-.rankpill{margin:14px auto 2px;display:inline-block;padding:7px 20px;border-radius:999px;font-size:18px;font-weight:700;
-  color:#141018;background:linear-gradient(90deg,${t.a},${t.a2});box-shadow:0 6px 18px ${t.a}52;}
-.rankwrap{text-align:center;}
-.divider{height:1px;margin:20px 2px 16px;background:linear-gradient(90deg,transparent,${t.a}8c,transparent);}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
-.stat{display:flex;align-items:center;gap:11px;background:rgba(255,255,255,.055);border:1px solid ${t.a}29;
-  border-radius:16px;padding:11px 13px;}
-.stat .ico{font-size:23px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));}
-.stat .col{min-width:0;flex:1;}
-.stat .lab{font-size:12.5px;color:#aab0c6;}
-.stat .val{font-size:16.5px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.full{grid-column:1 / -1;}
-.idbar{grid-column:1 / -1;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:9px;
-  background:${t.a}1a;border:1px solid ${t.a}4d;border-radius:14px;padding:10px;}
-.idbar .k{font-size:14px;color:${t.a};}
-.idbar .v{font-size:18px;font-weight:700;letter-spacing:1px;direction:ltr;}
-.foot{text-align:center;margin-top:18px;font-size:15px;letter-spacing:6px;color:${t.a}d9;}
-</style></head><body>
-<div class="card"><div class="bgimg"></div><div class="tint"></div>
-  ${anim ? '<div class="shine"></div>' : ''}
-  ${prem ? '<div class="premium">PREMIUM 💎</div>' : ''}
-  <div class="frame">
-    <div class="crown">${t.top}</div>
-    <div class="head">${avatar}
-      <div class="name">${esc(d.name)}</div>
-      <div class="uname">${esc(d.username)}</div>
-    </div>
-    <div class="rankwrap"><span class="rankpill">${esc(d.rank)}</span></div>
-    <div class="divider"></div>
-    <div class="grid">
-      ${stat('🛡', 'الحالة', d.stats)}
-      ${stat('🎖', 'اللقب', d.title)}
-      ${stat('⭐', 'المستوى', d.level)}
-      ${stat('🔥', 'النقاط', d.xp)}
-      ${stat('💬', 'الرسائل', d.messages)}
-      ${stat('⚡', 'التفاعل', d.interaction)}
-      <div class="stat full">${'<div class="ico">📅</div>'}<div class="col"><div class="lab">تاريخ الانضمام</div><div class="val">${esc(d.joined)}</div></div></div>
-      <div class="idbar"><span class="k">🆔 الآيدي</span><span class="v">${esc(d.id)}</span></div>
-    </div>
-    <div class="foot">${t.foot}</div>
-  </div>
-</div>
-</body></html>`;
-}
-
 /**
- * Render the static profile card to a PNG. Uses @napi-rs/canvas (pure CPU, no
- * browser) — an order of magnitude faster and far lighter than Chromium, which
- * matters on small hosts. The animated premium card still uses Chromium below.
+ * Render the static profile card to a JPEG. Uses @napi-rs/canvas (pure CPU, no
+ * browser) — an order of magnitude faster and far lighter than Chromium.
  */
 export async function renderIdCardImage(d: IdCardImageData, themeId?: string): Promise<Buffer> {
   const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
@@ -187,80 +76,11 @@ export async function renderIdCardImage(d: IdCardImageData, themeId?: string): P
 }
 
 /**
- * Render an ANIMATED profile card (shine sweep + glow) as a short looping MP4,
- * for Telegram Premium members. Records the animated page with Playwright, then
- * transcodes webm→mp4 with ffmpeg. Returns null on any failure (the caller then
- * falls back to the static image card).
+ * Render the ANIMATED premium card (gold shine sweep) as a short looping MP4.
+ * Frames are drawn on CPU with canvas and piped to ffmpeg — no browser, no
+ * screen recording. Returns null on any failure (caller falls back to image).
  */
 export async function renderIdCardVideo(d: IdCardImageData, themeId?: string): Promise<{ buffer: Buffer; ext: string } | null> {
   const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
-  const width = 640;
-  const height = 940;
-  lastVideoError = '';
-  const dir = await mkdtemp(join(tmpdir(), 'idcard-')).catch(() => null);
-  if (!dir) {
-    lastVideoError = 'tmpdir failed';
-    return null;
-  }
-  let context: BrowserContext | null = null;
-  let webmPath: string | undefined;
-  try {
-    const browser = await getBrowser();
-    context = await browser.newContext({ viewport: { width, height }, recordVideo: { dir, size: { width, height } } });
-    const page = await context.newPage();
-    await page.setContent(buildCardHtml(d, theme, { animated: true, premium: true }), { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    await Promise.race([page.evaluate('document.fonts && document.fonts.ready'), new Promise((r) => setTimeout(r, 1500))]).catch(() => undefined);
-    await page.waitForTimeout(2600); // capture ~2.5s of the loop
-    const video = page.video();
-    await page.close();
-    await context.close();
-    context = null;
-    webmPath = video ? await video.path().catch(() => undefined) : undefined;
-  } catch (err) {
-    vlog.warn({ err }, 'card video record failed');
-    lastVideoError = 'record: ' + String((err as Error)?.message ?? err).slice(0, 160);
-    await context?.close().catch(() => undefined);
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    return null;
-  }
-  if (!webmPath) {
-    lastVideoError = 'no webm produced (video recording unsupported here)';
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    return null;
-  }
-  // Prefer H.264 mp4 (crisp, small, autoplays as a loop); fall back to gif if
-  // this ffmpeg build lacks libx264.
-  const mp4 = join(dir, 'card.mp4');
-  const mp4res = await runFfmpeg(['-y', '-i', webmPath, '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', mp4]);
-  if (mp4res.ok) {
-    const buffer = await readFile(mp4).catch(() => null);
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    return buffer ? { buffer, ext: 'mp4' } : null;
-  }
-  const gif = join(dir, 'card.gif');
-  const gifres = await runFfmpeg(['-y', '-i', webmPath, '-vf', 'fps=15,scale=480:-1:flags=lanczos', '-loop', '0', gif]);
-  if (gifres.ok) {
-    const buffer = await readFile(gif).catch(() => null);
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    return buffer ? { buffer, ext: 'gif' } : null;
-  }
-  lastVideoError = `ffmpeg failed — mp4:[${mp4res.err}] gif:[${gifres.err}]`;
-  await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-  return null;
-}
-
-function runFfmpeg(args: string[]): Promise<{ ok: boolean; err: string }> {
-  return new Promise((resolve) => {
-    let stderr = '';
-    const p = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-    p.stderr?.on('data', (d) => {
-      stderr = (stderr + d.toString()).slice(-400);
-    });
-    const timer = setTimeout(() => p.kill('SIGKILL'), 60_000);
-    p.on('error', (e) => resolve({ ok: false, err: (e as { code?: string }).code === 'ENOENT' ? 'ffmpeg not installed' : e.message })); // ENOENT = binary missing
-    p.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, err: code === 0 ? '' : stderr.split('\n').filter(Boolean).pop()?.slice(0, 120) || `exit ${code}` });
-    });
-  });
+  return renderCardMp4(d, theme);
 }

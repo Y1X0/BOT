@@ -117,10 +117,27 @@ export const infoPlugin: Plugin = {
         await ctx.replyWithPhoto({ source: png }).catch(() => undefined);
         lap('رفع الصورة لتيليجرام');
       }
+
+      // 6) animated video card (premium) — canvas frames → ffmpeg mp4
+      const cardData = {
+        name, username: ctx.from.username ? `@${ctx.from.username}` : 'لا يوجد', id: String(uid),
+        rank: '⭐ تجربة', stats: 'عضو 🙂', title: 'لا يوجد', level: '1', xp: '0', messages: '0',
+        interaction: 'تجربة', joined: 'اليوم', avatarDataUri, initial: (name.trim()[0] || '?').toUpperCase(),
+      };
+      const vid = await renderIdCardVideo(cardData).catch(() => null);
+      const vidMs = lap('بناء الفيديو (canvas+ffmpeg)');
+      if (vid) {
+        await ctx.replyWithAnimation({ source: vid.buffer, filename: `card.${vid.ext}` }).catch(() => undefined);
+        lap('رفع الفيديو لتيليجرام');
+      } else {
+        marks.push(`الفيديو: ${getLastVideoError() || 'فشل'}`);
+      }
+
       const total = now() - t0;
       await ctx.reply(
         `⏱ قياس بطاقة الايدي:\n\n${marks.join('\n')}\n\n📦 حجم الصورة: ${png ? (png.length / 1024).toFixed(0) : '—'}KB` +
-          `\n🎨 الرسم: ${renderMs}ms\n⏳ المجموع: ${total}ms`,
+          `\n🎬 حجم الفيديو: ${vid ? (vid.buffer.length / 1024).toFixed(0) : '—'}KB` +
+          `\n🎨 رسم الصورة: ${renderMs}ms\n🎞 بناء الفيديو: ${vidMs}ms\n⏳ المجموع: ${total}ms`,
       );
     });
 

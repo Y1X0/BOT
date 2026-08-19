@@ -1,9 +1,25 @@
 import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createCanvas, loadImage, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
 import { createLogger } from '../../core/logger';
 import type { IdCardImageData, CardTheme } from './image';
 
 const log = createLogger('idcard:canvas');
+
+// Last MP4-render failure reason, surfaced through image.ts' getLastVideoError.
+let lastMp4Error = '';
+export function getLastMp4Error(): string {
+  return lastMp4Error;
+}
+
+type Avatar = Awaited<ReturnType<typeof loadImage>>;
+async function loadAvatar(d: IdCardImageData): Promise<Avatar | null> {
+  if (!d.avatarDataUri) return null;
+  return loadImage(d.avatarDataUri).catch(() => null);
+}
 
 // Register fonts once: Cairo (Arabic + Latin, 400/700) for text, Noto Color
 // Emoji for the icons. @napi-rs/canvas shapes Arabic correctly and renders
@@ -63,20 +79,18 @@ function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
 const W = 640;
 const H = 792;
 
-/** Render the profile card to a PNG with @napi-rs/canvas (fast, no browser). */
-export async function renderCardPng(d: IdCardImageData, t: CardTheme): Promise<Buffer> {
-  ensureFonts();
-  const canvas = createCanvas(W, H);
-  const ctx = canvas.getContext('2d');
-
+/**
+ * Draw the whole card onto `ctx`. `phase` (0..1) animates a diagonal gold shine
+ * sweep for the video frames; pass a negative value for the static image (no
+ * shine). Everything else is identical between the image and every video frame.
+ */
+function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: Avatar | null, phase: number): void {
   // Opaque backdrop so the whole frame is painted — lets us encode JPEG (a
   // fraction of the PNG size → far faster upload) instead of a transparent PNG.
   ctx.fillStyle = '#0e0b14';
   ctx.fillRect(0, 0, W, H);
 
   // Background: darkened avatar cover if present, else theme gradient.
-  let avatar = null as Awaited<ReturnType<typeof loadImage>> | null;
-  if (d.avatarDataUri) avatar = await loadImage(d.avatarDataUri).catch(() => null);
   if (avatar) {
     const scale = Math.max(W / avatar.width, H / avatar.height) * 1.15;
     const dw = avatar.width * scale;
@@ -242,7 +256,117 @@ export async function renderCardPng(d: IdCardImageData, t: CardTheme): Promise<B
   ctx.font = FONT(400, 15);
   ctx.fillText(t.foot, cx, H - 24);
 
+  // Animated diagonal gold shine sweep (video frames only).
+  if (phase >= 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const bandW = 190;
+    const skew = 120;
+    const x = -bandW - skew + phase * (W + bandW + skew * 2);
+    const g = ctx.createLinearGradient(x, 0, x + bandW, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.5, hexRgba(t.a, 0.16));
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + bandW, 0);
+    ctx.lineTo(x + bandW - skew, H);
+    ctx.lineTo(x - skew, H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/** Render the static profile card to a JPEG with @napi-rs/canvas (fast, no browser). */
+export async function renderCardPng(d: IdCardImageData, t: CardTheme): Promise<Buffer> {
+  ensureFonts();
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  const avatar = await loadAvatar(d);
+  drawCard(ctx, d, t, avatar, -1);
   // JPEG at q82: a 640×792 card with an avatar cover is ~50–80KB vs ~500KB PNG,
   // so the Telegram upload drops from ~1s to a couple hundred ms.
   return canvas.encode('jpeg', 82);
+}
+
+/**
+ * Render an ANIMATED profile card (gold shine sweep) as a short looping MP4 for
+ * Telegram Premium members — WITHOUT a browser. Frames are drawn on CPU with
+ * canvas and piped straight to ffmpeg as raw RGBA, which is far faster and
+ * lighter than screen-recording a Chromium page. Returns null on any failure
+ * (the caller then falls back to the static image card).
+ */
+const MP4_FPS = 24;
+const MP4_FRAMES = 24; // ~1s loop
+
+export async function renderCardMp4(d: IdCardImageData, t: CardTheme): Promise<{ buffer: Buffer; ext: string } | null> {
+  ensureFonts();
+  lastMp4Error = '';
+  const dir = await mkdtemp(join(tmpdir(), 'idcard-')).catch(() => null);
+  if (!dir) {
+    lastMp4Error = 'tmpdir failed';
+    return null;
+  }
+  const out = join(dir, 'card.mp4');
+  const avatar = await loadAvatar(d);
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  return new Promise((resolve) => {
+    const args = [
+      '-y', '-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', `${W}x${H}`,
+      '-framerate', String(MP4_FPS), '-i', '-',
+      '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', out,
+    ];
+    const p = spawn('ffmpeg', args, { stdio: ['pipe', 'ignore', 'pipe'] });
+    const stdin = p.stdin;
+    if (!stdin) {
+      lastMp4Error = 'no ffmpeg stdin';
+      void rm(dir, { recursive: true, force: true });
+      return resolve(null);
+    }
+    let stderr = '';
+    p.stderr?.on('data', (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-400);
+    });
+    const timer = setTimeout(() => p.kill('SIGKILL'), 30_000);
+    p.on('error', (e) => {
+      clearTimeout(timer);
+      lastMp4Error = (e as { code?: string }).code === 'ENOENT' ? 'ffmpeg not installed' : e.message;
+      void rm(dir, { recursive: true, force: true });
+      resolve(null);
+    });
+    p.on('close', async (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        lastMp4Error = stderr.split('\n').filter(Boolean).pop()?.slice(0, 160) || `ffmpeg exit ${code}`;
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        return resolve(null);
+      }
+      const buffer = await readFile(out).catch(() => null);
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      resolve(buffer ? { buffer, ext: 'mp4' } : null);
+    });
+
+    // Draw and stream each frame as raw RGBA, honoring backpressure.
+    let i = 0;
+    const pump = (): void => {
+      while (i < MP4_FRAMES) {
+        drawCard(ctx, d, t, avatar, i / MP4_FRAMES);
+        i++;
+        const img = ctx.getImageData(0, 0, W, H);
+        const frame = Buffer.from(img.data.buffer as ArrayBuffer, img.data.byteOffset, img.data.byteLength);
+        if (!stdin.write(frame)) {
+          stdin.once('drain', pump);
+          return;
+        }
+      }
+      stdin.end();
+    };
+    stdin.on('error', () => undefined); // ignore EPIPE if ffmpeg died
+    pump();
+  });
 }

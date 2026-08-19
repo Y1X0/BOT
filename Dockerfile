@@ -42,11 +42,6 @@ COPY scripts ./scripts
 # Only production deps in the final image.
 RUN npm ci --omit=dev && node scripts/set-db-provider.mjs && npx prisma generate && npm cache clean --force
 
-# Playwright records the animated "id" video card with its OWN bundled ffmpeg
-# (separate from the system ffmpeg above); PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD skips
-# it during npm install, so fetch just that ffmpeg binary explicitly here.
-RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD= node node_modules/playwright-core/cli.js install ffmpeg
-
 COPY --from=builder /app/dist ./dist
 
 # Persist SQLite data (mount a volume here in production if using SQLite).
