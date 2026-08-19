@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole } from '../../utils/permissions';
+import { requireRole, invalidateRole } from '../../utils/permissions';
 import { resolveTarget, displayName } from '../../utils/format';
 import { setChatRole, removeChatRole, listChatRoles, type AssignableRole } from '../../services/roles.service';
 
@@ -47,6 +47,7 @@ export const botRolesPlugin: Plugin = {
       }
       const name = displayName(target);
       await setChatRole(ctx.chat.id, target.id, role, name, ctx.from?.id ?? null);
+      invalidateRole(ctx.chat.id, target.id); // pick up the new rank immediately
       await ctx.reply(`✅ صار ${name} الآن ${BADGE[role]} في هالجروب.\nالرتبة محفوظة بالبوت وبتعطيه صلاحياته حتى لو مش أدمن بتيليجرام.`);
     };
 
@@ -62,6 +63,7 @@ export const botRolesPlugin: Plugin = {
         return;
       }
       const removed = await removeChatRole(ctx.chat.id, target.id);
+      invalidateRole(ctx.chat.id, target.id); // drop the cached rank immediately
       await ctx.reply(
         removed
           ? `🗑 تم سحب رتبة ${displayName(target)} في هالجروب.`
