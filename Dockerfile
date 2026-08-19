@@ -47,12 +47,6 @@ RUN npm ci --omit=dev && node scripts/set-db-provider.mjs && npx prisma generate
 # it during npm install, so fetch just that ffmpeg binary explicitly here.
 RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD= node node_modules/playwright-core/cli.js install ffmpeg
 
-# Headless LibreOffice for file conversion (PDF/Word/PowerPoint + image→PDF).
-# --no-install-recommends keeps it lean (writer/impress/draw core only).
-RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends libreoffice-writer libreoffice-impress libreoffice-draw \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY --from=builder /app/dist ./dist
 
 # Persist SQLite data (mount a volume here in production if using SQLite).
