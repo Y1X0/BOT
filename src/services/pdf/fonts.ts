@@ -30,13 +30,20 @@ const FACES: FaceSpec[] = [
   { family: 'Amiri', weight: 700, dir: AMIRI, file: 'amiri-latin-700-normal.woff2', range: LAT_RANGE },
 ];
 
-let cached: string | null = null;
+const cache = new Map<string, string>();
 
-/** Build a block of @font-face rules with the fonts embedded as base64 data URIs. */
-export function fontFaceCss(): string {
-  if (cached) return cached;
+/**
+ * Build a block of @font-face rules with the fonts embedded as base64 data URIs.
+ * Pass a family (e.g. 'Cairo') to embed only that one — fewer fonts means the
+ * browser loads/shapes faster, which noticeably speeds up the image "id" card.
+ */
+export function fontFaceCss(only?: 'Cairo' | 'Amiri'): string {
+  const key = only ?? 'all';
+  const hit = cache.get(key);
+  if (hit != null) return hit;
   const rules: string[] = [];
   for (const f of FACES) {
+    if (only && f.family !== only) continue;
     try {
       const b64 = readFileSync(join(f.dir, f.file)).toString('base64');
       rules.push(
@@ -48,6 +55,7 @@ export function fontFaceCss(): string {
       log.warn({ err, file: f.file }, 'font file missing');
     }
   }
-  cached = rules.join('\n');
-  return cached;
+  const css = rules.join('\n');
+  cache.set(key, css);
+  return css;
 }

@@ -98,7 +98,7 @@ function buildCardHtml(d: IdCardImageData, theme: CardTheme, opts: CardOpts = {}
   const bg = d.avatarDataUri ? `background-image:url('${d.avatarDataUri}');` : '';
   const t = theme;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-${fontFaceCss()}
+${fontFaceCss('Cairo')}
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{background:${anim ? t.bg2.replace(/rgba\(([^)]+),[^,]+\)/, 'rgb($1)') : 'transparent'};}
 ${anim ? 'body{display:flex;align-items:center;justify-content:center;min-height:100vh;perspective:1000px;}' : ''}
@@ -179,13 +179,15 @@ ${anim ? `
 export async function renderIdCardImage(d: IdCardImageData, themeId?: string): Promise<Buffer> {
   const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
   const browser = await getBrowser();
-  const page = await browser.newPage({ viewport: { width: 680, height: 1000 }, deviceScaleFactor: 2 });
+  const page = await browser.newPage({ viewport: { width: 680, height: 1000 }, deviceScaleFactor: 1.5 });
   try {
-    // 'load' (not 'networkidle') so an embedded-only page never stalls waiting
-    // for network quiet; then explicitly wait for the embedded fonts to shape.
-    await page.setContent(buildCardHtml(d, theme), { waitUntil: 'load', timeout: 20_000 });
-    // Wait for embedded fonts to finish shaping (string form avoids DOM types).
-    await page.evaluate('document.fonts && document.fonts.ready').catch(() => undefined);
+    // 'domcontentloaded' + an explicit fonts wait is faster than 'load' (no wait
+    // for every subresource); the fonts wait is capped so it never blocks long.
+    await page.setContent(buildCardHtml(d, theme), { waitUntil: 'domcontentloaded', timeout: 15_000 });
+    await Promise.race([
+      page.evaluate('document.fonts && document.fonts.ready'),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]).catch(() => undefined);
     const el = await page.$('.card');
     const shot = await (el ?? page).screenshot({ type: 'png', omitBackground: true });
     return Buffer.from(shot);
@@ -216,9 +218,9 @@ export async function renderIdCardVideo(d: IdCardImageData, themeId?: string): P
     const browser = await getBrowser();
     context = await browser.newContext({ viewport: { width, height }, recordVideo: { dir, size: { width, height } } });
     const page = await context.newPage();
-    await page.setContent(buildCardHtml(d, theme, { animated: true, premium: true }), { waitUntil: 'load', timeout: 20_000 });
-    await page.evaluate('document.fonts && document.fonts.ready').catch(() => undefined);
-    await page.waitForTimeout(3200); // capture ~3s of the loop
+    await page.setContent(buildCardHtml(d, theme, { animated: true, premium: true }), { waitUntil: 'domcontentloaded', timeout: 15_000 });
+    await Promise.race([page.evaluate('document.fonts && document.fonts.ready'), new Promise((r) => setTimeout(r, 1500))]).catch(() => undefined);
+    await page.waitForTimeout(2600); // capture ~2.5s of the loop
     const video = page.video();
     await page.close();
     await context.close();
