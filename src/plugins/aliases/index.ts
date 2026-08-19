@@ -67,6 +67,7 @@ const ALIASES: Alias[] = [
   { command: 'guessmovie', triggers: ['خمن الفيلم', 'تخمين الافلام', 'خمن فيلم'] },
   { command: 'guesssong', triggers: ['خمن الاغنيه', 'تخمين الاغاني', 'خمن اغنيه'] },
   { command: 'pdf', triggers: ['pdf', 'بي دي اف', 'انشئ pdf', 'ملف pdf', 'اعمل pdf', 'مستند', 'اعمل مستند', 'وورد', 'ورد', 'word', 'بوربوينت', 'باوربوينت', 'عرض تقديمي', 'powerpoint'] },
+  { command: 'convert', triggers: ['تحويل', 'حول الملف', 'حوّل الملف', 'تحويل الملف', 'convert'] },
   { command: 'stats', triggers: ['الاحصائيات', 'احصائيات', 'احصائيه'] },
   { command: 'activetop', triggers: ['الاكثر تفاعلا', 'النشطين'] },
   { command: 'quiz', triggers: ['سؤال', 'مسابقه', 'سؤال ثقافي'] },

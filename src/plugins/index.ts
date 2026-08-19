@@ -54,6 +54,7 @@ import { imageEditorPlugin } from './imageeditor';
 import { aiPlugin } from './ai';
 import { spyPlugin } from './spy';
 import { pdfPlugin } from './pdf';
+import { convertPlugin } from './convert';
 import { petPlugin } from './pet';
 import { typeRacePlugin } from './typerace';
 import { guessMediaPlugin } from './guessmedia';
@@ -74,6 +75,7 @@ const generalPlugin = createGeneralPlugin(() => allPlugins);
 allPlugins.push(
   aliasesPlugin, // MUST be first: rewrites Arabic words → /commands
   pdfPlugin, // wizard: captures text/photos/docs while active (before games/stickers)
+  convertPlugin, // file conversion (reply/caption «تحويل») — after pdf so its wizard wins
   generalPlugin,
   menuPlugin,
   infoPlugin,
