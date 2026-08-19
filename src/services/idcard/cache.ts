@@ -38,3 +38,32 @@ export function setCard(chatId: number | bigint, userId: number | bigint, fileId
 export function clearCard(chatId: number | bigint, userId: number | bigint): void {
   store.delete(keyFor(chatId, userId));
 }
+
+/**
+ * Cache of a downloaded avatar as a base64 data-URI, keyed by Telegram file_id.
+ * A file_id changes whenever the user changes their photo, so a hit is always
+ * the current avatar — safe to keep longer than the card cache. This skips the
+ * getFileLink + download round-trips when re-rendering (e.g. random theme, or
+ * after the card cache expires).
+ */
+const avatars = new Map<string, { uri: string; at: number }>();
+const AVATAR_TTL_MS = 600_000; // 10 minutes
+const AVATAR_MAX = 500;
+
+export function getAvatar(fileId: string): string | null {
+  const e = avatars.get(fileId);
+  if (!e) return null;
+  if (Date.now() - e.at > AVATAR_TTL_MS) {
+    avatars.delete(fileId);
+    return null;
+  }
+  return e.uri;
+}
+
+export function setAvatar(fileId: string, uri: string): void {
+  avatars.set(fileId, { uri, at: Date.now() });
+  if (avatars.size > AVATAR_MAX) {
+    const oldest = avatars.keys().next().value;
+    if (oldest) avatars.delete(oldest);
+  }
+}

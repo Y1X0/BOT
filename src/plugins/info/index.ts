@@ -11,7 +11,7 @@ import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
 import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
 import { renderIdCardImage, renderIdCardVideo, getLastVideoError, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
-import { getCard, setCard, clearCard } from '../../services/idcard/cache';
+import { getCard, setCard, clearCard, getAvatar, setAvatar } from '../../services/idcard/cache';
 import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
@@ -309,14 +309,41 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
   const fullName = [target.first_name, target.last_name].filter(Boolean).join(' ') || '—';
   const username = target.username ? `@${target.username}` : 'لا يوجد';
 
-  // Pull group-scoped stats (role, equipped title, message count) when in a group.
-  const member = ctx.chat ? await getMember(ctx.chat.id, target.id).catch(() => null) : null;
+  // Settings first — they decide the fast path (image vs text, theme) and are
+  // usually already loaded on ctx.state (no round-trip).
+  const settings = ctx.chat ? ctx.state.settings ?? (await getSettings(ctx.chat.id).catch(() => null)) : null;
+  const wantImage = !target.is_bot && (settings ? settings.idCardImage !== false : true);
+  const cacheChatId = ctx.chat?.id ?? target.id;
+  const cacheable = wantImage && (settings?.idCardTheme || 'auto') !== 'random';
+
+  // FAST PATH: resend the recently-rendered card by file_id. This runs BEFORE
+  // any stats/photo lookups, so a repeat «ايدي» is a single Telegram call —
+  // no DB reads, no avatar download, no render.
+  if (cacheable) {
+    const hit = getCard(cacheChatId, target.id);
+    if (hit) {
+      const resent = hit.kind === 'animation'
+        ? await ctx.replyWithAnimation(hit.fileId, { caption: `💎 ${fullName}` }).catch(() => null)
+        : await ctx.replyWithPhoto(hit.fileId).catch(() => null);
+      if (resent) return;
+      clearCard(cacheChatId, target.id); // stale/expired file_id → re-render
+    }
+  }
+
+  // Cache miss → show instant feedback, then gather everything concurrently.
+  if (wantImage) ctx.sendChatAction('upload_photo').catch(() => undefined);
+  const [member, custom, photos] = await Promise.all([
+    ctx.chat ? getMember(ctx.chat.id, target.id).catch(() => null) : Promise.resolve(null),
+    !target.is_bot && ctx.chat ? getChatRole(ctx.chat.id, target.id).catch(() => null) : Promise.resolve(null),
+    ctx.telegram.getUserProfilePhotos(target.id, 0, 1).catch((err) => {
+      log.debug({ err, userId: target.id }, 'getUserProfilePhotos failed');
+      return null;
+    }),
+  ]);
+
   let role = target.is_bot ? 'member' : member?.role ?? 'member';
   // A custom bot rank overrides the stored member role when it's stronger.
-  if (!target.is_bot && ctx.chat) {
-    const custom = await getChatRole(ctx.chat.id, target.id).catch(() => null);
-    if (custom && hasRole(custom, role as Role)) role = custom;
-  }
+  if (custom && hasRole(custom, role as Role)) role = custom;
   const messageCount = member?.messageCount ?? 0;
   const level = member?.level ?? 0;
   const rankInfo = rankForLevel(level);
@@ -342,7 +369,6 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
 
   // Template resolution: this group's own custom card → the bot-wide global
   // card (set by the owner) → the built-in default.
-  const settings = ctx.chat ? ctx.state.settings ?? (await getSettings(ctx.chat.id).catch(() => null)) : null;
   let template = DEFAULT_ID_CARD;
   let templateEntities: Entity[] = [];
   if (settings?.idCardTemplate) {
@@ -364,41 +390,29 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
   }
   const { text, entities } = renderIdCard(template, templateEntities, vars);
 
-  // Fetch the latest profile photo (largest size), if available.
+  // Latest profile photo (largest size), if any.
   let photoFileId: string | undefined;
-  try {
-    const photos = await ctx.telegram.getUserProfilePhotos(target.id, 0, 1);
-    const sizes = photos.photos?.[0];
-    if (sizes?.length) photoFileId = sizes[sizes.length - 1].file_id;
-  } catch (err) {
-    log.debug({ err, userId: target.id }, 'getUserProfilePhotos failed');
-  }
+  const sizes = photos?.photos?.[0];
+  if (sizes?.length) photoFileId = sizes[sizes.length - 1].file_id;
 
-  // Preferred look: a designed IMAGE card (rendered via the Chromium pipeline).
+  // Preferred look: a designed IMAGE card (rendered on CPU via @napi-rs/canvas).
   // Disabled per-group with idCardImage=false, and it silently falls back to the
-  // text card if rendering fails (e.g. Chromium unavailable).
-  const wantImage = !target.is_bot && (settings ? settings.idCardImage !== false : true);
+  // text card if rendering fails.
   if (wantImage) {
-    // Cache: resend the recently-rendered card by file_id (instant) unless the
-    // theme is random (which is meant to vary every time).
-    const cacheChatId = ctx.chat?.id ?? target.id;
-    const cacheable = (settings?.idCardTheme || 'auto') !== 'random';
-    if (cacheable) {
-      const hit = getCard(cacheChatId, target.id);
-      if (hit) {
-        const resent = hit.kind === 'animation'
-          ? await ctx.replyWithAnimation(hit.fileId, { caption: `💎 ${fullName}` }).catch(() => null)
-          : await ctx.replyWithPhoto(hit.fileId).catch(() => null);
-        if (resent) return;
-        clearCard(cacheChatId, target.id); // stale/expired file_id → re-render
-      }
-    }
     try {
       let avatarDataUri: string | undefined;
       if (photoFileId) {
-        const link = await ctx.telegram.getFileLink(photoFileId);
-        const res = await fetch(link.toString());
-        if (res.ok) avatarDataUri = `data:image/jpeg;base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`;
+        // Reuse a recently-downloaded avatar (keyed by file_id) to skip the
+        // getFileLink + download round-trips.
+        avatarDataUri = getAvatar(photoFileId) ?? undefined;
+        if (!avatarDataUri) {
+          const link = await ctx.telegram.getFileLink(photoFileId);
+          const res = await fetch(link.toString());
+          if (res.ok) {
+            avatarDataUri = `data:image/jpeg;base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`;
+            setAvatar(photoFileId, avatarDataUri);
+          }
+        }
       }
       // Pick a color theme so people don't see the same card every time:
       // 'auto' gives each member a stable-but-different look; 'random' varies it.
