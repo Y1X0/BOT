@@ -46,16 +46,27 @@ function ensureFonts(): void {
       log.warn({ err, f }, 'cairo font register failed');
     }
   }
-  for (const p of ['/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf', '/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf']) {
-    if (existsSync(p)) {
-      try {
-        GlobalFonts.registerFromPath(p, 'NotoEmoji');
-      } catch {
-        /* ignore */
-      }
+  // Color-emoji font. Prefer the copy BUNDLED in the repo (assets/fonts) so it's
+  // present no matter how the host builds (Docker apt vs Nixpacks) — the system
+  // package isn't guaranteed. Fall back to common system paths.
+  const emojiPaths = [
+    'assets/fonts/NotoColorEmoji.ttf',
+    '/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf',
+    '/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf',
+    '/usr/share/fonts/noto/NotoColorEmoji.ttf',
+  ];
+  let emojiOk = false;
+  for (const p of emojiPaths) {
+    if (!existsSync(p)) continue;
+    try {
+      GlobalFonts.registerFromPath(p, 'NotoEmoji');
+      emojiOk = true;
       break;
+    } catch (err) {
+      log.warn({ err, p }, 'emoji font register failed');
     }
   }
+  if (!emojiOk) log.warn('no color-emoji font registered — icons will be tofu');
 }
 
 const FONT = (weight: number, size: number) => `${weight} ${size}px CairoAr, CairoLat, NotoEmoji`;

@@ -43,6 +43,8 @@ COPY scripts ./scripts
 RUN npm ci --omit=dev && node scripts/set-db-provider.mjs && npx prisma generate && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
+# Bundled fonts (color-emoji) — registered at runtime by the id-card renderer.
+COPY assets ./assets
 
 # Persist SQLite data (mount a volume here in production if using SQLite).
 RUN mkdir -p /app/data
