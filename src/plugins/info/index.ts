@@ -11,6 +11,7 @@ import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
 import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
 import { renderIdCardImage, renderIdCardVideo, getLastVideoError, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
+import { getCard, setCard, clearCard } from '../../services/idcard/cache';
 import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
@@ -378,6 +379,20 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
   // text card if rendering fails (e.g. Chromium unavailable).
   const wantImage = !target.is_bot && (settings ? settings.idCardImage !== false : true);
   if (wantImage) {
+    // Cache: resend the recently-rendered card by file_id (instant) unless the
+    // theme is random (which is meant to vary every time).
+    const cacheChatId = ctx.chat?.id ?? target.id;
+    const cacheable = (settings?.idCardTheme || 'auto') !== 'random';
+    if (cacheable) {
+      const hit = getCard(cacheChatId, target.id);
+      if (hit) {
+        const resent = hit.kind === 'animation'
+          ? await ctx.replyWithAnimation(hit.fileId, { caption: `💎 ${fullName}` }).catch(() => null)
+          : await ctx.replyWithPhoto(hit.fileId).catch(() => null);
+        if (resent) return;
+        clearCard(cacheChatId, target.id); // stale/expired file_id → re-render
+      }
+    }
     try {
       let avatarDataUri: string | undefined;
       if (photoFileId) {
@@ -409,17 +424,23 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
       if (isPremium) {
         const vid = await renderIdCardVideo(cardData, themeId).catch(() => null);
         if (vid) {
-          await ctx
+          const sent = await ctx
             .replyWithAnimation({ source: vid.buffer, filename: `card.${vid.ext}` }, { caption: `💎 ${fullName}` })
             .catch(async () => {
               const png = await renderIdCardImage(cardData, themeId);
-              await ctx.replyWithPhoto({ source: png }).catch(() => undefined);
+              return ctx.replyWithPhoto({ source: png }).catch(() => undefined);
             });
+          const animId = (sent as { animation?: { file_id?: string }; photo?: { file_id: string }[] } | undefined)?.animation?.file_id;
+          const photoId = (sent as { photo?: { file_id: string }[] } | undefined)?.photo?.pop?.()?.file_id;
+          if (cacheable && animId) setCard(cacheChatId, target.id, animId, 'animation');
+          else if (cacheable && photoId) setCard(cacheChatId, target.id, photoId, 'photo');
           return;
         }
       }
       const png = await renderIdCardImage(cardData, themeId);
-      await ctx.replyWithPhoto({ source: png });
+      const sent = await ctx.replyWithPhoto({ source: png });
+      const fid = (sent as { photo?: { file_id: string }[] }).photo?.pop()?.file_id;
+      if (cacheable && fid) setCard(cacheChatId, target.id, fid, 'photo');
       return;
     } catch (err) {
       log.debug({ err }, 'id-card image render failed, falling back to text');
