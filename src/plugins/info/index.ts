@@ -11,6 +11,7 @@ import { getMember } from '../../services/member.service';
 import { getChatRole } from '../../services/roles.service';
 import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service';
 import { renderIdCardImage, renderIdCardVideo, getLastVideoError, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
+import { fontDiagnostics } from '../../services/idcard/canvas';
 import { getCard, setCard, clearCard, getAvatar, setAvatar } from '../../services/idcard/cache';
 import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
 import { rankForLevel } from '../ranks/logic';
@@ -139,6 +140,28 @@ export const infoPlugin: Plugin = {
           `\n🎬 حجم الفيديو: ${vid ? (vid.buffer.length / 1024).toFixed(0) : '—'}KB` +
           `\n🎨 رسم الصورة: ${renderMs}ms\n🎞 بناء الفيديو: ${vidMs}ms\n⏳ المجموع: ${total}ms`,
       );
+    });
+
+    // /idfonts — admin diagnostic: report the runtime emoji-font state (is the
+    // color font present + registered, and does canvas actually render it) and
+    // send a test tile so we can SEE whether emoji come out as glyphs or boxes.
+    bot.command('idfonts', requireRole('admin'), async (ctx) => {
+      const dg = fontDiagnostics();
+      const emojiFams = dg.families.filter((f) => /emoji|noto/i.test(f));
+      await ctx.reply(
+        '🔤 تشخيص الخطوط:\n\n' +
+          `📁 مسار خط الإيموجي: ${dg.emojiPath}\n` +
+          `✅ NotoEmoji مسجّل: ${dg.hasNotoEmoji ? 'نعم' : 'لا'}\n` +
+          `🎨 بكسلات ملوّنة باختبار 🛡: ${dg.coloredPixels} ${dg.coloredPixels > 50 ? '(يعني الإيموجي يُرسم ✅)' : '(صفر ≈ مربّع/توفو ❌)'}\n` +
+          `🧩 عائلات إيموجي/نوتو مسجّلة: ${emojiFams.join(', ') || 'لا شيء'}\n` +
+          `📚 مجموع العائلات: ${dg.families.length}`,
+      );
+      // Render the real card with emoji so the user sees the actual result.
+      const png = await renderIdCardImage({
+        name: 'اختبار الإيموجي', username: '@test', id: '123456789', rank: '⭐ مميّز', stats: 'عضو 🙂',
+        title: 'ملك 👑', level: '7', xp: '118', messages: '590', interaction: 'نشط 🔥', joined: 'اليوم', initial: 'T',
+      }).catch(() => null);
+      if (png) await ctx.replyWithPhoto({ source: png }, { caption: 'شكل الإيموجي على السيرفر 👆' }).catch(() => undefined);
     });
 
     // /idcardtest — admin diagnostic: try to render the image card and report

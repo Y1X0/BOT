@@ -59,6 +59,42 @@ function ensureFonts(): void {
 }
 
 const FONT = (weight: number, size: number) => `${weight} ${size}px CairoAr, CairoLat, NotoEmoji`;
+// Emoji-first font for drawing icons/emoji, so the color-emoji face is chosen
+// directly instead of relying on per-glyph fallback landing on it.
+const EMOJI = (size: number) => `${size}px NotoEmoji, CairoAr, CairoLat`;
+
+/** Runtime font diagnostics (used by the /idfonts admin command). */
+export function fontDiagnostics(): { emojiPath: string; hasNotoEmoji: boolean; families: string[]; coloredPixels: number } {
+  ensureFonts();
+  const paths = ['/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf', '/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf'];
+  const emojiPath = paths.find((p) => existsSync(p)) ?? 'NOT FOUND';
+  const canvas = createCanvas(120, 120);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, 120, 120);
+  ctx.fillStyle = '#fff';
+  ctx.font = EMOJI(64);
+  ctx.fillText('🛡', 20, 90);
+  const data = ctx.getImageData(0, 0, 120, 120).data;
+  let colored = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    if (Math.abs(r - g) > 25 || Math.abs(g - b) > 25 || Math.abs(r - b) > 25) colored++;
+  }
+  let hasNotoEmoji = false;
+  try {
+    hasNotoEmoji = GlobalFonts.has('NotoEmoji');
+  } catch {
+    /* older API */
+  }
+  let families: string[] = [];
+  try {
+    families = (GlobalFonts.families as unknown as { family: string }[]).map((f) => f.family);
+  } catch {
+    /* ignore */
+  }
+  return { emojiPath, hasNotoEmoji, families, coloredPixels: colored };
+}
 
 function hexRgba(hex: string, a: number): string {
   const h = hex.replace('#', '');
@@ -113,7 +149,7 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
 
   // Crown / header decoration.
   ctx.fillStyle = t.a;
-  ctx.font = FONT(400, 30);
+  ctx.font = EMOJI(30);
   ctx.textAlign = 'center';
   ctx.fillText(t.top, cx, 52);
 
@@ -145,12 +181,24 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.strokeStyle = t.a;
   ctx.stroke();
 
-  // Name (gold gradient) + username.
-  ctx.font = FONT(700, 32);
+  // Name (gold gradient) + username. Auto-shrink to fit the width instead of
+  // hard-truncating, so long names show in full (down to a readable minimum).
   ctx.textAlign = 'center';
   ctx.direction = 'rtl';
-  const name = d.name.length > 30 ? d.name.slice(0, 29) + '…' : d.name;
-  const nameW = Math.min(ctx.measureText(name).width, W - 60);
+  const maxNameW = W - 56;
+  let name = d.name.length > 42 ? d.name.slice(0, 41) + '…' : d.name;
+  let nameSize = 33;
+  ctx.font = FONT(700, nameSize);
+  while (ctx.measureText(name).width > maxNameW && nameSize > 17) {
+    nameSize -= 1;
+    ctx.font = FONT(700, nameSize);
+  }
+  // If it's still too wide even at the minimum size, then truncate to fit.
+  if (ctx.measureText(name).width > maxNameW) {
+    while (name.length > 2 && ctx.measureText(name + '…').width > maxNameW) name = name.slice(0, -1);
+    name += '…';
+  }
+  const nameW = Math.min(ctx.measureText(name).width, maxNameW);
   const ng = ctx.createLinearGradient(cx - nameW / 2, 0, cx + nameW / 2, 0);
   ng.addColorStop(0, '#ffffff');
   ng.addColorStop(0.5, t.a);
@@ -194,11 +242,11 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
     ctx.strokeStyle = hexRgba(t.a, 0.16);
     roundRect(ctx, x, y, w, h, 15);
     ctx.stroke();
-    // icon on the right.
-    ctx.font = FONT(400, 24);
+    // icon on the right (emoji-first font so the color glyph is used).
+    ctx.font = EMOJI(23);
     ctx.textAlign = 'center';
     ctx.direction = 'ltr';
-    ctx.fillText(icon, x + w - 24, y + h / 2 + 9);
+    ctx.fillText(icon, x + w - 24, y + h / 2 + 8);
     // label + value, right-aligned to the left of the icon.
     const tx = x + w - 48;
     ctx.textAlign = 'right';
@@ -242,7 +290,7 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.textAlign = 'center';
   ctx.direction = 'rtl';
   ctx.fillStyle = t.a;
-  ctx.font = FONT(700, 15);
+  ctx.font = EMOJI(15);
   const idLabel = '🆔 الآيدي';
   ctx.fillText(idLabel, cx + 70, y + 29);
   ctx.direction = 'ltr';
