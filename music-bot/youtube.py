@@ -1,8 +1,17 @@
 """YouTube search + audio-stream resolution via yt-dlp."""
 import asyncio
+import logging
 from typing import Optional
 
 import yt_dlp
+
+log = logging.getLogger("youtube")
+
+# YouTube blocks datacenter IPs (Railway etc.) on the default web client with a
+# "Sign in to confirm you're not a bot" wall. The android/web_safari clients
+# avoid that check most of the time. A cookies file (YT_COOKIES path) is used
+# when provided, which is the most reliable bypass.
+import os
 
 _YDL_OPTS = {
     "format": "bestaudio/best",
@@ -12,8 +21,14 @@ _YDL_OPTS = {
     "default_search": "ytsearch",
     "geo_bypass": True,
     "nocheckcertificate": True,
-    "source_address": "0.0.0.0",
+    "cachedir": False,
+    "extractor_args": {"youtube": {"player_client": ["android", "web_safari", "web"]}},
+    "http_headers": {
+        "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip",
+    },
 }
+if os.getenv("YT_COOKIES"):
+    _YDL_OPTS["cookiefile"] = os.getenv("YT_COOKIES")
 
 
 def _extract(query: str) -> Optional[dict]:
@@ -40,7 +55,8 @@ async def search(query: str) -> Optional[dict]:
     """Search YouTube (or resolve a URL) and return a playable track dict."""
     try:
         return await asyncio.to_thread(_extract, query)
-    except Exception:
+    except Exception as e:
+        log.warning("yt-dlp search failed for %r: %s", query, str(e)[:300])
         return None
 
 
