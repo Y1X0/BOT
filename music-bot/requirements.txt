@@ -2,7 +2,7 @@
 # NOTE: these versions are pinned to a known-working combo. If pyrogram gives
 # auth/method errors, swap `pyrogram` + `tgcrypto` for `pyrofork` + `tgcrypto`
 # (pyrofork installs under the same `pyrogram` import name).
-py-tgcalls==2.1.6
+py-tgcalls==2.2.11
 pyrogram==2.0.106
 tgcrypto==1.2.5
 yt-dlp>=2024.8.6
