@@ -23,6 +23,7 @@ import { musarahaPlugin } from './musaraha';
 import { youtubePlugin } from './youtube';
 import { downloaderPlugin } from './downloader';
 import { voiceChatPlugin } from './voicechat';
+import { musicPlugin } from './music';
 import { islamicPlugin } from './islamic';
 import { toolboxPlugin } from './toolbox';
 import { managementPlugin } from './management';
@@ -83,6 +84,7 @@ allPlugins.push(
   protectionPlugin, // anti-raid: must run before welcome on new_chat_members
   welcomePlugin,
   voiceChatPlugin,
+  musicPlugin,
   managementPlugin, // includes service-message cleanup (before analytics)
   analyticsPlugin,
   islamicPlugin,

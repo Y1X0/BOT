@@ -1,4 +1,9 @@
-"""Environment configuration for the voice-chat music bot."""
+"""Environment configuration for the voice-chat streamer service.
+
+This service has NO bot token — it only logs in the ASSISTANT user account and
+streams audio into voice chats. Your existing management bot controls it over a
+small HTTP API (see main.py), so users interact with ONE bot.
+"""
 import os
 
 from dotenv import load_dotenv
@@ -13,30 +18,25 @@ def _int(name: str, default: int = 0) -> int:
         return default
 
 
-# From https://my.telegram.org  → API development tools
+# From https://my.telegram.org → API development tools
 API_ID = _int("API_ID")
 API_HASH = os.getenv("API_HASH", "")
 
-# A SEPARATE bot token from @BotFather (do NOT reuse the management bot's token —
-# one token can only be polled by one process).
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-
-# The assistant USER account's Pyrogram string session (generate with
-# `python gen_session.py`). This account joins the voice chat and streams audio.
+# The assistant USER account's Pyrogram string session (python gen_session.py).
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-# Your Telegram numeric id (optional; used for owner-only commands / logs).
-OWNER_ID = _int("OWNER_ID")
+# Shared secret: the management bot must send this in the X-Token header.
+# Leave empty to disable auth (only safe on a private network).
+STREAMER_TOKEN = os.getenv("STREAMER_TOKEN", "")
 
-# Command prefixes. "" lets bare Arabic words (تشغيل ...) act as commands.
-PREFIXES = ["/", "!", ""]
+# HTTP port the control API listens on.
+PORT = _int("PORT", 8080)
 
 
 def validate() -> None:
     missing = [n for n, v in {
         "API_ID": API_ID,
         "API_HASH": API_HASH,
-        "BOT_TOKEN": BOT_TOKEN,
         "SESSION_STRING": SESSION_STRING,
     }.items() if not v]
     if missing:

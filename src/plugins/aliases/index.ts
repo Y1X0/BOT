@@ -197,6 +197,15 @@ const ALIASES: Alias[] = [
   { command: 'schedules', triggers: ['المجدوله', 'الرسائل المجدوله'] },
   { command: 'quizstart', triggers: ['مسابقه', 'مسابقه مباشره', 'ابدا مسابقه'] },
   { command: 'mafia', triggers: ['مافيا', 'لعبه المافيا'] },
+  // Voice-chat music (streamed via the assistant account). Avoid bare "شغل"
+  // (economy /work) and bare "اغنيه" (soundcloud /song) — use كول-specific phrases.
+  { command: 'vcplay', triggers: ['تشغيل', 'شغل بالكول', 'شغل اغنيه بالكول', 'غني بالكول'] },
+  { command: 'vcstart', triggers: ['افتح كول', 'افتح الكول', 'فتح كول', 'شغل كول'] },
+  { command: 'vcstop', triggers: ['سكر كول', 'سكر الكول', 'اغلق الكول', 'انهي الكول', 'طلع من الكول'] },
+  { command: 'vcskip', triggers: ['تخطي', 'الاغنيه التاليه', 'سكيب', 'اغنيه تاليه'] },
+  { command: 'vcpause', triggers: ['وقف الاغنيه', 'ايقاف الاغنيه', 'وقف الكول'] },
+  { command: 'vcresume', triggers: ['كمل الاغنيه', 'استكمال الاغنيه', 'كمل الكول'] },
+  { command: 'vcqueue', triggers: ['قائمه التشغيل', 'طابور الاغاني', 'قائمه الكول'] },
   // Fun image editor
   { command: 'edit', triggers: ['تعديل', 'عدل الصوره', 'فن', 'محرر الصور'] },
   { command: 'imagine', triggers: ['تخيل', 'ولد صوره', 'ارسم', 'انشئ صوره'] },
