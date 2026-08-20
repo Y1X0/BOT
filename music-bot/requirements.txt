@@ -2,8 +2,11 @@
 # NOTE: these versions are pinned to a known-working combo. If pyrogram gives
 # auth/method errors, swap `pyrogram` + `tgcrypto` for `pyrofork` + `tgcrypto`
 # (pyrofork installs under the same `pyrogram` import name).
+# kurigram is a maintained Pyrogram fork (imports as `pyrogram`) with the newer
+# Telegram error classes py-tgcalls needs (e.g. GroupcallForbidden) and Python
+# 3.12+ support. Original pyrogram 2.0.106 is too old for py-tgcalls 2.2.x.
 py-tgcalls==2.2.11
-pyrogram==2.0.106
+kurigram>=2.1.32
 tgcrypto==1.2.5
 yt-dlp>=2024.8.6
 python-dotenv==1.0.1
