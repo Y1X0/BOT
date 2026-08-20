@@ -30,10 +30,8 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 from aiohttp import web
-from pytgcalls import PyTgCalls
-from pytgcalls import filters as call_filters
 from pytgcalls.exceptions import NoActiveGroupCall
-from pytgcalls.types import MediaStream, Update
+from pytgcalls.types import MediaStream
 
 import config
 import queue_manager as qm
@@ -96,10 +94,8 @@ async def play(request: web.Request) -> web.Response:
     if not track or not track.get("url"):
         return web.json_response({"ok": False, "error": "not_found"})
 
-    if qm.active(chat_id):
-        pos = qm.enqueue(chat_id, track)
-        return web.json_response({"ok": True, "queued": True, "position": pos, **_track_info(track)})
-
+    # Play immediately, replacing whatever is currently on. (Simple + robust —
+    # no queue/auto-advance, which was fragile on this py-tgcalls version.)
     qm.set_active(chat_id, track)
     try:
         await _play_now(chat_id, track)
@@ -210,23 +206,6 @@ async def queue(request: web.Request) -> web.Response:
         "active": _track_info(cur) if cur else None,
         "upcoming": [_track_info(t) for t in qm.upcoming(chat_id)],
     })
-
-
-# Auto-advance to the next queued track when one finishes.
-@calls.on_update(call_filters.stream_end)
-async def on_stream_end(_: PyTgCalls, update: Update):
-    chat_id = update.chat_id
-    nxt = qm.next_track(chat_id)
-    if not nxt:
-        try:
-            await calls.leave_call(chat_id)
-        except Exception:
-            pass
-        return
-    try:
-        await calls.play(chat_id, _audio(nxt["url"]))
-    except Exception as e:
-        log.warning("auto-advance failed in %s: %s", chat_id, e)
 
 
 async def _serve() -> None:
