@@ -18,7 +18,16 @@ Endpoints (all POST JSON unless noted; send header  X-Token: <STREAMER_TOKEN>):
 
 The assistant must be an admin with the "manage voice chats" right.
 """
+import asyncio
 import logging
+
+# py-tgcalls' sync shim calls asyncio.get_event_loop() at import time, which
+# raises "no current event loop" on Python 3.12+ (default on newer distros).
+# Ensure a current loop exists BEFORE importing pytgcalls/pyrogram.
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
 from aiohttp import web
 from pytgcalls import PyTgCalls
