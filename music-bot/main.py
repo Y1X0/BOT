@@ -208,7 +208,22 @@ async def queue(request: web.Request) -> web.Response:
     })
 
 
+def _udp_ok() -> bool:
+    """Log whether outbound UDP works here (WebRTC needs it)."""
+    try:
+        from udptest import check
+        return check()
+    except Exception as e:
+        log.warning("UDP check failed to run: %s", e)
+        return False
+
+
 async def _serve() -> None:
+    # WebRTC needs outbound UDP; log at boot so any host's logs reveal instantly
+    # whether it will work here.
+    log.info("Checking outbound UDP (needed for WebRTC voice)…")
+    _udp_ok()
+
     # Start the assistant + PyTgCalls and the HTTP control API on ONE loop.
     # (web.run_app would spin up its own loop, which clashes with the clients
     # created at import — "attached to a different loop".)
