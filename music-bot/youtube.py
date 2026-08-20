@@ -13,12 +13,11 @@ log = logging.getLogger("youtube")
 # when provided, which is the most reliable bypass.
 import os
 
-_YDL_OPTS = {
+_BASE_OPTS = {
     "format": "bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
-    "default_search": "ytsearch",
     "geo_bypass": True,
     "nocheckcertificate": True,
     "cachedir": False,
@@ -27,36 +26,60 @@ _YDL_OPTS = {
         "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip",
     },
 }
-if os.getenv("YT_COOKIES"):
-    _YDL_OPTS["cookiefile"] = os.getenv("YT_COOKIES")
+
+
+def _opts(prefix: str) -> dict:
+    o = dict(_BASE_OPTS, default_search=prefix)
+    if os.getenv("YT_COOKIES"):
+        o["cookiefile"] = os.getenv("YT_COOKIES")
+    return o
+
+
+def _track(info: dict) -> Optional[dict]:
+    if "entries" in info:
+        entries = [e for e in info["entries"] if e]
+        if not entries:
+            return None
+        info = entries[0]
+    if not info or not info.get("url"):
+        return None
+    return {
+        "title": info.get("title", "غير معروف"),
+        "url": info.get("url"),
+        "duration": info.get("duration") or 0,
+        "webpage": info.get("webpage_url", ""),
+        "thumb": info.get("thumbnail", ""),
+        "uploader": info.get("uploader", ""),
+    }
 
 
 def _extract(query: str) -> Optional[dict]:
-    with yt_dlp.YoutubeDL(_YDL_OPTS) as ydl:
-        info = ydl.extract_info(query, download=False)
-        if not info:
-            return None
-        if "entries" in info:
-            entries = [e for e in info["entries"] if e]
-            if not entries:
-                return None
-            info = entries[0]
-        return {
-            "title": info.get("title", "غير معروف"),
-            "url": info.get("url"),            # direct audio stream URL for ffmpeg
-            "duration": info.get("duration") or 0,
-            "webpage": info.get("webpage_url", ""),
-            "thumb": info.get("thumbnail", ""),
-            "uploader": info.get("uploader", ""),
-        }
+    is_url = query.startswith("http://") or query.startswith("https://")
+    # Direct URL → resolve as-is. Otherwise search YouTube, then fall back to
+    # SoundCloud (which, unlike YouTube, doesn't block datacenter/cloud IPs).
+    prefixes = ["ytsearch"] if is_url else ["ytsearch", "scsearch"]
+    last_err: Optional[Exception] = None
+    for prefix in prefixes:
+        try:
+            with yt_dlp.YoutubeDL(_opts(prefix)) as ydl:
+                info = ydl.extract_info(query, download=False)
+            track = _track(info) if info else None
+            if track:
+                return track
+        except Exception as e:
+            last_err = e
+            log.warning("%s failed for %r: %s", prefix, query, str(e)[:200])
+    if last_err:
+        raise last_err
+    return None
 
 
 async def search(query: str) -> Optional[dict]:
-    """Search YouTube (or resolve a URL) and return a playable track dict."""
+    """Resolve a playable track: YouTube search/URL, falling back to SoundCloud."""
     try:
         return await asyncio.to_thread(_extract, query)
     except Exception as e:
-        log.warning("yt-dlp search failed for %r: %s", query, str(e)[:300])
+        log.warning("search failed for %r: %s", query, str(e)[:300])
         return None
 
 
