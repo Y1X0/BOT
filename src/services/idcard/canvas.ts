@@ -32,18 +32,21 @@ function ensureFonts(): void {
   // per-glyph fallback within one family, so a shared family would render Latin
   // digits (which the Arabic subset lacks) as tofu. A font list falls back
   // across families per glyph.
-  const cairo = 'node_modules/@fontsource/cairo/files';
   const reg: [string, string][] = [
-    ['cairo-arabic-400-normal.woff2', 'CairoAr'],
-    ['cairo-arabic-700-normal.woff2', 'CairoAr'],
-    ['cairo-latin-400-normal.woff2', 'CairoLat'],
-    ['cairo-latin-700-normal.woff2', 'CairoLat'],
+    ['@fontsource/cairo/files/cairo-arabic-400-normal.woff2', 'CairoAr'],
+    ['@fontsource/cairo/files/cairo-arabic-700-normal.woff2', 'CairoAr'],
+    ['@fontsource/cairo/files/cairo-latin-400-normal.woff2', 'CairoLat'],
+    ['@fontsource/cairo/files/cairo-latin-700-normal.woff2', 'CairoLat'],
+    // Noto Sans Math covers the "fancy"/decorated name letters people use
+    // (Mathematical Alphanumeric Symbols: 𝐉𝐎𝐘 𝓙𝓸𝔂 𝕵𝖔𝖞 …). Without it those
+    // render as tofu boxes. Cairo comes first, so normal text is unaffected.
+    ['@fontsource/noto-sans-math/files/noto-sans-math-latin-400-normal.woff2', 'MathDec'],
   ];
   for (const [f, fam] of reg) {
     try {
-      GlobalFonts.registerFromPath(`${cairo}/${f}`, fam);
+      GlobalFonts.registerFromPath(`node_modules/${f}`, fam);
     } catch (err) {
-      log.warn({ err, f }, 'cairo font register failed');
+      log.warn({ err, f }, 'font register failed');
     }
   }
   // Color-emoji font. Prefer the copy BUNDLED in the repo (assets/fonts) so it's
@@ -69,7 +72,7 @@ function ensureFonts(): void {
   if (!emojiOk) log.warn('no color-emoji font registered — icons will be tofu');
 }
 
-const FONT = (weight: number, size: number) => `${weight} ${size}px CairoAr, CairoLat, NotoEmoji`;
+const FONT = (weight: number, size: number) => `${weight} ${size}px CairoAr, CairoLat, MathDec, NotoEmoji`;
 // Emoji-first font for drawing icons/emoji, so the color-emoji face is chosen
 // directly instead of relying on per-glyph fallback landing on it.
 const EMOJI = (size: number) => `${size}px NotoEmoji, CairoAr, CairoLat`;
