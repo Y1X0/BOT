@@ -229,19 +229,29 @@ async def on_stream_end(_: PyTgCalls, update: Update):
         log.warning("auto-advance failed in %s: %s", chat_id, e)
 
 
-async def _on_startup(_: web.Application) -> None:
+async def _serve() -> None:
+    # Start the assistant + PyTgCalls and the HTTP control API on ONE loop.
+    # (web.run_app would spin up its own loop, which clashes with the clients
+    # created at import — "attached to a different loop".)
     await assistant.start()
     await calls.start()
     me = await assistant.get_me()
     log.info("Streamer up. Assistant: %s (id %s). PyTgCalls started.", me.first_name, me.id)
 
+    app = web.Application()
+    app.add_routes(routes)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", config.PORT)
+    await site.start()
+    log.info("HTTP control API listening on 0.0.0.0:%s", config.PORT)
+    await asyncio.Event().wait()  # serve forever
+
 
 def main() -> None:
     config.validate()
-    app = web.Application()
-    app.add_routes(routes)
-    app.on_startup.append(_on_startup)
-    web.run_app(app, host="0.0.0.0", port=config.PORT)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(_serve())
 
 
 if __name__ == "__main__":
