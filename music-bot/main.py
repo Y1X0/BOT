@@ -39,7 +39,7 @@ from typing import Optional
 
 import config
 import queue_manager as qm
-from call_control import end_call, has_active_call, start_call
+from call_control import NoAccess, call_is_open, end_call, start_call
 from clients import assistant, calls
 from youtube import search
 
@@ -87,7 +87,7 @@ async def _play_now(chat_id: int, track: dict) -> None:
     This never opens or closes a call — that is /startvc's job. Opening a call
     here (CreateGroupCall) would DESTROY any running call and replace it, which
     caused an open/close loop when a track failed to start. The caller must
-    verify a call is open (has_active_call) before invoking this.
+    verify a call is open (_require_open_call) before invoking this.
 
     We still retry a few times: a call just opened by /startvc may not be
     registered on Telegram's side yet. A fresh MediaStream is built per attempt
@@ -135,6 +135,21 @@ def _track_info(track: dict) -> dict:
     return {"title": track.get("title"), "duration": track.get("duration", 0), "webpage": track.get("webpage", "")}
 
 
+async def _require_open_call(chat_id: int) -> Optional[web.Response]:
+    """None if a voice chat is open in this chat; otherwise an error Response.
+
+    Distinguishes "assistant isn't in the group" (PEER_ID_INVALID → the bot
+    tells the user to run /vcjoin) from "no call is open" (no_call → open one
+    with /vcstart). Playback/queue actions must never run without an open call.
+    """
+    try:
+        if await call_is_open(assistant, chat_id):
+            return None
+    except NoAccess:
+        return web.json_response({"ok": False, "error": "PEER_ID_INVALID"})
+    return web.json_response({"ok": False, "error": "no_call"})
+
+
 @routes.get("/")
 @routes.get("/health")
 async def health(_: web.Request) -> web.Response:
@@ -156,8 +171,9 @@ async def play(request: web.Request) -> web.Response:
     # The call must already be open. /play must NEVER open (or close) a call —
     # doing so destroys a running one. If none is open, tell the user to open
     # one first, without searching or touching the queue.
-    if not await has_active_call(assistant, chat_id):
-        return web.json_response({"ok": False, "error": "no_call"})
+    guard = await _require_open_call(chat_id)
+    if guard is not None:
+        return guard
 
     track = await search(query)
     if not track or not track.get("url"):
@@ -188,8 +204,9 @@ async def skip(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
-    if not await has_active_call(assistant, chat_id):
-        return web.json_response({"ok": False, "error": "no_call"})
+    guard = await _require_open_call(chat_id)
+    if guard is not None:
+        return guard
     nxt = qm.next_track(chat_id)
     if not nxt:
         qm.clear(chat_id)
@@ -210,8 +227,9 @@ async def pause(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
-    if not await has_active_call(assistant, chat_id):
-        return web.json_response({"ok": False, "error": "no_call"})
+    guard = await _require_open_call(chat_id)
+    if guard is not None:
+        return guard
     try:
         await calls.pause(chat_id)
         return web.json_response({"ok": True})
@@ -224,8 +242,9 @@ async def resume(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
-    if not await has_active_call(assistant, chat_id):
-        return web.json_response({"ok": False, "error": "no_call"})
+    guard = await _require_open_call(chat_id)
+    if guard is not None:
+        return guard
     try:
         await calls.resume(chat_id)
         return web.json_response({"ok": True})

@@ -43,8 +43,30 @@ async def end_call(client: Client, chat_id: int) -> bool:
     return True
 
 
-async def has_active_call(client: Client, chat_id: int) -> bool:
+class NoAccess(Exception):
+    """The assistant can't see the chat — it isn't a member, or lost access.
+
+    Distinct from "call is closed" so callers can tell the user to add the
+    assistant (via /vcjoin) instead of the misleading "the call is closed".
+    """
+
+
+def _is_no_access(e: Exception) -> bool:
+    name = type(e).__name__
+    return name in ("PeerIdInvalid", "ChannelInvalid", "ChannelPrivate", "ChatIdInvalid") \
+        or "PEER_ID_INVALID" in str(e)
+
+
+async def call_is_open(client: Client, chat_id: int) -> bool:
+    """True if a voice chat is open, False if closed.
+
+    Raises NoAccess if the assistant isn't a member / can't resolve the peer.
+    Any other unexpected error is treated as "closed" (the safe default — it
+    won't trigger call churn).
+    """
     try:
         return await _active_call(client, chat_id) is not None
-    except Exception:
+    except Exception as e:
+        if _is_no_access(e):
+            raise NoAccess() from e
         return False
