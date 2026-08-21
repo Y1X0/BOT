@@ -94,31 +94,28 @@ async def _play_now(chat_id: int, track: dict) -> None:
     (the object may hold state after a failed play).
 
     Recovery: py-tgcalls can get stuck thinking it's still joined from an old
-    call (AlreadyJoinedError). If the first attempt hits that, leave_call to
-    clear the stale internal state, then retry.
+    call (AlreadyJoinedError) after a WebRTC drop or an abruptly-closed call.
+    On whichever attempt first hits that, leave_call clears the stale internal
+    state (once — leaving repeatedly would churn), then the loop retries.
     """
-    try:
-        await calls.play(chat_id, _audio(track["url"]))
-        return
-    except Exception as first:
-        log.info("play failed in %s: %s: %s", chat_id, type(first).__name__, first)
-        name = type(first).__name__
-        if name == "AlreadyJoinedError" or "already joined" in str(first).lower():
-            log.info("stuck join in %s — leaving to clear stale state", chat_id)
-            try:
-                await calls.leave_call(chat_id)
-            except Exception as e:
-                log.info("leave_call during recovery in %s: %s", chat_id, e)
-
     last: Optional[Exception] = None
-    for attempt in range(4):
-        await asyncio.sleep(1.5)  # let Telegram register a freshly-opened call
+    recovered = False
+    for attempt in range(5):
+        if attempt:
+            await asyncio.sleep(1.5)  # let Telegram register a freshly-opened call
         try:
             await calls.play(chat_id, _audio(track["url"]))
             return
         except Exception as e:
             last = e
             log.info("play attempt %d in %s failed: %s: %s", attempt + 1, chat_id, type(e).__name__, e)
+            if not recovered and (type(e).__name__ == "AlreadyJoinedError" or "already joined" in str(e).lower()):
+                recovered = True
+                log.info("stuck join in %s — leaving to clear stale state", chat_id)
+                try:
+                    await calls.leave_call(chat_id)
+                except Exception as le:
+                    log.info("leave_call during recovery in %s: %s", chat_id, le)
     raise last if last else RuntimeError("play failed")
 
 
