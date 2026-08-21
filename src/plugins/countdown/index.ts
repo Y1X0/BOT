@@ -20,7 +20,7 @@ export const countdownPlugin: Plugin = {
   ],
 
   register(bot: Telegraf<BotContext>) {
-    bot.command('countdown', requireRole('admin'), async (ctx) => {
+    bot.command('countdown', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const parts = ctx.message.text.split(/\s+/).slice(1);
       const target = parseDate(parts[0] ?? '');
@@ -41,7 +41,7 @@ export const countdownPlugin: Plugin = {
       await ctx.reply(`📅 المناسبات القادمة:\n${list}`);
     });
 
-    bot.command('delevent', requireRole('admin'), async (ctx) => {
+    bot.command('delevent', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const id = Number(ctx.message.text.split(/\s+/)[1]);
       if (!Number.isInteger(id)) return void ctx.reply('🗑 استخدم: /delevent 3');

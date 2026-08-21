@@ -104,13 +104,13 @@ export const protectionPlugin: Plugin = {
     });
 
     // --- Manual lockdown / unlock ---
-    bot.command('lockdown', requireRole('admin'), async (ctx) => {
+    bot.command('lockdown', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const ok = await ctx.telegram.setChatPermissions(ctx.chat.id, { can_send_messages: false }).then(() => true).catch(() => false);
       await ctx.reply(ok ? '🔒 تم قفل الجروب — لا يمكن الكتابة الآن.' : '❌ تعذّر القفل (تأكد أن البوت مشرف).');
     });
 
-    bot.command('unlock', requireRole('admin'), async (ctx) => {
+    bot.command('unlock', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const ok = await ctx.telegram.setChatPermissions(ctx.chat.id, FULL_PERMS).then(() => true).catch(() => false);
       if (ok) raidStates.delete(ctx.chat.id); // clear any active raid window
@@ -118,7 +118,7 @@ export const protectionPlugin: Plugin = {
     });
 
     // --- Toggle anti-raid ---
-    bot.command('antiraid', requireRole('admin'), async (ctx) => {
+    bot.command('antiraid', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       const on = arg === 'on' || arg === 'تفعيل';
@@ -133,7 +133,7 @@ export const protectionPlugin: Plugin = {
     });
 
     // --- Guardian mode: flip the whole protection suite at once ---
-    bot.command('guard', requireRole('admin'), async (ctx) => {
+    bot.command('guard', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       const on = arg === 'on' || arg === 'تفعيل' || arg === 'فعل';

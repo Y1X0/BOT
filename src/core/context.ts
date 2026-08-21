@@ -13,8 +13,10 @@ export interface BotContext extends Context {
     settings?: ChatSettings;
     /** Resolved role of the message sender in the current chat. */
     role?: Role;
-    /** True if the sender is owner/admin/moderator. */
+    /** True if the sender is admin and up (the staff/enforcement tier). */
     isStaff?: boolean;
+    /** True if the sender is vip and up — exempt from all automatic protection. */
+    isExempt?: boolean;
     /** Resolved locale for the chat. */
     locale?: Locale;
     /** Translation helper bound to the resolved locale. */

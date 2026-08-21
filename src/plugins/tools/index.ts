@@ -63,7 +63,7 @@ export const toolsPlugin: Plugin = {
       }
     });
 
-    bot.command('pin', requireRole('moderator'), async (ctx) => {
+    bot.command('pin', requireRole('admin'), async (ctx) => {
       const replied = (ctx.message as { reply_to_message?: { message_id?: number } })
         .reply_to_message;
       if (!replied?.message_id) return void ctx.reply('📌 ردّ على الرسالة المراد تثبيتها.');
@@ -74,7 +74,7 @@ export const toolsPlugin: Plugin = {
       await ctx.reply(ok ? '📌 تم التثبيت.' : '⚠️ تعذّر التثبيت (تأكد أني مشرف).');
     });
 
-    bot.command('unpin', requireRole('moderator'), async (ctx) => {
+    bot.command('unpin', requireRole('admin'), async (ctx) => {
       const ok = await ctx.telegram
         .unpinChatMessage(ctx.chat.id)
         .then(() => true)
@@ -82,7 +82,7 @@ export const toolsPlugin: Plugin = {
       await ctx.reply(ok ? '📌 تم إلغاء التثبيت.' : '⚠️ تعذّر التنفيذ.');
     });
 
-    bot.command('del', requireRole('moderator'), async (ctx) => {
+    bot.command('del', requireRole('admin'), async (ctx) => {
       const replied = (ctx.message as { reply_to_message?: { message_id?: number } })
         .reply_to_message;
       if (!replied?.message_id) return void ctx.reply('🗑 ردّ على الرسالة المراد حذفها.');
@@ -117,7 +117,7 @@ export const toolsPlugin: Plugin = {
       }, 4000).unref?.();
     });
 
-    bot.command('lock', requireRole('admin'), async (ctx) => {
+    bot.command('lock', requireRole('manager'), async (ctx) => {
       const ok = await ctx.telegram
         .setChatPermissions(ctx.chat.id, { can_send_messages: false })
         .then(() => true)
@@ -126,7 +126,7 @@ export const toolsPlugin: Plugin = {
       await ctx.reply(ok ? '🔒 تم قفل الكتابة في القروب.' : '⚠️ تعذّر التنفيذ (تأكد أني مشرف).');
     });
 
-    bot.command('unlock', requireRole('admin'), async (ctx) => {
+    bot.command('unlock', requireRole('manager'), async (ctx) => {
       const ok = await ctx.telegram
         .setChatPermissions(ctx.chat.id, {
           can_send_messages: true,

@@ -25,7 +25,7 @@ export const scheduledPlugin: Plugin = {
   ],
 
   register(bot: Telegraf<BotContext>) {
-    bot.command('schedule', requireRole('admin'), async (ctx) => {
+    bot.command('schedule', requireRole('manager'), async (ctx) => {
       const parts = ctx.message.text.split(/\s+/);
       const time = normalizeTime(parts[1] ?? '');
       const text = parts.slice(2).join(' ').trim();
@@ -37,7 +37,7 @@ export const scheduledPlugin: Plugin = {
       await ctx.reply(`✅ تمت الجدولة يومياً الساعة ${time}. (رقم #${row.id})`);
     });
 
-    bot.command('schedules', requireRole('moderator'), async (ctx) => {
+    bot.command('schedules', requireRole('admin'), async (ctx) => {
       const rows = await listScheduled(ctx.chat.id);
       if (!rows.length) return void ctx.reply('🗒 لا توجد رسائل مجدولة.');
       const list = rows
@@ -46,7 +46,7 @@ export const scheduledPlugin: Plugin = {
       await ctx.reply(`🗒 المجدولة:\n${list}\n\nللحذف: /unschedule <الرقم>`);
     });
 
-    bot.command('unschedule', requireRole('admin'), async (ctx) => {
+    bot.command('unschedule', requireRole('manager'), async (ctx) => {
       const id = Number(ctx.message.text.split(/\s+/)[1]);
       if (!Number.isInteger(id)) return void ctx.reply('🗑 استخدم: /unschedule 3');
       const ok = await deleteScheduled(ctx.chat.id, id);

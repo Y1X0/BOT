@@ -2,17 +2,30 @@ import type { BotContext } from '../core/context';
 import { env } from '../config/env';
 import { getChatRole } from '../services/roles.service';
 
-/** Role hierarchy, ordered from most to least privileged. */
-export const ROLES = ['owner', 'admin', 'moderator', 'vip', 'member'] as const;
+/** Role hierarchy, ordered from most to least privileged.
+ *  owner 👑 > supervisor 🛡 > manager 🔰 > admin ⭐ > vip 💎 > member 👤 */
+export const ROLES = ['owner', 'supervisor', 'manager', 'admin', 'vip', 'member'] as const;
 export type Role = (typeof ROLES)[number];
 
 const RANK: Record<Role, number> = {
-  owner: 4,
+  owner: 6,
+  supervisor: 5,
+  manager: 4,
   admin: 3,
-  moderator: 2,
-  vip: 1,
+  vip: 2,
   member: 0,
 };
+
+/** Rank number for a role — exported for target-vs-actor comparisons. */
+export function rankOf(role: Role): number {
+  return RANK[role];
+}
+
+/** Can `actor` act on / punish / outrank `target`? Only when strictly higher —
+ *  nobody can act on someone of equal or greater rank. */
+export function canActOn(actor: Role, target: Role): boolean {
+  return RANK[actor] > RANK[target];
+}
 
 /** Returns true if `role` is at least as privileged as `required`. */
 export function hasRole(role: Role, required: Role): boolean {
@@ -68,7 +81,9 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
   try {
     const member = await ctx.telegram.getChatMember(chat.id, userId);
     if (member.status === 'creator') isCreator = true;
-    else if (member.status === 'administrator') tgRole = 'admin';
+    // A real Telegram admin is trusted with manager-level bot powers (settings
+    // + assigning the lighter bot ranks). supervisor/owner sit above them.
+    else if (member.status === 'administrator') tgRole = 'manager';
   } catch {
     // getChatMember can fail transiently; fall through to member.
   }
@@ -90,6 +105,28 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
     if (oldest) roleCache.delete(oldest);
   }
   return role;
+}
+
+/**
+ * Resolve the role of an ARBITRARY user in the current chat (e.g. the target of
+ * a mute/promote). Like resolveRole but for someone other than the sender, and
+ * uncached (used only on infrequent staff actions).
+ */
+export async function resolveUserRole(ctx: BotContext, userId: number | bigint): Promise<Role> {
+  const chat = ctx.chat;
+  if (!chat || chat.type === 'private') return 'member';
+  if (isBotOwner(userId)) return 'owner';
+
+  let tgRole: Role = 'member';
+  try {
+    const member = await ctx.telegram.getChatMember(chat.id, Number(userId));
+    if (member.status === 'creator') return 'owner';
+    if (member.status === 'administrator') tgRole = 'manager';
+  } catch {
+    /* transient — fall through */
+  }
+  const custom = await getChatRole(chat.id, userId).catch(() => null);
+  return custom && RANK[custom] > RANK[tgRole] ? custom : tgRole;
 }
 
 /** Guard: only allow handler to run for users with at least `required` role. */

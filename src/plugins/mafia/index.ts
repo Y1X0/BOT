@@ -78,7 +78,7 @@ export const mafiaPlugin: Plugin = {
       );
     });
 
-    bot.command('mafiastop', requireRole('moderator'), async (ctx) => {
+    bot.command('mafiastop', requireRole('admin'), async (ctx) => {
       if (!ctx.chat) return;
       const g = games.get(ctx.chat.id);
       if (!g) return void ctx.reply('لا توجد لعبة جارية.');

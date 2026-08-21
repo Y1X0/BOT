@@ -53,20 +53,18 @@ export const antispamMiddleware: MiddlewareFn<BotContext> = async (ctx, next) =>
   const text = (ctx.message as { text?: string; caption?: string } | undefined)?.text
     ?? (ctx.message as { caption?: string } | undefined)?.caption;
 
-  // 0) Profanity/insult filter (opt-in). Runs BEFORE the staff bypass and
-  // independently of antispamEnabled, so insults are caught for everyone. Staff
-  // messages are still deleted when possible, but staff aren't warned/escalated.
+  // Exempt members (💎 vip and up) skip all automatic protection — words,
+  // flood and links alike.
+  if (ctx.state.isExempt) return next();
+
+  // 0) Profanity/insult filter (opt-in, independent of antispamEnabled).
   if ((settings as { badwordsEnabled?: boolean }).badwordsEnabled && text && containsBadword(text)) {
     await deleteMessage(ctx);
-    if (!ctx.state.isStaff) {
-      await handleWarn(ctx, from, settings, t, 'insult');
-    }
+    await handleWarn(ctx, from, settings, t, 'insult');
     await ctx.reply('🚫 يُمنع السب والشتم والألفاظ المسيئة في المجموعة.').catch(() => undefined);
     return; // handled
   }
 
-  // Never moderate staff or the bot itself for the remaining spam checks.
-  if (ctx.state.isStaff) return next();
   if (!settings.antispamEnabled) return next();
 
   // 1) Banned words filter.

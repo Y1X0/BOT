@@ -189,7 +189,7 @@ export const youtubePlugin: Plugin = {
     });
 
     // --- Admin: view/adjust limits ---
-    bot.command('ytconfig', requireRole('admin'), async (ctx) => {
+    bot.command('ytconfig', requireRole('manager'), async (ctx) => {
       const c = youtubeConfig;
       await ctx.reply(
         '⚙️ إعدادات اليوتيوب:\n' +
@@ -202,7 +202,7 @@ export const youtubePlugin: Plugin = {
       );
     });
 
-    bot.command('ytset', requireRole('admin'), async (ctx) => {
+    bot.command('ytset', requireRole('manager'), async (ctx) => {
       const [, key, raw] = ctx.message.text.split(/\s+/);
       const valid: Array<keyof YoutubeConfig> = [
         'maxDuration',

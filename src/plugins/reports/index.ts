@@ -52,7 +52,7 @@ export const reportsPlugin: Plugin = {
     });
 
     // Toggle automatic weekly posting.
-    bot.command('weeklyreport', requireRole('admin'), async (ctx) => {
+    bot.command('weeklyreport', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       const on = arg === 'on' || arg === 'تفعيل';

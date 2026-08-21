@@ -80,7 +80,8 @@ const ALIASES: Alias[] = [
   { command: 'musaraha', triggers: ['مصارحه', 'مصارحة', 'صارحني', 'رسايل مجهوله'] },
   { command: 'yt', triggers: ['يوت', 'يوتيوب', 'yt'] },
   { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
-  { command: 'dl', triggers: ['نزل', 'حمل', 'تنزيل', 'نزلها', 'dl'] },
+  // NB: bare "تنزيل" belongs to /unrank (bot ranks); download keeps نزل/حمل.
+  { command: 'dl', triggers: ['نزل', 'حمل', 'نزلها', 'dl'] },
   { command: 'sticker', triggers: ['ملصق', 'ستيكر', 'حولها ملصق', 'sticker'] },
   { command: 'newpack', triggers: ['مجموعه جديده', 'انشئ مجموعه', 'مجموعه ملصقات'] },
   { command: 'newemoji', triggers: ['رموز مميزه', 'مجموعه رموز', 'ايموجي مميز'] },
@@ -91,15 +92,17 @@ const ALIASES: Alias[] = [
   { command: 'clearemoji', triggers: ['امسح رموزي', 'مسح الرموز'] },
   { command: 'addsticker', triggers: ['اضف ملصق', 'اضف للمجموعه'] },
   { command: 'addemoji', triggers: ['اضف رمز', 'اضف ايموجي'] },
-  // Moderation (reply-based staff actions)
-  { command: 'promote', triggers: ['رفع ادمن', 'رفع مشرف', 'ترقيه', 'ترقية', 'رقي'] },
-  { command: 'demote', triggers: ['تنزيل ادمن', 'تنزيل مشرف', 'نزل ادمن', 'نزل مشرف', 'تنزيل الادمن'] },
-  // Custom in-bot ranks (3-word phrases win over the 2-word Telegram promote above)
-  { command: 'radmin', triggers: ['رفع ادمن بوت', 'رتبة ادمن', 'ادمن بوت', 'رتبه ادمن'] },
-  { command: 'rmod', triggers: ['رفع مشرف بوت', 'رتبة مشرف', 'مشرف بوت', 'رتبه مشرف'] },
-  { command: 'rvip', triggers: ['رفع مميز', 'رتبة مميز', 'مميز بوت', 'رتبه مميز', 'عضو مميز'] },
-  { command: 'unrank', triggers: ['شيل رتبه', 'شيل الرتبه', 'حذف رتبه', 'سحب رتبه', 'ازالة رتبه', 'تنزيل رتبه'] },
-  { command: 'roles', triggers: ['رتب البوت', 'الرتب الاداريه', 'مشرفين البوت', 'رتب الاداره'] },
+  // Telegram-native admin promote/demote (kept English-first; "رفع/تنزيل *"
+  // now belong to the bot-rank system below).
+  { command: 'promote', triggers: ['ترقيه', 'ترقية', 'رفع تيليجرام'] },
+  { command: 'demote', triggers: ['تنزيل تيليجرام', 'تنزيل ترقية'] },
+  // Unified bot ranks — "رفع <رتبة>" (by reply). The rank word decides.
+  { command: 'rvip', triggers: ['رفع مميز', 'رتبة مميز', 'رتبه مميز'] },
+  { command: 'radmin', triggers: ['رفع ادمن', 'رفع ادمن بوت', 'رتبة ادمن', 'رتبه ادمن'] },
+  { command: 'rmanager', triggers: ['رفع مدير', 'رتبة مدير', 'رتبه مدير', 'مدير بوت'] },
+  { command: 'rmod', triggers: ['رفع مشرف', 'رفع مشرف بوت', 'رتبة مشرف', 'رتبه مشرف'] },
+  { command: 'unrank', triggers: ['تنزيل', 'تنزيل رتبه', 'شيل رتبه', 'شيل الرتبه', 'حذف رتبه', 'سحب رتبه', 'ازالة رتبه'] },
+  { command: 'roles', triggers: ['الرتب', 'رتب البوت', 'قائمه الرتب', 'رتب الاداره', 'مشرفين البوت'] },
   { command: 'setreply', triggers: ['رد مميز', 'احفظ رد مميز', 'حفظ رد مميز', 'رد بايموجي'] },
   { command: 'setidcardall', triggers: ['بطاقة ايدي للكل', 'بطاقة ايدي لكل القروبات', 'بطاقة عامه', 'ايدي لكل القروبات'] },
   { command: 'residcardall', triggers: ['رجع بطاقة ايدي للكل', 'رجع البطاقة العامه', 'ايدي افتراضي للكل'] },
@@ -167,7 +170,7 @@ const ALIASES: Alias[] = [
   { command: 'ticket', triggers: ['تذكره', 'شكوى', 'اقتراح', 'شكوه'] },
   { command: 'tickets', triggers: ['التذاكر', 'الشكاوى', 'الاقتراحات'] },
   // Ranks
-  { command: 'ranks', triggers: ['الرتب', 'قائمه الرتب', 'رتب الجروب'] },
+  { command: 'ranks', triggers: ['رتب الجروب', 'مستويات الجروب'] },
   { command: 'myrank', triggers: ['مرتبتي', 'رتبتي الحاليه'] },
   // Giveaway (avoid bare "سحب" — it's the economy withdraw alias)
   { command: 'giveaway', triggers: ['قرعه', 'سحب على', 'مسابقه سحب', 'هديه'] },
@@ -273,6 +276,7 @@ const REPLY_ONLY_COMMANDS = new Set([
   '/unban',
   '/kick',
   '/radmin',
+  '/rmanager',
   '/rmod',
   '/rvip',
   '/unrank',

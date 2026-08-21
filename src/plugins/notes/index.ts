@@ -21,7 +21,7 @@ export const notesPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     // /save <name> <content...>  (or reply to a message with /save <name>)
-    bot.command('save', requireRole('moderator'), async (ctx) => {
+    bot.command('save', requireRole('manager'), async (ctx) => {
       const parts = ctx.message.text.split(' ').slice(1);
       const name = parts.shift();
       if (!name) {
@@ -59,7 +59,7 @@ export const notesPlugin: Plugin = {
       await ctx.reply(`📚 الملاحظات المحفوظة:\n${list}`);
     });
 
-    bot.command('clearnote', requireRole('moderator'), async (ctx) => {
+    bot.command('clearnote', requireRole('manager'), async (ctx) => {
       const name = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!name) {
         await ctx.reply('🗑 استخدم: /clearnote اسم_الملاحظة');

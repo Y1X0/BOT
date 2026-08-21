@@ -34,7 +34,7 @@ export const adminPlugin: Plugin = {
   ],
 
   register(bot: Telegraf<BotContext>) {
-    bot.command('settings', requireRole('moderator'), async (ctx) => {
+    bot.command('settings', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const s = ctx.state.settings ?? (await getSettings(ctx.chat.id));
       if (!s) return;
@@ -53,7 +53,7 @@ export const adminPlugin: Plugin = {
     });
 
     // /set <key> <on|off>
-    bot.command('set', requireRole('admin'), async (ctx) => {
+    bot.command('set', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const [, key, value] = ctx.message.text.split(/\s+/);
       if (!key || !isToggleable(key)) {
@@ -67,7 +67,7 @@ export const adminPlugin: Plugin = {
       );
     });
 
-    bot.command('setrules', requireRole('admin'), async (ctx) => {
+    bot.command('setrules', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const rules = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!rules) return void ctx.reply(t('settings.rules_usage'));
@@ -75,7 +75,7 @@ export const adminPlugin: Plugin = {
       await ctx.reply(t('settings.rules_set'));
     });
 
-    bot.command('lang', requireRole('admin'), async (ctx) => {
+    bot.command('lang', requireRole('manager'), async (ctx) => {
       const lang = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       if (!lang || !isSupportedLocale(lang)) {
         await ctx.reply('🌐 استخدم: /lang ar  أو  /lang en');
@@ -86,7 +86,7 @@ export const adminPlugin: Plugin = {
     });
 
     // 🔢 Set the warning limit before the escalation action fires.
-    bot.command('setwarns', requireRole('admin'), async (ctx) => {
+    bot.command('setwarns', requireRole('manager'), async (ctx) => {
       const n = Number(ctx.message.text.split(/\s+/)[1]);
       if (!Number.isInteger(n) || n < 1 || n > 20) {
         return void ctx.reply('🔢 استخدم رقماً بين 1 و 20. مثال: /setwarns 3');
@@ -96,7 +96,7 @@ export const adminPlugin: Plugin = {
     });
 
     // ⚙️ Set what happens when a member reaches the warning limit.
-    bot.command('warnaction', requireRole('admin'), async (ctx) => {
+    bot.command('warnaction', requireRole('manager'), async (ctx) => {
       const action = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       if (action !== 'mute' && action !== 'kick' && action !== 'ban') {
         return void ctx.reply('⚙️ استخدم: /warnaction mute  أو  kick  أو  ban');
@@ -107,7 +107,7 @@ export const adminPlugin: Plugin = {
     });
 
     // 🚦 Configure flood detection: max messages per window (seconds).
-    bot.command('setflood', requireRole('admin'), async (ctx) => {
+    bot.command('setflood', requireRole('manager'), async (ctx) => {
       const [, limitRaw, windowRaw] = ctx.message.text.split(/\s+/);
       const limit = Number(limitRaw);
       const windowSec = windowRaw === undefined ? 10 : Number(windowRaw);
@@ -122,7 +122,7 @@ export const adminPlugin: Plugin = {
     });
 
     // 🚫 Toggle the built-in profanity/insult filter.
-    bot.command('antiswear', requireRole('admin'), async (ctx) => {
+    bot.command('antiswear', requireRole('manager'), async (ctx) => {
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       const on = arg === 'on' || arg === 'تفعيل' || arg === 'فعل';
       const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف' || arg === 'وقف';
@@ -138,7 +138,7 @@ export const adminPlugin: Plugin = {
       );
     });
 
-    bot.command('setwelcome', requireRole('admin'), async (ctx) => {
+    bot.command('setwelcome', requireRole('manager'), async (ctx) => {
       const msg = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!msg) {
         await ctx.reply('استخدم: /setwelcome نص الترحيب (يدعم {name} و {title})');

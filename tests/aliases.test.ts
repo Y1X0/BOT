@@ -24,9 +24,13 @@ describe('Arabic command aliases', () => {
     expect(matchAlias('لو خيروك')).toBe('/wyr');
   });
 
-  it('maps moderation triggers, preferring multi-word over the dl clash', () => {
-    expect(matchAlias('رفع ادمن')).toBe('/promote');
-    expect(matchAlias('تنزيل ادمن')).toBe('/demote'); // not /dl "ادمن"
+  it('maps moderation + bot-rank triggers', () => {
+    // "رفع <رتبة>" belongs to the unified bot-rank system now.
+    expect(matchAlias('رفع ادمن')).toBe('/radmin');
+    expect(matchAlias('رفع مدير')).toBe('/rmanager');
+    expect(matchAlias('رفع مشرف')).toBe('/rmod');
+    expect(matchAlias('رفع مميز')).toBe('/rvip');
+    expect(matchAlias('تنزيل')).toBe('/unrank');
     expect(matchAlias('كتم')).toBe('/mute');
     expect(matchAlias('تقييد')).toBe('/restrict');
     expect(matchAlias('فك تقييد')).toBe('/unrestrict');

@@ -4,8 +4,10 @@ import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD } from '../s
 describe('statLabel', () => {
   it('maps staff roles regardless of activity', () => {
     expect(statLabel('owner', 0)).toContain('المالك');
-    expect(statLabel('admin', 0)).toContain('مشرف');
-    expect(statLabel('moderator', 0)).toContain('مساعد');
+    expect(statLabel('supervisor', 0)).toContain('مشرف');
+    expect(statLabel('manager', 0)).toContain('مدير');
+    expect(statLabel('admin', 0)).toContain('أدمن');
+    expect(statLabel('vip', 0)).toContain('مميّز');
   });
   it('tiers regular members by message count', () => {
     expect(statLabel('member', 0)).toContain('مسكين');

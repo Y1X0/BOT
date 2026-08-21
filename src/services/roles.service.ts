@@ -1,8 +1,30 @@
 import { prisma } from '../core/database';
+import { getGlobal, setGlobal } from './global.service';
+import { createLogger } from '../core/logger';
 import type { Role } from '../utils/permissions';
 
+const log = createLogger('roles');
+
+/**
+ * One-time migration to the unified 6-tier role model. Old stored ranks map:
+ *   admin → manager,  moderator → admin,  vip → vip (unchanged).
+ * NOT idempotent (admin is also a NEW valid value), so it's guarded by a flag
+ * and the two updates run in this order so they never collide.
+ */
+export async function migrateRolesV2(): Promise<void> {
+  if (await getGlobal('rolesMigratedV2')) return;
+  try {
+    const a = await prisma.chatRole.updateMany({ where: { role: 'admin' }, data: { role: 'manager' } });
+    const m = await prisma.chatRole.updateMany({ where: { role: 'moderator' }, data: { role: 'admin' } });
+    await setGlobal('rolesMigratedV2', '1');
+    log.info({ adminToManager: a.count, moderatorToAdmin: m.count }, 'roles migrated to v2');
+  } catch (err) {
+    log.error({ err }, 'roles v2 migration failed — will retry next start');
+  }
+}
+
 /** Custom bot ranks assignable via commands (never 'owner'/'member' — those are inherent). */
-export const ASSIGNABLE_ROLES = ['admin', 'moderator', 'vip'] as const;
+export const ASSIGNABLE_ROLES = ['supervisor', 'manager', 'admin', 'vip'] as const;
 export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
 /** The bot-internal rank a user holds in a chat, or null if none assigned. */

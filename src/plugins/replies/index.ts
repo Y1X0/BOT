@@ -35,7 +35,7 @@ export const repliesPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     // /addreply trigger | response1 ; response2
-    bot.command('addreply', requireRole('admin'), async (ctx) => {
+    bot.command('addreply', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const raw = ctx.message.text.split(' ').slice(1).join(' ');
       const [trigger, responsesRaw] = raw.split('|').map((s) => s.trim());
@@ -58,7 +58,7 @@ export const repliesPlugin: Plugin = {
     // /setreply <trigger> — used AS A REPLY to a message. Captures that
     // message's exact text + entities (premium/custom emoji, bold…) and stores
     // it as the reply for <trigger>. This is how a keyword gets a fancy reply.
-    bot.command('setreply', requireRole('admin'), async (ctx) => {
+    bot.command('setreply', requireRole('manager'), async (ctx) => {
       const trigger = ctx.message.text.split(' ').slice(1).join(' ').trim();
       const replied = (ctx.message as {
         reply_to_message?: { text?: string; caption?: string; entities?: unknown[]; caption_entities?: unknown[] };
@@ -81,7 +81,7 @@ export const repliesPlugin: Plugin = {
       );
     });
 
-    bot.command('delreply', requireRole('admin'), async (ctx) => {
+    bot.command('delreply', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const trigger = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!trigger) {
@@ -92,7 +92,7 @@ export const repliesPlugin: Plugin = {
       await ctx.reply(ok ? t('replies.deleted', { trigger }) : t('replies.notfound'));
     });
 
-    bot.command('replies', requireRole('moderator'), async (ctx) => {
+    bot.command('replies', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const replies = await listReplies(ctx.chat.id);
       if (!replies.length) {

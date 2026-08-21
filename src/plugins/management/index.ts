@@ -57,7 +57,7 @@ export const managementPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     // --- Night mode config ---
-    bot.command('nightmode', requireRole('admin'), async (ctx) => {
+    bot.command('nightmode', requireRole('manager'), async (ctx) => {
       const parts = ctx.message.text.split(/\s+/).slice(1);
       const state = parts[0];
       if (state !== 'on' && state !== 'off') {
@@ -78,7 +78,7 @@ export const managementPlugin: Plugin = {
     });
 
     // --- Mention all registered members (in batches) ---
-    bot.command('all', requireRole('moderator'), async (ctx) => {
+    bot.command('all', requireRole('admin'), async (ctx) => {
       const note = ctx.message.text.split(' ').slice(1).join(' ').trim();
       await mentionAll(ctx, note);
     });
@@ -109,7 +109,7 @@ export const managementPlugin: Plugin = {
     });
 
     // --- Diagnostic checkup: bot rights + feature toggles ---
-    bot.command('checkup', requireRole('moderator'), async (ctx) => {
+    bot.command('checkup', requireRole('admin'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const yn = (v: boolean) => (v ? '✅' : '❌');
       const s = ctx.state.settings;

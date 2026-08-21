@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole } from '../../utils/permissions';
+import { requireRole, resolveUserRole, canActOn, type Role } from '../../utils/permissions';
 import {
   addWarning,
   countWarnings,
@@ -60,7 +60,7 @@ export const moderationPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     // /warn (reply) [reason]
-    bot.command('warn', requireRole('moderator'), async (ctx) => {
+    bot.command('warn', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply(t('mod.warn_usage'));
@@ -85,7 +85,7 @@ export const moderationPlugin: Plugin = {
       }
     });
 
-    bot.command('unwarn', requireRole('moderator'), async (ctx) => {
+    bot.command('unwarn', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply(t('mod.need_reply'));
@@ -93,7 +93,7 @@ export const moderationPlugin: Plugin = {
       await ctx.reply(t('mod.unwarn_done', { name: displayName(target), count }));
     });
 
-    bot.command('warns', requireRole('moderator'), async (ctx) => {
+    bot.command('warns', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx) ?? ctx.from;
       const count = await countWarnings(ctx.chat.id, target.id);
@@ -104,14 +104,14 @@ export const moderationPlugin: Plugin = {
     });
 
     // Direct actions
-    bot.command('mute', requireRole('moderator'), moderationAction('mute'));
-    bot.command('unmute', requireRole('moderator'), moderationAction('unmute'));
+    bot.command('mute', requireRole('admin'), moderationAction('mute'));
+    bot.command('unmute', requireRole('admin'), moderationAction('unmute'));
     bot.command('kick', requireRole('admin'), moderationAction('kick'));
     bot.command('ban', requireRole('admin'), moderationAction('ban'));
     bot.command('unban', requireRole('admin'), moderationAction('unban'));
 
     // ⏳ Timed mute: /tmute 30m (reply). Auto-unmutes when the duration elapses.
-    bot.command('tmute', requireRole('moderator'), async (ctx) => {
+    bot.command('tmute', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply('⏳ ردّ على العضو واكتب المدة. مثال: /tmute 30m');
@@ -145,10 +145,11 @@ export const moderationPlugin: Plugin = {
 
     // Promote to Telegram admin (owner/admin only). Optional custom title:
     // /promote اللقب (reply).
-    bot.command('promote', requireRole('admin'), async (ctx) => {
+    bot.command('promote', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply(t('mod.need_reply'));
+      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
       try {
         await ctx.telegram.promoteChatMember(ctx.chat.id, target.id, {
           can_delete_messages: true,
@@ -176,10 +177,11 @@ export const moderationPlugin: Plugin = {
     });
 
     // Demote an admin back to a regular member (owner/admin only).
-    bot.command('demote', requireRole('admin'), async (ctx) => {
+    bot.command('demote', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply(t('mod.need_reply'));
+      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
       try {
         await ctx.telegram.promoteChatMember(ctx.chat.id, target.id, {
           can_change_info: false,
@@ -200,7 +202,7 @@ export const moderationPlugin: Plugin = {
 
     // Fully restrict a member — nothing at all can be sent (text included).
     // Optional duration: /restrict 2h (reply).
-    bot.command('restrict', requireRole('moderator'), async (ctx) => {
+    bot.command('restrict', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply('🔗 ردّ على العضو الذي تريد تقييده.');
@@ -233,7 +235,7 @@ export const moderationPlugin: Plugin = {
     });
 
     // Remove restrictions — restore full sending permissions.
-    bot.command('unrestrict', requireRole('moderator'), async (ctx) => {
+    bot.command('unrestrict', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply(t('mod.need_reply'));
@@ -247,7 +249,7 @@ export const moderationPlugin: Plugin = {
     });
 
     // Word filters
-    bot.command('addfilter', requireRole('admin'), async (ctx) => {
+    bot.command('addfilter', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const word = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!word) return void ctx.reply(t('filters.add_usage'));
@@ -255,7 +257,7 @@ export const moderationPlugin: Plugin = {
       await ctx.reply(t('filters.added', { word }));
     });
 
-    bot.command('delfilter', requireRole('admin'), async (ctx) => {
+    bot.command('delfilter', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
       const word = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!word) return void ctx.reply(t('filters.add_usage'));
@@ -263,7 +265,7 @@ export const moderationPlugin: Plugin = {
       await ctx.reply(ok ? t('filters.deleted', { word }) : t('filters.list_empty'));
     });
 
-    bot.command('filters', requireRole('moderator'), async (ctx) => {
+    bot.command('filters', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const filters = await listFilters(ctx.chat.id);
       if (!filters.length) return void ctx.reply(t('filters.list_empty'));
@@ -306,13 +308,11 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
   };
 }
 
-/** True if the target is a chat admin/owner (protected from moderation). */
+/** True if the sender may NOT act on the target: nobody can moderate someone of
+ *  equal or higher rank (a Telegram admin counts as 🔰 مدير, the creator as مالك). */
 async function isProtected(ctx: BotContext, userId: number): Promise<boolean> {
   if (!ctx.chat) return false;
-  try {
-    const member = await ctx.telegram.getChatMember(ctx.chat.id, userId);
-    return member.status === 'creator' || member.status === 'administrator';
-  } catch {
-    return false;
-  }
+  const actor: Role = ctx.state.role ?? 'member';
+  const targetRole = await resolveUserRole(ctx, userId);
+  return !canActOn(actor, targetRole);
 }

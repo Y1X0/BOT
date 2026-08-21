@@ -36,7 +36,10 @@ export const contextMiddleware: MiddlewareFn<BotContext> = async (ctx, next) => 
   if (ctx.from && chat) {
     const role = await resolveRole(ctx);
     ctx.state.role = role;
-    ctx.state.isStaff = hasRole(role, 'moderator');
+    // Staff = the enforcement tier (admin and up): can run staff commands.
+    ctx.state.isStaff = hasRole(role, 'admin');
+    // Exempt = vip and up: skipped by all automatic protection (words/flood/links).
+    ctx.state.isExempt = hasRole(role, 'vip');
   }
 
   await next();

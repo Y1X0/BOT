@@ -37,7 +37,7 @@ export const ticketsPlugin: Plugin = {
     });
 
     // Admin: list open tickets.
-    bot.command('tickets', requireRole('admin'), async (ctx) => {
+    bot.command('tickets', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const rows = await listOpenTickets(ctx.chat!.id);
       if (!rows.length) return void ctx.reply('📋 لا توجد تذاكر مفتوحة 🎉');
@@ -46,7 +46,7 @@ export const ticketsPlugin: Plugin = {
     });
 
     // Admin: view one ticket.
-    bot.command('ticketview', requireRole('admin'), async (ctx) => {
+    bot.command('ticketview', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const id = parseId(ctx.message.text.split(' ').slice(1).join(' '));
       if (id === null) return void ctx.reply('🔍 استخدم: /ticketview 5');
@@ -59,7 +59,7 @@ export const ticketsPlugin: Plugin = {
     });
 
     // Admin: reply to a ticket (posts to the group, tags the member, closes it).
-    bot.command('ticketreply', requireRole('admin'), async (ctx) => {
+    bot.command('ticketreply', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const parsed = parseIdAndText(ctx.message.text.split(' ').slice(1).join(' '));
       if (!parsed) return void ctx.reply('📩 استخدم: /ticketreply 5 نص الرد');
@@ -71,7 +71,7 @@ export const ticketsPlugin: Plugin = {
     });
 
     // Admin: close without replying.
-    bot.command('ticketclose', requireRole('admin'), async (ctx) => {
+    bot.command('ticketclose', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const id = parseId(ctx.message.text.split(' ').slice(1).join(' '));
       if (id === null) return void ctx.reply('✅ استخدم: /ticketclose 5');

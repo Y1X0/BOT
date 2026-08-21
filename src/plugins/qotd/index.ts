@@ -29,7 +29,7 @@ export const qotdPlugin: Plugin = {
       await ctx.reply(`💭 سؤال اليوم:\n\n${questionFor(ctx.chat!.id, new Date())}`);
     });
 
-    bot.command('qotdauto', requireRole('admin'), async (ctx) => {
+    bot.command('qotdauto', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx)) return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       const on = arg === 'on' || arg === 'تفعيل';

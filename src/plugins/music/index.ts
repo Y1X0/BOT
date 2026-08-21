@@ -413,7 +413,7 @@ export const musicPlugin: Plugin = {
 
     // Staff-only controls.
     // ضمّ الحساب المساعد للجروب برابط دعوة — لازم يكون عضو قبل ما يفتح الكول.
-    bot.command('vcjoin', requireRole('moderator'), async (ctx) => {
+    bot.command('vcjoin', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const link = ctx.message.text.split(' ').slice(1).join(' ').trim();
@@ -431,21 +431,21 @@ export const musicPlugin: Plugin = {
       );
     });
 
-    bot.command('vcstart', requireRole('moderator'), async (ctx) => {
+    bot.command('vcstart', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/startvc', { chat_id: ctx.chat.id });
       await ctx.reply(r?.ok ? '✅ فتحت الكول. اكتب: تشغيل اسم الأغنية' : errorText(r));
     });
 
-    bot.command('vcstop', requireRole('moderator'), async (ctx) => {
+    bot.command('vcstop', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/stopvc', { chat_id: ctx.chat.id });
       await ctx.reply(r?.ok ? '👋 سكّرت الكول.' : errorText(r));
     });
 
-    bot.command('vcskip', requireRole('moderator'), async (ctx) => {
+    bot.command('vcskip', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/skip', { chat_id: ctx.chat.id });
@@ -454,14 +454,14 @@ export const musicPlugin: Plugin = {
       await postCard(ctx, r);
     });
 
-    bot.command('vcpause', requireRole('moderator'), async (ctx) => {
+    bot.command('vcpause', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/pause', { chat_id: ctx.chat.id });
       await ctx.reply(r?.ok ? '⏸ وقّفت مؤقتاً. اكتب: كمل' : 'ما في شي عم يشتغل.');
     });
 
-    bot.command('vcresume', requireRole('moderator'), async (ctx) => {
+    bot.command('vcresume', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/resume', { chat_id: ctx.chat.id });
@@ -469,7 +469,7 @@ export const musicPlugin: Plugin = {
     });
 
     // فرّغ الطابور (بيضل الي عم يشتغل).
-    bot.command('vcclear', requireRole('moderator'), async (ctx) => {
+    bot.command('vcclear', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/clearqueue', { chat_id: ctx.chat.id });
@@ -478,7 +478,7 @@ export const musicPlugin: Plugin = {
     });
 
     // احذف أغنية من الطابور برقمها: احذف 3
-    bot.command('vcremove', requireRole('moderator'), async (ctx) => {
+    bot.command('vcremove', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const index = parseInt(ctx.message.text.split(/\s+/)[1] || '', 10);
@@ -490,7 +490,7 @@ export const musicPlugin: Plugin = {
 
     // بطاقة 🎼 🎤 ⏳ 💿 — set the card emojis (title channel duration requester).
     // No args → reset to defaults. Moderators only.
-    bot.command('vccard', requireRole('moderator'), async (ctx) => {
+    bot.command('vccard', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       const title = 'title' in ctx.chat ? ctx.chat.title : undefined;
       await ensureChat(ctx.chat.id, title, ctx.chat.type);
@@ -573,7 +573,7 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.answerCbQuery(NOT_CONFIGURED).catch(() => undefined);
 
       const role = await resolveRole(ctx);
-      if (!hasRole(role, 'moderator')) {
+      if (!hasRole(role, 'admin')) {
         return void ctx.answerCbQuery('⛔️ الأزرار للمشرفين فقط.').catch(() => undefined);
       }
 

@@ -215,7 +215,7 @@ export const infoPlugin: Plugin = {
 
     // /setidcard — capture the replied message (text + premium-emoji entities)
     // as this group's custom id-card template.
-    bot.command('setidcard', requireRole('admin'), async (ctx) => {
+    bot.command('setidcard', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const replied = (ctx.message as {
         reply_to_message?: { text?: string; caption?: string; entities?: unknown[]; caption_entities?: unknown[] };
@@ -239,19 +239,19 @@ export const infoPlugin: Plugin = {
     });
 
     // /residcard — restore the default card.
-    bot.command('residcard', requireRole('admin'), async (ctx) => {
+    bot.command('residcard', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCard(ctx.chat.id, null, null);
       await ctx.reply('♻️ رجّعت بطاقة «ايدي» للشكل الافتراضي.');
     });
 
     // Switch the card between a designed image and the text template.
-    bot.command('idcardimage', requireRole('admin'), async (ctx) => {
+    bot.command('idcardimage', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCardImage(ctx.chat.id, true);
       await ctx.reply('🖼 صار كرت «ايدي» يطلع كـ *صورة* مصمّمة. جرّب: ايدي');
     });
-    bot.command('idcardtext', requireRole('admin'), async (ctx) => {
+    bot.command('idcardtext', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCardImage(ctx.chat.id, false);
       await ctx.reply('📝 صار كرت «ايدي» يطلع كـ *نص* (تقدر تخصصه بـ «بطاقة ايدي»).');
@@ -267,11 +267,11 @@ export const infoPlugin: Plugin = {
       ]);
       return { reply_markup: { inline_keyboard: rows } };
     };
-    bot.command('idcardtheme', requireRole('admin'), async (ctx) => {
+    bot.command('idcardtheme', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await ctx.reply('🎨 اختر ثيم بطاقة «ايدي»:\n(«تلقائي» = كل عضو بلون ثابت مختلف، «عشوائي» = يتغيّر كل مرة)', themeKeyboard());
     });
-    bot.action(/^idth:(.+)$/, requireRole('admin'), async (ctx) => {
+    bot.action(/^idth:(.+)$/, requireRole('manager'), async (ctx) => {
       if (!ctx.chat) return;
       const id = ctx.match[1];
       const valid = id === 'auto' || id === 'random' || CARD_THEMES.some((th) => th.id === id);

@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole, invalidateRole } from '../../utils/permissions';
+import { requireRole, invalidateRole, resolveUserRole, canActOn, type Role } from '../../utils/permissions';
 import { resolveTarget, displayName } from '../../utils/format';
 import { setChatRole, removeChatRole, listChatRoles, type AssignableRole } from '../../services/roles.service';
 
@@ -10,63 +10,77 @@ const isGroup = (ctx: BotContext) => ctx.chat && (ctx.chat.type === 'group' || c
 /** Human badge for each rank, used in confirmations and the /roles list. */
 const BADGE: Record<string, string> = {
   owner: '👑 مالك',
-  admin: '🔰 أدمن بوت',
-  moderator: '🛡 مشرف',
-  vip: '⭐ مميز',
+  supervisor: '🛡 مشرف',
+  manager: '🔰 مدير',
+  admin: '⭐ أدمن',
+  vip: '💎 مميز',
   member: '👤 عضو',
 };
 
+// Assignable ranks, strongest first, for the /roles list ordering.
+const RANK_ORDER: Record<string, number> = { supervisor: 0, manager: 1, admin: 2, vip: 3 };
+
 /**
- * Custom bot ranks (رتب البوت) — internal to the bot, independent of Telegram's
- * own admin. A holder gets bot-command permissions even without being a Telegram
- * admin. Assigned by reply, only by an admin/owner. 'owner' is never assignable
- * (it belongs to the group creator and the bot owner).
+ * Custom bot ranks (رتب البوت) — a single hierarchy independent of Telegram's
+ * own admin, though a Telegram admin counts as 🔰 مدير and the creator as 👑 مالك.
+ * Rules: you can only grant a rank BELOW yours, and only to someone currently
+ * below you; nobody can outrank or act on an equal-or-higher member.
  */
 export const botRolesPlugin: Plugin = {
   name: 'botroles',
-  description: 'Custom in-bot ranks (admin/moderator/vip) assignable by reply',
+  description: 'Unified in-bot ranks (supervisor/manager/admin/vip) assignable by reply',
   commands: [
-    { command: 'radmin', description: '🔰 رفع أدمن بوت (بالرد)', staffOnly: true },
     { command: 'rmod', description: '🛡 رفع مشرف (بالرد)', staffOnly: true },
-    { command: 'rvip', description: '⭐ رفع مميّز (بالرد)', staffOnly: true },
-    { command: 'unrank', description: '🗑 سحب الرتبة (بالرد)', staffOnly: true },
-    { command: 'roles', description: '📋 قائمة رتب البوت' },
+    { command: 'rmanager', description: '🔰 رفع مدير (بالرد)', staffOnly: true },
+    { command: 'radmin', description: '⭐ رفع أدمن (بالرد)', staffOnly: true },
+    { command: 'rvip', description: '💎 رفع مميّز (بالرد)', staffOnly: true },
+    { command: 'unrank', description: '🗑 تنزيل الرتبة (بالرد)', staffOnly: true },
+    { command: 'roles', description: '📋 قائمة الرتب' },
   ],
 
   register(bot: Telegraf<BotContext>) {
     const assign = (role: AssignableRole) => async (ctx: BotContext) => {
       if (!isGroup(ctx) || !ctx.chat) return;
+      const actor: Role = ctx.state.role ?? 'member';
       const target = resolveTarget(ctx);
-      if (!target) {
-        await ctx.reply('↩️ ردّ على رسالة الشخص اللي بدك تعطيه الرتبة.');
-        return;
+      if (!target) return void ctx.reply('↩️ ردّ على رسالة الشخص اللي بدك تعطيه الرتبة.');
+      if ((target as { is_bot?: boolean }).is_bot) return void ctx.reply('🤖 ما بينفع تعطي رتبة لبوت.');
+
+      // You may only grant a rank strictly BELOW your own…
+      if (!canActOn(actor, role)) {
+        return void ctx.reply(`⛔️ ما بتقدر ترفع لرتبة ${BADGE[role]} — لازم تكون أعلى منها.`);
       }
-      if ((target as { is_bot?: boolean }).is_bot) {
-        await ctx.reply('🤖 ما بينفع تعطي رتبة لبوت.');
-        return;
+      // …and only to someone currently below you.
+      const targetRole = await resolveUserRole(ctx, target.id);
+      if (!canActOn(actor, targetRole)) {
+        return void ctx.reply(`⛔️ ${displayName(target)} رتبته (${BADGE[targetRole]}) مساوية أو أعلى من رتبتك.`);
       }
+
       const name = displayName(target);
       await setChatRole(ctx.chat.id, target.id, role, name, ctx.from?.id ?? null);
-      invalidateRole(ctx.chat.id, target.id); // pick up the new rank immediately
-      await ctx.reply(`✅ صار ${name} الآن ${BADGE[role]} في هالجروب.\nالرتبة محفوظة بالبوت وبتعطيه صلاحياته حتى لو مش أدمن بتيليجرام.`);
+      invalidateRole(ctx.chat.id, target.id);
+      await ctx.reply(`✅ صار ${name} الآن ${BADGE[role]} بهالجروب.\nالرتبة محفوظة بالبوت وبتعطيه صلاحياته حتى لو مش أدمن بتيليجرام.`);
     };
 
-    bot.command('radmin', requireRole('admin'), assign('admin'));
-    bot.command('rmod', requireRole('admin'), assign('moderator'));
-    bot.command('rvip', requireRole('admin'), assign('vip'));
+    bot.command('rmod', requireRole('owner'), assign('supervisor')); // only the owner promotes a مشرف
+    bot.command('rmanager', requireRole('supervisor'), assign('manager'));
+    bot.command('radmin', requireRole('manager'), assign('admin'));
+    bot.command('rvip', requireRole('manager'), assign('vip'));
 
-    bot.command('unrank', requireRole('admin'), async (ctx) => {
+    bot.command('unrank', requireRole('manager'), async (ctx) => {
       if (!isGroup(ctx) || !ctx.chat) return;
+      const actor: Role = ctx.state.role ?? 'member';
       const target = resolveTarget(ctx);
-      if (!target) {
-        await ctx.reply('↩️ ردّ على رسالة الشخص اللي بدك تسحب رتبته.');
-        return;
+      if (!target) return void ctx.reply('↩️ ردّ على رسالة الشخص اللي بدك تنزّل رتبته.');
+      const targetRole = await resolveUserRole(ctx, target.id);
+      if (!canActOn(actor, targetRole)) {
+        return void ctx.reply(`⛔️ ما بتقدر تنزّل ${displayName(target)} — رتبته (${BADGE[targetRole]}) مساوية أو أعلى منك.`);
       }
       const removed = await removeChatRole(ctx.chat.id, target.id);
-      invalidateRole(ctx.chat.id, target.id); // drop the cached rank immediately
+      invalidateRole(ctx.chat.id, target.id);
       await ctx.reply(
         removed
-          ? `🗑 تم سحب رتبة ${displayName(target)} في هالجروب.`
+          ? `🗑 تم تنزيل رتبة ${displayName(target)} بهالجروب.`
           : `ℹ️ ${displayName(target)} ما عنده رتبة بوت أصلاً.`,
       );
     });
@@ -75,12 +89,9 @@ export const botRolesPlugin: Plugin = {
       if (!isGroup(ctx) || !ctx.chat) return;
       const roles = await listChatRoles(ctx.chat.id);
       if (!roles.length) {
-        await ctx.reply('📋 ما في رتب بوت معيّنة بهالجروب.\nللتعيين: ردّ على العضو واكتب «رفع مشرف بوت» أو «رفع أدمن بوت» أو «رفع مميز».');
-        return;
+        return void ctx.reply('📋 ما في رتب بوت معيّنة بهالجروب.\nللتعيين: ردّ على العضو واكتب «رفع مشرف» أو «رفع مدير» أو «رفع ادمن» أو «رفع مميز».');
       }
-      // Sort by rank strength for a tidy list.
-      const order: Record<string, number> = { admin: 0, moderator: 1, vip: 2 };
-      roles.sort((a, b) => (order[a.role] ?? 9) - (order[b.role] ?? 9));
+      roles.sort((a, b) => (RANK_ORDER[a.role] ?? 9) - (RANK_ORDER[b.role] ?? 9));
       const lines = roles.map((r) => `${BADGE[r.role] ?? r.role} — ${r.name ?? r.userId}`).join('\n');
       await ctx.reply(`📋 رتب البوت في هالجروب:\n\n${lines}`);
     });

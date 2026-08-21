@@ -131,7 +131,7 @@ export const islamicPlugin: Plugin = {
       await ctx.reply(msg ?? '❌ تعذّر جلب آية اليوم، حاول لاحقاً.');
     });
 
-    bot.command('dailyayah', requireRole('admin'), async (ctx) => {
+    bot.command('dailyayah', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       const on = arg === 'on' || arg === 'تفعيل';
@@ -145,7 +145,7 @@ export const islamicPlugin: Plugin = {
     });
 
     // Toggle the automatic morning/evening athkar for this group.
-    bot.command('athkarauto', requireRole('admin'), async (ctx) => {
+    bot.command('athkarauto', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       const on = arg === 'on' || arg === 'تفعيل';
@@ -159,7 +159,7 @@ export const islamicPlugin: Plugin = {
     });
 
     // Enable/disable prayer-time announcements (with optional city).
-    bot.command('prayernotify', requireRole('admin'), async (ctx) => {
+    bot.command('prayernotify', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const parts = ctx.message.text.split(/\s+/).slice(1);
       const arg = parts[0]?.toLowerCase();

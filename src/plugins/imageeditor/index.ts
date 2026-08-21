@@ -91,7 +91,7 @@ export const imageEditorPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     // /imgmodel [name] — switch the image model/style at runtime (no redeploy).
-    bot.command('imgmodel', requireRole('admin'), async (ctx) => {
+    bot.command('imgmodel', requireRole('manager'), async (ctx) => {
       const arg = ctx.message.text.split(' ').slice(1).join(' ').trim();
       const list = POLLINATIONS_MODELS.join('، ');
       if (!arg) {
@@ -111,7 +111,7 @@ export const imageEditorPlugin: Plugin = {
       Markup.inlineKeyboard(
         STYLE_PRESETS.map((s) => [Markup.button.callback(s.label, `imgstyle:${s.id}`)]),
       );
-    bot.command('imgstyle', requireRole('admin'), async (ctx) => {
+    bot.command('imgstyle', requireRole('manager'), async (ctx) => {
       const arg = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (arg) {
         const found = findStyle(arg);

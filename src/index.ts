@@ -12,6 +12,7 @@ async function main(): Promise<void> {
   await initSentry();
   await connectDatabase();
   await ensureSchema();
+  await import('./services/roles.service').then((m) => m.migrateRolesV2()).catch(() => undefined);
 
   const { bot, plugins } = await createBot();
 

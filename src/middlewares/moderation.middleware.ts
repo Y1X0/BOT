@@ -18,7 +18,7 @@ export const moderationMiddleware: MiddlewareFn<BotContext> = async (ctx, next) 
     !chat ||
     !from ||
     !settings?.moderationEnabled ||
-    ctx.state.isStaff ||
+    ctx.state.isExempt ||
     from.is_bot ||
     (chat.type !== 'group' && chat.type !== 'supergroup')
   ) {
