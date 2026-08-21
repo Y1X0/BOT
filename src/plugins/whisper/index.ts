@@ -136,12 +136,17 @@ export const whisperPlugin: Plugin = {
         text: secret,
       });
 
-      const mentionHtml = `<a href="tg://user?id=${p.targetId}">${escapeHtml(p.targetName)}</a>`;
+      const senderMention = `<a href="tg://user?id=${p.senderId}">${escapeHtml(p.senderName)}</a>`;
+      const targetMention = `<a href="tg://user?id=${p.targetId}">${escapeHtml(p.targetName)}</a>`;
       await ctx.telegram
-        .sendMessage(p.chatId, `🤫 همسة سرية إلى ${mentionHtml}\nفقط هو من يقدر يفتحها 👇`, {
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
-        })
+        .sendMessage(
+          p.chatId,
+          `🤫 ${senderMention} همس همسة سرية إلى ${targetMention}\nفقط هو من يقدر يفتحها 👇`,
+          {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
+          },
+        )
         .catch(() => undefined);
 
       // Clean up the group prompt and confirm privately.
