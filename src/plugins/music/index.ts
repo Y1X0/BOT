@@ -15,6 +15,16 @@ const STREAMER_TOKEN = process.env.STREAMER_TOKEN || '';
 const NOT_CONFIGURED =
   '🎧 خدمة الكول مش مفعّلة بعد.\nلازم يشتغل سيرفر البث (music-bot) ويُضبط STREAMER_URL على البوت.';
 
+// Rotate the "searching" line so it doesn't get stale.
+const SEARCHING = [
+  '🎧 لحظة… عم جهّز الأغنية',
+  '🔍 عم أنقّب بالمكتبة…',
+  '🎵 عم أجيبها من الآخر…',
+  '⚡ ثانية وحدة…',
+  '🎶 عم أوصلها للكول…',
+];
+const pickSearching = (): string => SEARCHING[Math.floor(Math.random() * SEARCHING.length)];
+
 interface StreamerResult {
   ok: boolean;
   error?: string;
@@ -155,7 +165,7 @@ export const musicPlugin: Plugin = {
       const replied = (ctx.message as { reply_to_message?: { text?: string; caption?: string } }).reply_to_message;
       const query = parts || replied?.text || replied?.caption || '';
       if (!query) return void ctx.reply('🎵 اكتب اسم الأغنية:\nتشغيل نانسي عجرم');
-      const status = await ctx.reply('🔎 عم دوّر…');
+      const status = await ctx.reply(pickSearching());
       const r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
       if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
 
@@ -174,7 +184,9 @@ export const musicPlugin: Plugin = {
       if (r.thumb) {
         try {
           await ctx.replyWithPhoto(r.thumb, { caption, parse_mode: 'HTML', ...CONTROLS });
-          await ctx.telegram.deleteMessage(ctx.chat.id, status.message_id).catch(() => undefined);
+          // Edit (not delete) the status line — editing works even when the bot
+          // isn't admin, so no vague "searching…" message is left hanging.
+          await edit(ctx, status.message_id, '✅ بدأ التشغيل 🎶');
           return;
         } catch (err) {
           log.warn({ err }, 'now-playing photo card failed; using text');
