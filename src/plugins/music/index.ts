@@ -1,7 +1,7 @@
-import type { Telegraf } from 'telegraf';
+import { Markup, type Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole } from '../../utils/permissions';
+import { requireRole, resolveRole, hasRole } from '../../utils/permissions';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:music');
@@ -25,6 +25,8 @@ interface StreamerResult {
   seconds?: number;
   title?: string;
   duration?: number;
+  thumb?: string;
+  uploader?: string;
   active?: { title: string; duration: number } | null;
   upcoming?: { title: string; duration: number }[];
 }
@@ -55,6 +57,48 @@ function fmtDuration(seconds?: number): string {
   const sec = s % 60;
   const mm = h ? String(m).padStart(2, '0') : String(m);
   return (h ? `${h}:` : '') + `${mm}:${String(sec).padStart(2, '0')}`;
+}
+
+// Escape user/remote text before putting it in an HTML message.
+function esc(s?: string): string {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// An HTML mention of whoever requested the track.
+function mentionOf(ctx: BotContext): string {
+  const u = ctx.from;
+  if (!u) return '—';
+  return `<a href="tg://user?id=${u.id}">${esc(u.first_name || 'مستخدم')}</a>`;
+}
+
+// The "now playing" card body (used as a photo caption or as a text fallback).
+function nowPlayingCaption(r: StreamerResult, mention: string): string {
+  return [
+    `🎵 <b>${esc(r.title)}</b>`,
+    '━━━━━━━━━━━━━',
+    `👤 القناة: ${esc(r.uploader) || '—'}`,
+    `⏱ المدة: ${fmtDuration(r.duration)}`,
+    `🎧 طلب: ${mention}`,
+    '━━━━━━━━━━━━━',
+  ].join('\n');
+}
+
+// Playback controls shown under the card (handled by the vc:* callbacks).
+const CONTROLS = Markup.inlineKeyboard([
+  [Markup.button.callback('⏸ إيقاف', 'vc:pause'), Markup.button.callback('⏭ تخطي', 'vc:skip')],
+  [Markup.button.callback('📜 الطابور', 'vc:queue'), Markup.button.callback('⏹ إنهاء', 'vc:stop')],
+]);
+
+// Render the queue as an HTML block (shared by /vcqueue and the 📜 button).
+function queueText(r: StreamerResult): string {
+  if (!r.active) return '📭 ما في شي عم يشتغل.';
+  const lines = [`▶️ الآن: <b>${esc(r.active.title)}</b> (${fmtDuration(r.active.duration)})`];
+  if (r.upcoming?.length) {
+    lines.push('\n📜 <b>بالطابور:</b>');
+    r.upcoming.slice(0, 10).forEach((t, i) => lines.push(`${i + 1}. ${esc(t.title)} (${fmtDuration(t.duration)})`));
+    if (r.upcoming.length > 10) lines.push(`… و${r.upcoming.length - 10} غيرها`);
+  }
+  return lines.join('\n');
 }
 
 // Turn a streamer error code into a friendly Arabic line.
@@ -114,8 +158,35 @@ export const musicPlugin: Plugin = {
       const status = await ctx.reply('🔎 عم دوّر…');
       const r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
       if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
-      const line = `<b>${r.title}</b> (${fmtDuration(r.duration)})`;
-      await edit(ctx, status.message_id, r.queued ? `➕ أضيفت للطابور: ${line}\n🔢 الترتيب: ${r.position}` : `▶️ عم يشغّل الآن:\n${line}`);
+
+      // Added behind a currently-playing track → a light text card (no photo).
+      if (r.queued) {
+        return void edit(
+          ctx,
+          status.message_id,
+          `➕ <b>أضيفت للطابور</b>\n🎵 ${esc(r.title)} (${fmtDuration(r.duration)})\n🔢 الترتيب: ${r.position}`,
+        );
+      }
+
+      // Now playing → a photo card with controls; fall back to text if we have
+      // no thumbnail or Telegram can't fetch it.
+      const caption = nowPlayingCaption(r, mentionOf(ctx));
+      if (r.thumb) {
+        try {
+          await ctx.replyWithPhoto(r.thumb, { caption, parse_mode: 'HTML', ...CONTROLS });
+          await ctx.telegram.deleteMessage(ctx.chat.id, status.message_id).catch(() => undefined);
+          return;
+        } catch (err) {
+          log.warn({ err }, 'now-playing photo card failed; using text');
+        }
+      }
+      await ctx.telegram
+        .editMessageText(ctx.chat.id, status.message_id, undefined, caption, {
+          parse_mode: 'HTML',
+          link_preview_options: { is_disabled: true },
+          ...CONTROLS,
+        } as never)
+        .catch(() => undefined);
     });
 
     // قائمة التشغيل — anyone can view.
@@ -124,14 +195,7 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/queue', { chat_id: ctx.chat.id });
       if (!r?.ok) return void ctx.reply(errorText(r));
-      if (!r.active) return void ctx.reply('📭 ما في شي عم يشتغل.');
-      const lines = [`▶️ الآن: <b>${r.active.title}</b> (${fmtDuration(r.active.duration)})`];
-      if (r.upcoming?.length) {
-        lines.push('\n📜 <b>بالطابور:</b>');
-        r.upcoming.slice(0, 10).forEach((t, i) => lines.push(`${i + 1}. ${t.title} (${fmtDuration(t.duration)})`));
-        if (r.upcoming.length > 10) lines.push(`… و${r.upcoming.length - 10} غيرها`);
-      }
-      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      await ctx.reply(queueText(r), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
     });
 
     // Staff-only controls.
@@ -188,6 +252,41 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/resume', { chat_id: ctx.chat.id });
       await ctx.reply(r?.ok ? '▶️ كمّلت.' : 'ما في شي موقوف.');
+    });
+
+    // Inline card buttons (⏸ ⏭ 📜 ⏹). Moderators only — enforced here since
+    // callbacks don't run the command middleware.
+    bot.action(/^vc:(pause|skip|queue|stop)$/, async (ctx) => {
+      const action = ctx.match?.[1];
+      if (!ctx.chat) return void ctx.answerCbQuery().catch(() => undefined);
+      if (!STREAMER_URL) return void ctx.answerCbQuery(NOT_CONFIGURED).catch(() => undefined);
+
+      const role = await resolveRole(ctx);
+      if (!hasRole(role, 'moderator')) {
+        return void ctx.answerCbQuery('⛔️ الأزرار للمشرفين فقط.').catch(() => undefined);
+      }
+
+      const chatId = ctx.chat.id;
+      if (action === 'pause') {
+        const r = await callStreamer('/pause', { chat_id: chatId });
+        return void ctx.answerCbQuery(r?.ok ? '⏸ وقّفت مؤقتاً.' : 'ما في شي عم يشتغل.').catch(() => undefined);
+      }
+      if (action === 'skip') {
+        const r = await callStreamer('/skip', { chat_id: chatId });
+        if (!r?.ok) return void ctx.answerCbQuery(errorText(r)).catch(() => undefined);
+        return void ctx
+          .answerCbQuery(r.ended ? '⏭ خلص الطابور — طلعت من الكول.' : `⏭ التالي: ${r.title}`)
+          .catch(() => undefined);
+      }
+      if (action === 'stop') {
+        const r = await callStreamer('/stop', { chat_id: chatId });
+        return void ctx.answerCbQuery(r?.ok ? '⏹ أنهيت الكول.' : errorText(r)).catch(() => undefined);
+      }
+      // queue → answer the toast, then post the list as a fresh message.
+      const r = await callStreamer('/queue', { chat_id: chatId });
+      await ctx.answerCbQuery().catch(() => undefined);
+      if (!r?.ok) return void ctx.reply(errorText(r));
+      await ctx.reply(queueText(r), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
     });
   },
 };

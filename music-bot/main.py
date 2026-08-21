@@ -171,7 +171,13 @@ async def _body(request: web.Request) -> dict:
 
 
 def _track_info(track: dict) -> dict:
-    return {"title": track.get("title"), "duration": track.get("duration", 0), "webpage": track.get("webpage", "")}
+    return {
+        "title": track.get("title"),
+        "duration": track.get("duration", 0),
+        "webpage": track.get("webpage", ""),
+        "thumb": track.get("thumb", ""),
+        "uploader": track.get("uploader", ""),
+    }
 
 
 async def _require_open_call(chat_id: int) -> Optional[web.Response]:
