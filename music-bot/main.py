@@ -242,8 +242,26 @@ async def _serve() -> None:
     await asyncio.Event().wait()  # serve forever
 
 
+def _setup_cookies() -> None:
+    """If YT_COOKIES_CONTENT is set (a Netscape cookies.txt), write it to a file
+    and point yt-dlp at it. Cookies let YouTube work from a datacenter IP."""
+    import os as _os
+    content = _os.getenv("YT_COOKIES_CONTENT")
+    if not content:
+        return
+    path = "/tmp/yt_cookies.txt"
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        _os.environ["YT_COOKIES"] = path
+        log.info("YouTube cookies loaded (%d bytes).", len(content))
+    except Exception as e:
+        log.warning("failed to write cookies file: %s", e)
+
+
 def main() -> None:
     config.validate()
+    _setup_cookies()
     loop = asyncio.get_event_loop()
     loop.run_until_complete(_serve())
 
