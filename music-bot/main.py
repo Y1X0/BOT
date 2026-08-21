@@ -133,7 +133,7 @@ async def _allowlist_mw(request: web.Request, handler):
     the handler is fine. GET routes (/, /health) carry no chat_id and pass
     through untouched.
     """
-    if request.method == "POST" and config.ALLOWED_CHATS:
+    if request.method == "POST":
         chat_id = (await _body(request)).get("chat_id")
         try:
             allowed = chat_id is not None and config.chat_allowed(int(chat_id))
