@@ -38,6 +38,29 @@ PORT = _int("PORT", 8080)
 START_DELAY = _int("STREAMER_START_DELAY", 12)
 
 
+def _chat_set(name: str) -> set:
+    """Parse a comma/space-separated list of chat ids into a set of ints."""
+    raw = os.getenv(name, "") or ""
+    out = set()
+    for tok in raw.replace(",", " ").split():
+        try:
+            out.add(int(tok))
+        except ValueError:
+            continue
+    return out
+
+
+# Allow-list of group chat ids the streamer will act on. When set, any request
+# for a chat_id NOT in this set is rejected (403). This scopes the assistant to
+# the intended group(s), so a leaked STREAMER_URL/TOKEN can't drive it into
+# random chats. Empty = allow all (with a boot warning).
+ALLOWED_CHATS = _chat_set("STREAMER_ALLOWED_CHATS")
+
+
+def chat_allowed(chat_id: int) -> bool:
+    return not ALLOWED_CHATS or int(chat_id) in ALLOWED_CHATS
+
+
 def validate() -> None:
     missing = [n for n, v in {
         "API_ID": API_ID,

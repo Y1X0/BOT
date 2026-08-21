@@ -54,6 +54,25 @@ def _audio(url: str) -> MediaStream:
     return MediaStream(url, video_flags=MediaStream.Flags.IGNORE)
 
 
+async def _has_live_call(chat_id: int) -> bool:
+    """True only if the assistant is really streaming in this chat right now.
+
+    py-tgcalls exposes active calls via the async `calls` property, which
+    returns Dict[int, Call] keyed by chat_id. We use this to detect a STALE
+    _active entry: if queue_manager thinks something is playing but there is
+    no live call (a WebRTC drop or error that never fired stream_end), every
+    future /play would silently enqueue behind a track that will never advance.
+    """
+    try:
+        active = await calls.calls
+        return int(chat_id) in active
+    except Exception as e:
+        # If we can't tell, assume there IS a live call so we don't stomp a
+        # real one — the enqueue path is the safe default here.
+        log.info("could not read active calls for %s: %s", chat_id, e)
+        return True
+
+
 async def _play_now(chat_id: int, track: dict) -> None:
     """Stream a track, opening the voice chat first if none is active.
 
@@ -99,6 +118,26 @@ async def _body(request: web.Request) -> dict:
         return {}
 
 
+@web.middleware
+async def _allowlist_mw(request: web.Request, handler):
+    """Reject any POST that targets a chat_id outside STREAMER_ALLOWED_CHATS.
+
+    aiohttp caches the request body after the first read, so re-reading it in
+    the handler is fine. GET routes (/, /health) carry no chat_id and pass
+    through untouched.
+    """
+    if request.method == "POST" and config.ALLOWED_CHATS:
+        chat_id = (await _body(request)).get("chat_id")
+        try:
+            allowed = chat_id is not None and config.chat_allowed(int(chat_id))
+        except (TypeError, ValueError):
+            allowed = False
+        if not allowed:
+            log.warning("rejected request for disallowed chat_id: %r", chat_id)
+            return web.json_response({"ok": False, "error": "chat_not_allowed"}, status=403)
+    return await handler(request)
+
+
 def _track_info(track: dict) -> dict:
     return {"title": track.get("title"), "duration": track.get("duration", 0), "webpage": track.get("webpage", "")}
 
@@ -125,10 +164,16 @@ async def play(request: web.Request) -> web.Response:
     if not track or not track.get("url"):
         return web.json_response({"ok": False, "error": "not_found"})
 
-    # Something already playing → enqueue. Otherwise play now.
-    if qm.active(chat_id):
+    # Something already playing → enqueue. But only trust queue_manager if a
+    # real call is live; otherwise _active is STALE (a drop that never fired
+    # stream_end) and we must play now instead of enqueuing into the void.
+    if qm.active(chat_id) and await _has_live_call(chat_id):
         pos = qm.enqueue(chat_id, track)
         return web.json_response({"ok": True, "queued": True, "position": pos, **_track_info(track)})
+
+    if qm.active(chat_id):
+        log.info("stale active track in %s with no live call — playing directly", chat_id)
+        qm.clear(chat_id)
 
     qm.set_active(chat_id, track)
     try:
@@ -282,7 +327,13 @@ async def _serve() -> None:
     # Start the HTTP control API FIRST so /health and /play (search) work even
     # if the assistant can't connect — search is independent of the session, and
     # this avoids a crash loop when the session is temporarily invalid.
-    app = web.Application()
+    if config.ALLOWED_CHATS:
+        log.info("chat allow-list active: %s", sorted(config.ALLOWED_CHATS))
+    else:
+        log.warning("STREAMER_ALLOWED_CHATS is empty — the streamer will act on ANY chat_id. "
+                    "Set it to your group id(s) to lock this down.")
+
+    app = web.Application(middlewares=[_allowlist_mw])
     app.add_routes(routes)
     runner = web.AppRunner(app)
     await runner.setup()
