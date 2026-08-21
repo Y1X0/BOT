@@ -200,6 +200,7 @@ const ALIASES: Alias[] = [
   // Voice-chat music (streamed via the assistant account). Avoid bare "شغل"
   // (economy /work) and bare "اغنيه" (soundcloud /song) — use كول-specific phrases.
   { command: 'vcplay', triggers: ['تشغيل', 'شغل بالكول', 'شغل اغنيه بالكول', 'غني بالكول'] },
+  { command: 'vcjoin', triggers: ['ضم المساعد', 'ضم الحساب', 'ضيف المساعد'] },
   { command: 'vcstart', triggers: ['افتح كول', 'افتح الكول', 'فتح كول', 'شغل كول'] },
   { command: 'vcstop', triggers: ['سكر كول', 'سكر الكول', 'اغلق الكول', 'انهي الكول', 'طلع من الكول'] },
   { command: 'vcskip', triggers: ['تخطي', 'الاغنيه التاليه', 'سكيب', 'اغنيه تاليه'] },

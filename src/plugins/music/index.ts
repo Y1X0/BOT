@@ -21,6 +21,8 @@ interface StreamerResult {
   queued?: boolean;
   position?: number;
   ended?: boolean;
+  already?: boolean;
+  seconds?: number;
   title?: string;
   duration?: number;
   active?: { title: string; duration: number } | null;
@@ -62,8 +64,11 @@ function errorText(r: StreamerResult | null): string {
   if (e === 'unreachable') return '⚠️ ما قدرت أوصل لسيرفر البث. تأكد إنه شغّال.';
   if (e === 'starting') return '🔄 سيرفر البث لسه عم يشتغل، جرّب بعد شوي.';
   if (e === 'not_found') return '❌ ما لقيت الأغنية. جرّب اسم تاني.';
-  if (e === 'chat_not_allowed') return '🚫 هالجروب مش مسموح له يستخدم البث.';
-  if (/PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e)) return '🔗 الحساب المساعد مش عضو بالجروب. ضيفه وخلّيه أدمن مع صلاحية إدارة المكالمات.';
+  if (e === 'bad_link') return '🔗 رابط الدعوة غلط أو منتهي. جيب رابط دعوة جديد من إعدادات الجروب.';
+  if (e === 'banned') return '⛔️ الحساب المساعد محظور من هالجروب. فُكّ الحظر عنه وجرّب.';
+  if (e === 'too_fast') return '🐌 في محاولة انضمام قريبة. استنى دقيقة وجرّب.';
+  if (e === 'flood_wait') return `⏳ تيليجرام طالب انتظار ${r.seconds || 0} ثانية قبل انضمام جديد. جرّب بعدها.`;
+  if (/PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e)) return '🔗 الحساب المساعد مش عضو بالجروب. استخدم /vcjoin مع رابط دعوة للجروب، بعدها رقّيه أدمن.';
   if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN|FORBIDDEN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
   if (/GROUPCALL_INVALID|already/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
   return `تعذّر التنفيذ: ${e || 'خطأ غير معروف'}`;
@@ -80,6 +85,7 @@ export const musicPlugin: Plugin = {
   name: 'music',
   description: 'Play songs inside the group voice chat (via the assistant streamer)',
   commands: [
+    { command: 'vcjoin', description: '🔗 ضمّ الحساب المساعد للجروب (مشرف)', staffOnly: true },
     { command: 'vcstart', description: '🎙 افتح كول (مشرف)', staffOnly: true },
     { command: 'vcplay', description: '🎧 تشغيل أغنية بالكول' },
     { command: 'vcskip', description: '⏭ الأغنية التالية (مشرف)', staffOnly: true },
@@ -125,6 +131,25 @@ export const musicPlugin: Plugin = {
     });
 
     // Staff-only controls.
+    // ضمّ الحساب المساعد للجروب برابط دعوة — لازم يكون عضو قبل ما يفتح الكول.
+    bot.command('vcjoin', requireRole('moderator'), async (ctx) => {
+      if (!groupOnly(ctx) || !ctx.chat) return;
+      if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
+      const link = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      if (!link || !/^(https?:\/\/)?(t\.me\/|telegram\.me\/)/i.test(link))
+        return void ctx.reply('🔗 ابعت رابط دعوة للجروب:\n/vcjoin https://t.me/+xxxxxxxx\nجيبه من: إعدادات الجروب ← روابط الدعوة.');
+      const status = await ctx.reply('⏳ عم يحاول ينضم…');
+      const r = await callStreamer('/join', { chat_id: ctx.chat.id, invite_link: link });
+      if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
+      await edit(
+        ctx,
+        status.message_id,
+        r.already
+          ? 'ℹ️ الحساب المساعد أصلاً عضو. رقّيه أدمن مع صلاحية إدارة المكالمات.'
+          : '✅ المساعد انضم. هلأ رقّيه أدمن مع صلاحية إدارة المكالمات.',
+      );
+    });
+
     bot.command('vcstart', requireRole('moderator'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);

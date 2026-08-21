@@ -6,6 +6,7 @@ via WebRTC (py-tgcalls). Your existing management bot drives it over this small
 HTTP API, so users only ever talk to ONE bot.
 
 Endpoints (all POST JSON unless noted; send header  X-Token: <STREAMER_TOKEN>):
+  /join    {invite_link}       → assistant joins a group (rate-limited)
   /play    {chat_id, query}   → search + play or enqueue
   /skip    {chat_id}          → next in queue (or leave if empty)
   /pause   {chat_id}
@@ -20,6 +21,7 @@ The assistant must be an admin with the "manage voice chats" right.
 """
 import asyncio
 import logging
+import time
 
 # py-tgcalls' sync shim calls asyncio.get_event_loop() at import time, which
 # raises "no current event loop" on Python 3.12+ (default on newer distros).
@@ -48,6 +50,12 @@ routes = web.RouteTableDef()
 
 # True once the assistant + PyTgCalls are connected and playback is possible.
 _ready = False
+
+# Anti-flood for /join: joining many groups fast gets a user account banned by
+# Telegram, so allow at most one join attempt per this many seconds (global,
+# in-memory — good enough for a single streamer instance).
+_JOIN_COOLDOWN = 60.0
+_last_join = 0.0
 
 
 def _audio(url: str) -> MediaStream:
@@ -113,8 +121,8 @@ def _authorized(request: web.Request) -> bool:
 
 async def _body(request: web.Request) -> dict:
     # Parse the JSON body at most ONCE per request and cache it on the request
-    # object. The allow-list middleware reads chat_id first; the handler then
-    # reads the same cached dict — no second read() that could fail mid-stream.
+    # object, so a handler that reads it twice never triggers a second read()
+    # that could fail mid-stream.
     if "_json" in request:
         return request["_json"]
     try:
@@ -123,26 +131,6 @@ async def _body(request: web.Request) -> dict:
         data = {}
     request["_json"] = data
     return data
-
-
-@web.middleware
-async def _allowlist_mw(request: web.Request, handler):
-    """Reject any POST that targets a chat_id outside STREAMER_ALLOWED_CHATS.
-
-    aiohttp caches the request body after the first read, so re-reading it in
-    the handler is fine. GET routes (/, /health) carry no chat_id and pass
-    through untouched.
-    """
-    if request.method == "POST":
-        chat_id = (await _body(request)).get("chat_id")
-        try:
-            allowed = chat_id is not None and config.chat_allowed(int(chat_id))
-        except (TypeError, ValueError):
-            allowed = False
-        if not allowed:
-            log.warning("rejected request for disallowed chat_id: %r", chat_id)
-            return web.json_response({"ok": False, "error": "chat_not_allowed"}, status=403)
-    return await handler(request)
 
 
 def _track_info(track: dict) -> dict:
@@ -252,6 +240,43 @@ async def stop(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+@routes.post("/join")
+async def join(request: web.Request) -> web.Response:
+    """Make the assistant join a group via its invite link, so it can then be
+    promoted to admin and stream. Rate-limited to avoid a Telegram ban."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
+    data = await _body(request)
+    invite = (data.get("invite_link") or "").strip()
+    if not invite:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+
+    global _last_join
+    now = time.monotonic()
+    if now - _last_join < _JOIN_COOLDOWN:
+        return web.json_response({"ok": False, "error": "too_fast"})
+    _last_join = now
+
+    try:
+        await assistant.join_chat(invite)
+        return web.json_response({"ok": True})
+    except Exception as e:
+        name = type(e).__name__
+        log.info("join failed (%s): %s", name, e)
+        if name == "UserAlreadyParticipant":
+            return web.json_response({"ok": True, "already": True})
+        if name in ("InviteHashExpired", "InviteHashInvalid", "InviteHashEmpty"):
+            return web.json_response({"ok": False, "error": "bad_link"})
+        if name in ("UserBannedInChannel", "ChannelBanned", "ChatWriteForbidden"):
+            return web.json_response({"ok": False, "error": "banned"})
+        if name == "FloodWait":
+            seconds = getattr(e, "value", None) or getattr(e, "x", None) or 0
+            return web.json_response({"ok": False, "error": "flood_wait", "seconds": int(seconds)})
+        return web.json_response({"ok": False, "error": str(e)})
+
+
 @routes.post("/startvc")
 async def startvc(request: web.Request) -> web.Response:
     if not _authorized(request):
@@ -334,10 +359,7 @@ async def _serve() -> None:
     # Start the HTTP control API FIRST so /health and /play (search) work even
     # if the assistant can't connect — search is independent of the session, and
     # this avoids a crash loop when the session is temporarily invalid.
-    # validate() guarantees this is non-empty.
-    log.info("chat allow-list active: %s", sorted(config.ALLOWED_CHATS))
-
-    app = web.Application(middlewares=[_allowlist_mw])
+    app = web.Application()
     app.add_routes(routes)
     runner = web.AppRunner(app)
     await runner.setup()
