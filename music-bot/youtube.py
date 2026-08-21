@@ -22,8 +22,13 @@ _BASE_OPTS = {
     "nocheckcertificate": True,
     "cachedir": False,
     "extractor_args": {"youtube": {"player_client": ["android", "web_safari", "web"]}},
+    # A normal browser UA — the previous YouTube-app UA broke SoundCloud's
+    # client_id extraction. YouTube uses its own client via extractor_args.
     "http_headers": {
-        "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
     },
 }
 
