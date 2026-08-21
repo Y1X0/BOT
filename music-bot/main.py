@@ -39,7 +39,7 @@ from typing import Optional
 
 import config
 import queue_manager as qm
-from call_control import end_call, start_call
+from call_control import end_call, has_active_call, start_call
 from clients import assistant, calls
 from youtube import search
 
@@ -82,28 +82,26 @@ async def _has_live_call(chat_id: int) -> bool:
 
 
 async def _play_now(chat_id: int, track: dict) -> None:
-    """Stream a track, opening the voice chat first if none is active.
+    """Stream a track into an ALREADY-OPEN voice chat.
 
-    Robust against: no active call (any of several py-tgcalls errors), and the
-    race where a freshly-created call isn't registered on Telegram's side yet —
-    so open the call, wait, and retry a few times. A fresh MediaStream is built
-    per attempt (the object may hold state after a failed play).
+    This never opens or closes a call — that is /startvc's job. Opening a call
+    here (CreateGroupCall) would DESTROY any running call and replace it, which
+    caused an open/close loop when a track failed to start. The caller must
+    verify a call is open (has_active_call) before invoking this.
+
+    We still retry a few times: a call just opened by /startvc may not be
+    registered on Telegram's side yet. A fresh MediaStream is built per attempt
+    (the object may hold state after a failed play).
     """
     try:
         await calls.play(chat_id, _audio(track["url"]))
         return
     except Exception as first:
-        log.info("play needs a call in %s (%s); opening one…", chat_id, type(first).__name__)
-
-    try:
-        await start_call(assistant, chat_id)
-    except Exception as e:
-        # GROUPCALL_INVALID etc. usually mean a call already exists — fine.
-        log.info("start_call in %s: %s", chat_id, e)
+        log.info("play failed in %s (%s); retrying…", chat_id, type(first).__name__)
 
     last: Optional[Exception] = None
     for attempt in range(4):
-        await asyncio.sleep(1.5)  # let Telegram register the new call
+        await asyncio.sleep(1.5)  # let Telegram register a freshly-opened call
         try:
             await calls.play(chat_id, _audio(track["url"]))
             return
@@ -155,6 +153,12 @@ async def play(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "bad_request"}, status=400)
     chat_id = int(chat_id)
 
+    # The call must already be open. /play must NEVER open (or close) a call —
+    # doing so destroys a running one. If none is open, tell the user to open
+    # one first, without searching or touching the queue.
+    if not await has_active_call(assistant, chat_id):
+        return web.json_response({"ok": False, "error": "no_call"})
+
     track = await search(query)
     if not track or not track.get("url"):
         return web.json_response({"ok": False, "error": "not_found"})
@@ -184,6 +188,8 @@ async def skip(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
+    if not await has_active_call(assistant, chat_id):
+        return web.json_response({"ok": False, "error": "no_call"})
     nxt = qm.next_track(chat_id)
     if not nxt:
         qm.clear(chat_id)
@@ -204,6 +210,8 @@ async def pause(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
+    if not await has_active_call(assistant, chat_id):
+        return web.json_response({"ok": False, "error": "no_call"})
     try:
         await calls.pause(chat_id)
         return web.json_response({"ok": True})
@@ -216,6 +224,8 @@ async def resume(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
+    if not await has_active_call(assistant, chat_id):
+        return web.json_response({"ok": False, "error": "no_call"})
     try:
         await calls.resume(chat_id)
         return web.json_response({"ok": True})
