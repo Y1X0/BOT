@@ -41,6 +41,11 @@ function ensureFonts(): void {
     // (Mathematical Alphanumeric Symbols: 𝐉𝐎𝐘 𝓙𝓸𝔂 𝕵𝖔𝖞 …). Without it those
     // render as tofu boxes. Cairo comes first, so normal text is unaffected.
     ['@fontsource/noto-sans-math/files/noto-sans-math-latin-400-normal.woff2', 'MathDec'],
+    // Decorated names also use arrows, geometric shapes, dingbats and enclosed
+    // symbols (◤ ↖ ▧ ✦ ❂ …). Noto Sans Symbols (1+2) cover those ranges, which
+    // otherwise render as tofu. Kept after Cairo/Math so normal text is unaffected.
+    ['@fontsource/noto-sans-symbols/files/noto-sans-symbols-symbols-400-normal.woff2', 'SymA'],
+    ['@fontsource/noto-sans-symbols-2/files/noto-sans-symbols-2-symbols-400-normal.woff2', 'SymB'],
   ];
   for (const [f, fam] of reg) {
     try {
@@ -72,7 +77,8 @@ function ensureFonts(): void {
   if (!emojiOk) log.warn('no color-emoji font registered — icons will be tofu');
 }
 
-const FONT = (weight: number, size: number) => `${weight} ${size}px CairoAr, CairoLat, MathDec, NotoEmoji`;
+const FONT = (weight: number, size: number) =>
+  `${weight} ${size}px CairoAr, CairoLat, MathDec, SymA, SymB, NotoEmoji`;
 // Emoji-first font for drawing icons/emoji, so the color-emoji face is chosen
 // directly instead of relying on per-glyph fallback landing on it.
 const EMOJI = (size: number) => `${size}px NotoEmoji, CairoAr, CairoLat`;
