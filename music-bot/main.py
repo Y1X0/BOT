@@ -57,6 +57,16 @@ _ready = False
 _JOIN_COOLDOWN = 60.0
 _last_join = 0.0
 
+# Strong refs to detached background tasks so the event loop's weak references
+# don't let them be garbage-collected before they finish.
+_bg_tasks: set = set()
+
+
+def _spawn(coro) -> None:
+    task = asyncio.ensure_future(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
 
 def _audio(url: str) -> MediaStream:
     return MediaStream(url, video_flags=MediaStream.Flags.IGNORE)
@@ -125,7 +135,7 @@ async def _play_now(chat_id: int, track: dict) -> None:
             await asyncio.sleep(1.5)  # let Telegram register a freshly-opened call
         try:
             await calls.play(chat_id, _audio(track["url"]))
-            asyncio.ensure_future(_log_playback_soon(chat_id))  # detached audio-liveness check
+            _spawn(_log_playback_soon(chat_id))  # detached audio-liveness check
             return
         except Exception as e:
             last = e

@@ -48,9 +48,19 @@ def _opts(prefix: str) -> dict:
 
 
 def _is_manifest(entry: dict) -> bool:
-    """Fragmented HLS/DASH — ffmpeg opens it but no audio comes out."""
+    """Fragmented HLS/DASH — ffmpeg opens it but no audio comes out.
+
+    Search entries don't always populate `protocol`, so also sniff the ext and
+    the URL (HLS/DASH URLs carry .m3u8 / .mpd).
+    """
     proto = (entry.get("protocol") or "").lower()
-    return "m3u8" in proto or "dash" in proto
+    ext = (entry.get("ext") or "").lower()
+    url = (entry.get("url") or "").lower()
+    return (
+        "m3u8" in proto or "dash" in proto
+        or ext in ("m3u8", "mpd")
+        or ".m3u8" in url or ".mpd" in url
+    )
 
 
 def _track(info: dict) -> Optional[dict]:
