@@ -1,5 +1,6 @@
 import { env } from './config/env';
 import { logger } from './core/logger';
+import { initSentry, captureError } from './core/sentry';
 import { connectDatabase, disconnectDatabase, ensureSchema } from './core/database';
 import { createBot, publishCommands } from './core/bot';
 import { createServer, startServer } from './core/server';
@@ -8,6 +9,7 @@ import type { Server } from 'http';
 async function main(): Promise<void> {
   logger.info({ mode: env.BOT_MODE, env: env.NODE_ENV }, 'Starting Telegram bot');
 
+  await initSentry();
   await connectDatabase();
   await ensureSchema();
 
@@ -74,13 +76,16 @@ async function main(): Promise<void> {
 // Fail loud on unexpected top-level errors.
 process.on('unhandledRejection', (reason) => {
   logger.error({ reason }, 'Unhandled promise rejection');
+  captureError(reason, { kind: 'unhandledRejection' });
 });
 process.on('uncaughtException', (err) => {
   logger.fatal({ err }, 'Uncaught exception — exiting');
+  captureError(err, { kind: 'uncaughtException' });
   process.exit(1);
 });
 
 main().catch((err) => {
   logger.fatal({ err }, 'Fatal startup error');
+  captureError(err, { kind: 'startup' });
   process.exit(1);
 });

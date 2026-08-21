@@ -2,6 +2,7 @@ import { Telegraf } from 'telegraf';
 import { env } from '../config/env';
 import type { BotContext } from './context';
 import { createLogger } from './logger';
+import { captureError } from './sentry';
 import { contextMiddleware } from '../middlewares/context.middleware';
 import { rateLimitMiddleware } from '../middlewares/rateLimit.middleware';
 import { antispamMiddleware } from '../middlewares/antispam.middleware';
@@ -34,6 +35,7 @@ export async function createBot(): Promise<{
   bot.catch((err, ctx) => {
     log.error({ err, updateType: ctx.updateType }, 'Unhandled bot error');
     recordError(err instanceof Error ? err.message : String(err), ctx.updateType);
+    captureError(err, { updateType: ctx.updateType, chatId: ctx.chat?.id });
   });
 
   // Middleware pipeline order matters:

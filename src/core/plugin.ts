@@ -1,6 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from './context';
 import { createLogger } from './logger';
+import { captureError } from './sentry';
 
 /**
  * A Plugin is a self-contained feature module (welcome, moderation, games...).
@@ -45,6 +46,7 @@ export async function registerPlugins(
       log.info({ plugin: plugin.name }, 'Plugin registered');
     } catch (err) {
       log.error({ plugin: plugin.name, err }, 'Failed to register plugin');
+      captureError(err, { phase: 'plugin-register', plugin: plugin.name });
     }
   }
   return loaded;
