@@ -440,7 +440,7 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
     if (hit) {
       const resent = hit.kind === 'animation'
         ? await ctx.replyWithAnimation(hit.fileId, { caption: `💎 ${fullName}` }).catch(() => null)
-        : await ctx.replyWithPhoto(hit.fileId, { caption: fullName }).catch(() => null);
+        : await ctx.replyWithPhoto(hit.fileId).catch(() => null);
       if (resent) return;
       clearCard(cacheChatId, target.id); // stale/expired file_id → re-render
     }
@@ -557,7 +557,7 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
             .replyWithAnimation({ source: vid.buffer, filename: `card.${vid.ext}` }, { caption: `💎 ${fullName}` })
             .catch(async () => {
               const png = await renderIdCardImage(cardData, themeId);
-              return ctx.replyWithPhoto({ source: png }, { caption: fullName }).catch(() => undefined);
+              return ctx.replyWithPhoto({ source: png }).catch(() => undefined);
             });
           const animId = (sent as { animation?: { file_id?: string }; photo?: { file_id: string }[] } | undefined)?.animation?.file_id;
           const photoId = (sent as { photo?: { file_id: string }[] } | undefined)?.photo?.pop?.()?.file_id;
@@ -567,10 +567,7 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
         }
       }
       const png = await renderIdCardImage(cardData, themeId);
-      // The name goes in the CAPTION (plain text) too: Telegram renders it with
-      // the device's full font stack, so decorated/rare glyphs that the image
-      // can't draw still show perfectly here — and it's copy-pasteable.
-      const sent = await ctx.replyWithPhoto({ source: png }, { caption: fullName });
+      const sent = await ctx.replyWithPhoto({ source: png });
       const fid = (sent as { photo?: { file_id: string }[] }).photo?.pop()?.file_id;
       if (cacheable && fid) setCard(cacheChatId, target.id, fid, 'photo');
       return;

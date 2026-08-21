@@ -41,11 +41,23 @@ function ensureFonts(): void {
     // (Mathematical Alphanumeric Symbols: 𝐉𝐎𝐘 𝓙𝓸𝔂 𝕵𝖔𝖞 …). Without it those
     // render as tofu boxes. Cairo comes first, so normal text is unaffected.
     ['@fontsource/noto-sans-math/files/noto-sans-math-latin-400-normal.woff2', 'MathDec'],
+    // Arabic Presentation Forms (ﺈ ﺳ ﮧ …) that Cairo lacks — Amiri covers them.
+    ['@fontsource/amiri/files/amiri-arabic-400-normal.woff2', 'AmiriAr'],
     // Decorated names also use arrows, geometric shapes, dingbats and enclosed
-    // symbols (◤ ↖ ▧ ✦ ❂ …). Noto Sans Symbols (1+2) cover those ranges, which
-    // otherwise render as tofu. Kept after Cairo/Math so normal text is unaffected.
+    // symbols (◤ ↖ ▧ ✦ ❂ …). Noto Sans Symbols (1+2) cover those ranges.
     ['@fontsource/noto-sans-symbols/files/noto-sans-symbols-symbols-400-normal.woff2', 'SymA'],
     ['@fontsource/noto-sans-symbols-2/files/noto-sans-symbols-2-symbols-400-normal.woff2', 'SymB'],
+    // …and pull from many other scripts. Register each so skia can fall back
+    // per glyph instead of drawing tofu boxes:
+    ['@fontsource/noto-sans/files/noto-sans-cyrillic-400-normal.woff2', 'NCyr'],
+    ['@fontsource/noto-sans/files/noto-sans-greek-400-normal.woff2', 'NGrk'],
+    ['@fontsource/noto-sans/files/noto-sans-devanagari-400-normal.woff2', 'NDeva'],
+    ['@fontsource/noto-sans-hebrew/files/noto-sans-hebrew-hebrew-400-normal.woff2', 'NHeb'],
+    ['@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2', 'NThai'],
+    ['@fontsource/noto-sans-thaana/files/noto-sans-thaana-thaana-400-normal.woff2', 'NThaana'],
+    ['@fontsource/noto-sans-balinese/files/noto-sans-balinese-balinese-400-normal.woff2', 'NBali'],
+    ['@fontsource/noto-sans-new-tai-lue/files/noto-sans-new-tai-lue-new-tai-lue-400-normal.woff2', 'NTaiLue'],
+    ['@fontsource/noto-sans-egyptian-hieroglyphs/files/noto-sans-egyptian-hieroglyphs-egyptian-hieroglyphs-400-normal.woff2', 'NEgy'],
   ];
   for (const [f, fam] of reg) {
     try {
@@ -78,7 +90,7 @@ function ensureFonts(): void {
 }
 
 const FONT = (weight: number, size: number) =>
-  `${weight} ${size}px CairoAr, CairoLat, MathDec, SymA, SymB, NotoEmoji`;
+  `${weight} ${size}px CairoAr, AmiriAr, CairoLat, MathDec, NCyr, NGrk, NDeva, NHeb, NThai, NThaana, NBali, NTaiLue, NEgy, SymA, SymB, NotoEmoji`;
 // Emoji-first font for drawing icons/emoji, so the color-emoji face is chosen
 // directly instead of relying on per-glyph fallback landing on it.
 const EMOJI = (size: number) => `${size}px NotoEmoji, CairoAr, CairoLat`;
