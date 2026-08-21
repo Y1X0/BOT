@@ -26,11 +26,16 @@ API_HASH = os.getenv("API_HASH", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
 # Shared secret: the management bot must send this in the X-Token header.
-# Leave empty to disable auth (only safe on a private network).
+# REQUIRED — the service has a public URL, so requests must be authenticated.
 STREAMER_TOKEN = os.getenv("STREAMER_TOKEN", "")
 
 # HTTP port the control API listens on.
 PORT = _int("PORT", 8080)
+
+# Seconds to wait before connecting the assistant on startup. Lets a previous
+# deployment fully shut down first, so a redeploy doesn't briefly run two
+# instances on the same session (which Telegram kills with AUTH_KEY_DUPLICATED).
+START_DELAY = _int("STREAMER_START_DELAY", 12)
 
 
 def validate() -> None:
@@ -38,6 +43,7 @@ def validate() -> None:
         "API_ID": API_ID,
         "API_HASH": API_HASH,
         "SESSION_STRING": SESSION_STRING,
+        "STREAMER_TOKEN": STREAMER_TOKEN,
     }.items() if not v]
     if missing:
         raise SystemExit(

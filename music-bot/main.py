@@ -33,6 +33,8 @@ from aiohttp import web
 from pytgcalls.exceptions import NoActiveGroupCall
 from pytgcalls.types import MediaStream
 
+from typing import Optional
+
 import config
 import queue_manager as qm
 from call_control import end_call, start_call
@@ -50,17 +52,40 @@ def _audio(url: str) -> MediaStream:
 
 
 async def _play_now(chat_id: int, track: dict) -> None:
-    """Stream a track, opening the voice chat first if none is active."""
+    """Stream a track, opening the voice chat first if none is active.
+
+    Robust against: no active call (any of several py-tgcalls errors), and the
+    race where a freshly-created call isn't registered on Telegram's side yet —
+    so open the call, wait, and retry a few times.
+    """
+    stream = _audio(track["url"])
     try:
-        await calls.play(chat_id, _audio(track["url"]))
-    except NoActiveGroupCall:
+        await calls.play(chat_id, stream)
+        return
+    except Exception as first:
+        log.info("play needs a call in %s (%s); opening one…", chat_id, type(first).__name__)
+
+    try:
         await start_call(assistant, chat_id)
-        await calls.play(chat_id, _audio(track["url"]))
+    except Exception as e:
+        # GROUPCALL_INVALID etc. usually mean a call already exists — fine.
+        log.info("start_call in %s: %s", chat_id, e)
+
+    last: Optional[Exception] = None
+    for attempt in range(4):
+        await asyncio.sleep(1.5)  # let Telegram register the new call
+        try:
+            await calls.play(chat_id, stream)
+            return
+        except Exception as e:
+            last = e
+            log.info("play retry %d in %s failed: %s", attempt + 1, chat_id, type(e).__name__)
+    raise last if last else RuntimeError("play failed")
 
 
 def _authorized(request: web.Request) -> bool:
-    if not config.STREAMER_TOKEN:
-        return True
+    # STREAMER_TOKEN is required (enforced in config.validate), so this always
+    # checks the header — no open fallback.
     return request.headers.get("X-Token") == config.STREAMER_TOKEN
 
 
@@ -75,6 +100,7 @@ def _track_info(track: dict) -> dict:
     return {"title": track.get("title"), "duration": track.get("duration", 0), "webpage": track.get("webpage", "")}
 
 
+@routes.get("/")
 @routes.get("/health")
 async def health(_: web.Request) -> web.Response:
     return web.json_response({"ok": True})
@@ -234,6 +260,13 @@ async def _serve() -> None:
     site = web.TCPSite(runner, "0.0.0.0", config.PORT)
     await site.start()
     log.info("HTTP control API listening on 0.0.0.0:%s", config.PORT)
+
+    # Wait a bit so any previous deployment fully shuts down before we connect
+    # the assistant — avoids two instances briefly sharing the session on a
+    # redeploy (Telegram kills that with AUTH_KEY_DUPLICATED).
+    if config.START_DELAY > 0:
+        log.info("waiting %ss before connecting the assistant (redeploy safety)…", config.START_DELAY)
+        await asyncio.sleep(config.START_DELAY)
 
     # Connect the assistant + PyTgCalls (needed for actual playback). Do NOT
     # crash the whole service if this fails — keep serving so search still works

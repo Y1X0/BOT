@@ -61,7 +61,8 @@ function errorText(r: StreamerResult | null): string {
   const e = r.error || '';
   if (e === 'unreachable') return '⚠️ ما قدرت أوصل لسيرفر البث. تأكد إنه شغّال.';
   if (e === 'not_found') return '❌ ما لقيت الأغنية. جرّب اسم تاني.';
-  if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
+  if (/PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e)) return '🔗 الحساب المساعد مش عضو بالجروب. ضيفه وخلّيه أدمن مع صلاحية إدارة المكالمات.';
+  if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN|FORBIDDEN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
   if (/GROUPCALL_INVALID|already/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
   return `تعذّر التنفيذ: ${e || 'خطأ غير معروف'}`;
 }
