@@ -39,6 +39,11 @@ PORT = _int("PORT", 8080)
 # the platform's zero-downtime/overlap window to 0 and keep replicas at 1.
 START_DELAY = _int("STREAMER_START_DELAY", 25)
 
+# The management bot's public callback (e.g. https://your-bot.up.railway.app/vc/nowplaying).
+# When set, the streamer notifies the bot on auto-advance so it can post the
+# now-playing card. Authenticated with STREAMER_TOKEN. Optional.
+BOT_CALLBACK_URL = os.getenv("BOT_CALLBACK_URL", "")
+
 
 def validate() -> None:
     missing = [n for n, v in {

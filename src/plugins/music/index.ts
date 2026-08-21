@@ -1,4 +1,4 @@
-import { Markup, type Telegraf } from 'telegraf';
+import { Markup, type Telegraf, type Telegram } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { requireRole, resolveRole, hasRole } from '../../utils/permissions';
@@ -140,19 +140,24 @@ class CaptionBuilder {
   }
 }
 
-// Build the "now playing" card as text + entities.
-function nowPlayingCard(r: StreamerResult, ctx: BotContext, em: CardEmoji): { text: string; entities: Entity[] } {
+type Requester = { name: string; user: unknown } | null;
+
+// Build the "now playing" card as text + entities. requester is who asked for
+// the track (null for auto-advance, which shows "تلقائي").
+function nowPlayingCard(r: StreamerResult, requester: Requester, em: CardEmoji): { text: string; entities: Entity[] } {
   const b = new CaptionBuilder();
   b.emoji(em.title).add(' ').bold(r.title || '').add('\n');
   b.add(`${EXTRA.divider}\n`);
   b.emoji(em.channel).add(` القناة: ${r.uploader || '—'}\n`);
   b.emoji(em.duration).add(` المدة: ${fmtDuration(r.duration)}\n`);
   b.emoji(em.requester).add(' طلب: ');
-  if (ctx.from) b.mention(ctx.from.first_name || 'مستخدم', ctx.from);
-  else b.add('—');
+  if (requester) b.mention(requester.name || 'مستخدم', requester.user);
+  else b.add('تلقائي');
   b.add(`\n${EXTRA.divider}`);
   return { text: b.text, entities: b.entities };
 }
+
+const reqOf = (ctx: BotContext): Requester => (ctx.from ? { name: ctx.from.first_name || 'مستخدم', user: ctx.from } : null);
 
 // Edit a status message to text+entities, retrying without custom_emoji (premium
 // emoji fail if the bot owner lacks Premium) and finally with no entities — so
@@ -183,7 +188,7 @@ async function editEntities(
 // Send the now-playing card: a photo if we have a thumbnail, else edit the
 // status message to text. Retries without custom_emoji if premium is rejected.
 async function sendNowPlaying(ctx: BotContext, statusId: number, r: StreamerResult, em: CardEmoji): Promise<void> {
-  const { text, entities } = nowPlayingCard(r, ctx, em);
+  const { text, entities } = nowPlayingCard(r, reqOf(ctx), em);
   const plain = entities.filter((e) => e.type !== 'custom_emoji');
   if (r.thumb) {
     for (const ents of [entities, plain]) {
@@ -200,6 +205,50 @@ async function sendNowPlaying(ctx: BotContext, statusId: number, r: StreamerResu
     }
   }
   await editEntities(ctx, statusId, text, entities, CONTROLS);
+}
+
+// Post the now-playing card as a FRESH message via a raw Telegram instance —
+// usable without a ctx (e.g. the streamer's auto-advance callback). Same
+// premium-emoji fallback: retry without custom_emoji, then with no entities.
+export async function sendCardVia(
+  telegram: Telegram,
+  chatId: number,
+  r: StreamerResult,
+  requester: Requester,
+): Promise<void> {
+  const em = await cardEmoji(chatId);
+  const { text, entities } = nowPlayingCard(r, requester, em);
+  const plain = entities.filter((e) => e.type !== 'custom_emoji');
+  const kb = { reply_markup: CONTROLS.reply_markup };
+  if (r.thumb) {
+    for (const ents of [entities, plain]) {
+      try {
+        await telegram.sendPhoto(chatId, r.thumb, { caption: text, caption_entities: ents as never, ...kb });
+        return;
+      } catch (err) {
+        log.warn({ err }, 'card photo failed; retry/fallback');
+        if (ents === plain) break;
+      }
+    }
+  }
+  for (const ents of [entities, plain, [] as Entity[]]) {
+    try {
+      await telegram.sendMessage(chatId, text, {
+        entities: ents as never,
+        link_preview_options: { is_disabled: true },
+        ...kb,
+      } as never);
+      return;
+    } catch {
+      /* try the next, less-decorated variant */
+    }
+  }
+}
+
+// Post the card as a fresh message in the current chat (skip / next-track).
+async function postCard(ctx: BotContext, r: StreamerResult): Promise<void> {
+  if (!ctx.chat) return;
+  await sendCardVia(ctx.telegram, ctx.chat.id, r, reqOf(ctx));
 }
 
 // Playback controls shown under the card (handled by the vc:* callbacks).
@@ -342,7 +391,8 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/skip', { chat_id: ctx.chat.id });
       if (!r?.ok) return void ctx.reply(errorText(r));
-      await ctx.reply(r.ended ? '⏭ خلص الطابور — طلعت من الكول.' : `⏭ التالي: <b>${r.title}</b> (${fmtDuration(r.duration)})`, { parse_mode: 'HTML' });
+      if (r.ended) return void ctx.reply('⏭ خلص الطابور — طلعت من الكول.');
+      await postCard(ctx, r);
     });
 
     bot.command('vcpause', requireRole('moderator'), async (ctx) => {
@@ -427,9 +477,9 @@ export const musicPlugin: Plugin = {
       if (action === 'skip') {
         const r = await callStreamer('/skip', { chat_id: chatId });
         if (!r?.ok) return void ctx.answerCbQuery(errorText(r)).catch(() => undefined);
-        return void ctx
-          .answerCbQuery(r.ended ? '⏭ خلص الطابور — طلعت من الكول.' : `⏭ التالي: ${r.title}`)
-          .catch(() => undefined);
+        await ctx.answerCbQuery(r.ended ? '⏭ خلص الطابور — طلعت من الكول.' : '⏭ التالي').catch(() => undefined);
+        if (!r.ended) await postCard(ctx, r);
+        return;
       }
       if (action === 'stop') {
         const r = await callStreamer('/stop', { chat_id: chatId });

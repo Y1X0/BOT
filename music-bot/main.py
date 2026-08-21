@@ -23,6 +23,8 @@ import asyncio
 import logging
 import time
 
+import aiohttp
+
 # py-tgcalls' sync shim calls asyncio.get_event_loop() at import time, which
 # raises "no current event loop" on Python 3.12+ (default on newer distros).
 # Ensure a current loop exists BEFORE importing pytgcalls/pyrogram.
@@ -425,8 +427,33 @@ async def _on_stream_end(_, update) -> None:
     try:
         await calls.play(chat_id, _audio(nxt["url"]))
         log.info("auto-advanced in %s → %s", chat_id, nxt.get("title"))
+        await _notify_now_playing(chat_id, nxt)
     except Exception as e:
         log.warning("auto-advance failed in %s: %s", chat_id, e)
+
+
+async def _notify_now_playing(chat_id: int, track: dict) -> None:
+    """Tell the management bot which track just auto-started, so it posts the
+    now-playing card. Best-effort — never breaks playback if the bot is down."""
+    if not config.BOT_CALLBACK_URL:
+        return
+    payload = {
+        "chat_id": chat_id,
+        "title": track.get("title"),
+        "uploader": track.get("uploader", ""),
+        "duration": track.get("duration", 0),
+        "thumb": track.get("thumb", ""),
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(
+                config.BOT_CALLBACK_URL,
+                json=payload,
+                headers={"X-Token": config.STREAMER_TOKEN},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+    except Exception as e:
+        log.info("now-playing notify failed for %s: %s", chat_id, e)
 
 
 def _udp_ok() -> bool:
