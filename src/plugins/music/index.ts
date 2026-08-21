@@ -81,15 +81,32 @@ function mentionOf(ctx: BotContext): string {
   return `<a href="tg://user?id=${u.id}">${esc(u.first_name || 'مستخدم')}</a>`;
 }
 
+// ── Card emojis — change these freely ────────────────────────────────────────
+// Each value is rendered as-is inside the HTML caption, so it can be either:
+//   • a normal emoji:            title: '🎼'
+//   • a premium/custom emoji:    title: '<tg-emoji emoji-id="5368324170671202286">🎵</tg-emoji>'
+// To get a custom emoji-id: send that premium emoji to the bot and read the
+// message's custom_emoji entity id (or forward it to @userinfobot-style tools).
+// Keep a normal emoji as the fallback inside the tag — it shows for non-premium.
+const CARD = {
+  title: '🎵',
+  channel: '👤',
+  duration: '⏱',
+  requester: '🎧',
+  queued: '➕',
+  position: '🔢',
+  divider: '━━━━━━━━━━━━━',
+};
+
 // The "now playing" card body (used as a photo caption or as a text fallback).
 function nowPlayingCaption(r: StreamerResult, mention: string): string {
   return [
-    `🎵 <b>${esc(r.title)}</b>`,
-    '━━━━━━━━━━━━━',
-    `👤 القناة: ${esc(r.uploader) || '—'}`,
-    `⏱ المدة: ${fmtDuration(r.duration)}`,
-    `🎧 طلب: ${mention}`,
-    '━━━━━━━━━━━━━',
+    `${CARD.title} <b>${esc(r.title)}</b>`,
+    CARD.divider,
+    `${CARD.channel} القناة: ${esc(r.uploader) || '—'}`,
+    `${CARD.duration} المدة: ${fmtDuration(r.duration)}`,
+    `${CARD.requester} طلب: ${mention}`,
+    CARD.divider,
   ].join('\n');
 }
 
@@ -174,7 +191,7 @@ export const musicPlugin: Plugin = {
         return void edit(
           ctx,
           status.message_id,
-          `➕ <b>أضيفت للطابور</b>\n🎵 ${esc(r.title)} (${fmtDuration(r.duration)})\n🔢 الترتيب: ${r.position}`,
+          `${CARD.queued} <b>أضيفت للطابور</b>\n${CARD.title} ${esc(r.title)} (${fmtDuration(r.duration)})\n${CARD.position} الترتيب: ${r.position}`,
         );
       }
 
