@@ -40,3 +40,26 @@ def upcoming(chat_id: int) -> list[dict]:
 def clear(chat_id: int) -> None:
     _queues[chat_id].clear()
     _active.pop(chat_id, None)
+
+
+def clear_upcoming(chat_id: int) -> int:
+    """Clear only the UPCOMING queue, leaving the current track playing.
+    Returns how many were removed."""
+    q = _queues[chat_id]
+    n = len(q)
+    q.clear()
+    return n
+
+
+def remove(chat_id: int, index: int) -> Optional[dict]:
+    """Remove the upcoming track at a 1-based index; return it, or None if the
+    index is out of range."""
+    q = _queues[chat_id]
+    if index < 1 or index > len(q):
+        return None
+    # deque has no direct pop-by-index; rebuild without that item.
+    items = list(q)
+    removed = items.pop(index - 1)
+    q.clear()
+    q.extend(items)
+    return removed

@@ -410,6 +410,30 @@ async def queue(request: web.Request) -> web.Response:
     })
 
 
+@routes.post("/clearqueue")
+async def clearqueue(request: web.Request) -> web.Response:
+    """Clear the UPCOMING queue but keep the current track playing."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    chat_id = int((await _body(request)).get("chat_id") or 0)
+    removed = qm.clear_upcoming(chat_id)
+    return web.json_response({"ok": True, "removed": removed})
+
+
+@routes.post("/remove")
+async def remove(request: web.Request) -> web.Response:
+    """Remove a single upcoming track by its 1-based position."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    data = await _body(request)
+    chat_id = int(data.get("chat_id") or 0)
+    index = int(data.get("index") or 0)
+    track = qm.remove(chat_id, index)
+    if not track:
+        return web.json_response({"ok": False, "error": "bad_index"})
+    return web.json_response({"ok": True, **_track_info(track)})
+
+
 # Auto-advance: when a track ends, play the next queued one (or leave if empty).
 # NOTE: pass an INSTANCE — stream_end() — not the class; the framework awaits it.
 @calls.on_update(call_filters.stream_end())

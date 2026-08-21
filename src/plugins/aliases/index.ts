@@ -207,6 +207,8 @@ const ALIASES: Alias[] = [
   { command: 'vcpause', triggers: ['وقف الاغنيه', 'ايقاف الاغنيه', 'وقف الكول'] },
   { command: 'vcresume', triggers: ['كمل الاغنيه', 'استكمال الاغنيه', 'كمل الكول'] },
   { command: 'vcqueue', triggers: ['قائمه التشغيل', 'طابور الاغاني', 'قائمه الكول'] },
+  { command: 'vcremove', triggers: ['احذف من الطابور', 'شيل من الطابور'] },
+  { command: 'vcclear', triggers: ['فرغ الطابور', 'مسح الطابور', 'فضي الطابور'] },
   { command: 'vccard', triggers: ['بطاقه', 'ايموجي البطاقه', 'ايموجي التشغيل'] },
   { command: 'vccardall', triggers: ['ايموجي عام', 'بطاقه عامه', 'ايموجي كل البوت'] },
   { command: 'premiumemoji', triggers: ['مميز', 'ايموجي مميز', 'حول لمميز'] },

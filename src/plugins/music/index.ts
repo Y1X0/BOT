@@ -35,6 +35,7 @@ interface StreamerResult {
   position?: number;
   ended?: boolean;
   already?: boolean;
+  removed?: number;
   seconds?: number;
   title?: string;
   duration?: number;
@@ -329,6 +330,7 @@ function errorText(r: StreamerResult | null): string {
   if (e === 'unreachable') return '⚠️ ما قدرت أوصل لسيرفر البث. تأكد إنه شغّال.';
   if (e === 'starting') return '🔄 سيرفر البث لسه عم يشتغل، جرّب بعد شوي.';
   if (e === 'not_found') return '❌ ما لقيت الأغنية. جرّب اسم تاني.';
+  if (e === 'bad_index') return '❌ رقم غلط. شوف الطابور بأمر: قائمة الكول';
   if (e === 'no_call') return '🔇 الكول مسكّر. افتح كول أول: افتح كول';
   if (e === 'bad_link') return '🔗 رابط الدعوة غلط أو منتهي. جيب رابط دعوة جديد من إعدادات الجروب.';
   if (e === 'wrong_group') return '🔗 هذا الرابط لجروب ثاني، مش لهالجروب. استخدم رابط دعوة نفس الجروب.';
@@ -361,6 +363,8 @@ export const musicPlugin: Plugin = {
     { command: 'vcpause', description: '⏸ إيقاف مؤقت (مشرف)', staffOnly: true },
     { command: 'vcresume', description: '▶️ استئناف (مشرف)', staffOnly: true },
     { command: 'vcqueue', description: '📜 قائمة تشغيل الكول' },
+    { command: 'vcremove', description: '🗑 احذف أغنية من الطابور (مشرف)', staffOnly: true },
+    { command: 'vcclear', description: '🧹 فرّغ الطابور (مشرف)', staffOnly: true },
     { command: 'vccard', description: '🎨 إيموجي بطاقة التشغيل (مشرف)', staffOnly: true },
     { command: 'vccardall', description: '🌐 إيموجي البطاقة لكل البوت (مالك)', staffOnly: true },
     { command: 'premiumemoji', description: '✨ حوّل إيموجي لمميّز بكل البوت (مالك)', staffOnly: true },
@@ -462,6 +466,26 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/resume', { chat_id: ctx.chat.id });
       await ctx.reply(r?.ok ? '▶️ كمّلت.' : 'ما في شي موقوف.');
+    });
+
+    // فرّغ الطابور (بيضل الي عم يشتغل).
+    bot.command('vcclear', requireRole('moderator'), async (ctx) => {
+      if (!groupOnly(ctx) || !ctx.chat) return;
+      if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
+      const r = await callStreamer('/clearqueue', { chat_id: ctx.chat.id });
+      if (!r?.ok) return void ctx.reply(errorText(r));
+      await ctx.reply(r.removed ? `🧹 فرّغت الطابور (${r.removed} أغنية). الي عم يشتغل بيكمّل.` : '📭 الطابور أصلاً فاضي.');
+    });
+
+    // احذف أغنية من الطابور برقمها: احذف 3
+    bot.command('vcremove', requireRole('moderator'), async (ctx) => {
+      if (!groupOnly(ctx) || !ctx.chat) return;
+      if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
+      const index = parseInt(ctx.message.text.split(/\s+/)[1] || '', 10);
+      if (!index || index < 1) return void ctx.reply('🗑 اكتب رقم الأغنية بالطابور:\nاحذف 3\n(شوف الأرقام بأمر: قائمة الكول)');
+      const r = await callStreamer('/remove', { chat_id: ctx.chat.id, index });
+      if (!r?.ok) return void ctx.reply(errorText(r));
+      await ctx.reply(`🗑 حذفت: <b>${esc(r.title)}</b> (${fmtDuration(r.duration)})`, { parse_mode: 'HTML' });
     });
 
     // بطاقة 🎼 🎤 ⏳ 💿 — set the card emojis (title channel duration requester).
