@@ -26,6 +26,12 @@ async function main(): Promise<void> {
 
   await publishCommands(bot, plugins);
 
+  // Flush buffered command-usage counts to the DB periodically.
+  {
+    const { flushUsage } = await import('./services/usage.service');
+    setInterval(() => void flushUsage(), 60_000).unref();
+  }
+
   // Periodic message-log retention cleanup (owner dashboard, opt-in).
   if (env.MESSAGE_LOG_ENABLED) {
     const { cleanupOldLogs } = await import('./services/logging.service');
@@ -61,6 +67,7 @@ async function main(): Promise<void> {
       /* already stopped */
     }
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await import('./services/usage.service').then((m) => m.flushUsage()).catch(() => undefined);
     await import('./services/pdf/browser').then((m) => m.closeBrowser()).catch(() => undefined);
     await disconnectDatabase();
     logger.info('Shutdown complete');

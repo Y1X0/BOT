@@ -296,6 +296,14 @@ model GlobalConfig {
   updatedAt DateTime @updatedAt
 }
 
+/// How many times each command was invoked (slash or Arabic alias), bot-wide.
+/// Turns "which features do people actually use?" from a guess into a number.
+model CommandStat {
+  command   String   @id
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
 /// A custom bot rank assigned to a user in a chat (independent of Telegram's
 /// own admin status). Grants bot-command permissions to whoever holds it.
 model ChatRole {

@@ -7,6 +7,7 @@ import { contextMiddleware } from '../middlewares/context.middleware';
 import { rateLimitMiddleware } from '../middlewares/rateLimit.middleware';
 import { antispamMiddleware } from '../middlewares/antispam.middleware';
 import { loggingMiddleware } from '../middlewares/logging.middleware';
+import { usageMiddleware } from '../middlewares/usage.middleware';
 import { moderationMiddleware } from '../middlewares/moderation.middleware';
 import { logOutgoing } from '../services/logging.service';
 import { recordError } from './errors';
@@ -45,6 +46,7 @@ export async function createBot(): Promise<{
   // 4) anti-spam moderation (may short-circuit)
   // 5) plugins / command handlers
   bot.use(contextMiddleware);
+  bot.use(usageMiddleware);
   bot.use(loggingMiddleware);
   bot.use(rateLimitMiddleware);
   bot.use(antispamMiddleware);
