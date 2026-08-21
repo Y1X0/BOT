@@ -112,10 +112,17 @@ def _authorized(request: web.Request) -> bool:
 
 
 async def _body(request: web.Request) -> dict:
+    # Parse the JSON body at most ONCE per request and cache it on the request
+    # object. The allow-list middleware reads chat_id first; the handler then
+    # reads the same cached dict — no second read() that could fail mid-stream.
+    if "_json" in request:
+        return request["_json"]
     try:
-        return await request.json()
+        data = await request.json()
     except Exception:
-        return {}
+        data = {}
+    request["_json"] = data
+    return data
 
 
 @web.middleware
@@ -327,11 +334,8 @@ async def _serve() -> None:
     # Start the HTTP control API FIRST so /health and /play (search) work even
     # if the assistant can't connect — search is independent of the session, and
     # this avoids a crash loop when the session is temporarily invalid.
-    if config.ALLOWED_CHATS:
-        log.info("chat allow-list active: %s", sorted(config.ALLOWED_CHATS))
-    else:
-        log.warning("STREAMER_ALLOWED_CHATS is empty — the streamer will act on ANY chat_id. "
-                    "Set it to your group id(s) to lock this down.")
+    # validate() guarantees this is non-empty.
+    log.info("chat allow-list active: %s", sorted(config.ALLOWED_CHATS))
 
     app = web.Application(middlewares=[_allowlist_mw])
     app.add_routes(routes)

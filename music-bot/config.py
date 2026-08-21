@@ -73,3 +73,11 @@ def validate() -> None:
             "❌ ناقص متغيرات البيئة: " + ", ".join(missing) +
             "\nعبّيها بملف .env (شوف .env.example) قبل التشغيل."
         )
+    # The allow-list is required — an empty one means "act on any chat", which
+    # is the same open-default we removed for the token. Lock it down.
+    if not ALLOWED_CHATS:
+        raise SystemExit(
+            "❌ ناقص STREAMER_ALLOWED_CHATS — حطّ رقم جروبك (يبدأ بـ -100)، "
+            "مفصول بفاصلة لو أكثر من جروب.\n"
+            "طلّع الرقم بأمر /id (ايدي) داخل الجروب من بوت الإدارة."
+        )
