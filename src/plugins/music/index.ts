@@ -3,6 +3,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { requireRole, resolveRole, hasRole } from '../../utils/permissions';
 import { ensureChat, getSettings, setVcCardEmoji } from '../../services/settings.service';
+import { getGlobalVcCardEmoji, setGlobalVcCardEmoji } from '../../services/global.service';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:music');
@@ -100,15 +101,66 @@ const CARD_DEFAULT: CardEmoji = {
 };
 const EXTRA = { queued: '➕', position: '🔢', divider: '━━━━━━━━━━━━━' };
 
-// Per-chat emoji overrides (set with /vccard), merged over the defaults.
+// Resolve the card emojis: defaults → bot-wide global (set by owner) → this
+// group's own override (set with /vccard), each layer winning over the last.
 async function cardEmoji(chatId: number): Promise<CardEmoji> {
+  const merged: CardEmoji = { ...CARD_DEFAULT };
+  try {
+    const g = await getGlobalVcCardEmoji();
+    if (g) Object.assign(merged, g);
+  } catch {
+    /* ignore */
+  }
   try {
     const s = await getSettings(chatId);
-    if (s?.vcCardEmoji) return { ...CARD_DEFAULT, ...(JSON.parse(s.vcCardEmoji) as Partial<CardEmoji>) };
+    if (s?.vcCardEmoji) Object.assign(merged, JSON.parse(s.vcCardEmoji) as Partial<CardEmoji>);
   } catch {
-    /* bad JSON or no row → defaults */
+    /* bad JSON or no row → keep what we have */
   }
-  return CARD_DEFAULT;
+  return merged;
+}
+
+type RepliedMsg = { text?: string; caption?: string; entities?: Entity[]; caption_entities?: Entity[] };
+const repliedText = (m: RepliedMsg): string => m.text || m.caption || '';
+const repliedEntities = (m: RepliedMsg): Entity[] | undefined => m.entities || m.caption_entities;
+
+// Parse a message's text into emoji values, capturing premium (custom) emoji
+// ids from its entities. Each whitespace-separated word is one emoji.
+function parseEmojiVals(text: string, entities?: Entity[]): EmojiVal[] {
+  const custom = new Map<number, Entity>();
+  for (const e of entities || []) if (e.type === 'custom_emoji' && e.custom_emoji_id) custom.set(e.offset, e);
+  const out: EmojiVal[] = [];
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const ce = custom.get(m.index);
+    out.push(ce && ce.length === m[0].length ? { e: m[0], id: ce.custom_emoji_id } : { e: m[0] });
+  }
+  return out;
+}
+
+// Turn positional emoji args into a { title, channel, duration, requester }
+// override object (extra args ignored).
+function toOverrides(args: EmojiVal[]): Partial<CardEmoji> {
+  const o: Partial<CardEmoji> = {};
+  args.slice(0, CARD_KEYS.length).forEach((v, i) => {
+    o[CARD_KEYS[i]] = v;
+  });
+  return o;
+}
+
+// Send a confirmation showing the actual emoji (via entities), degrading to the
+// plain glyphs if a premium one can't be sent.
+async function replyEmojiConfirm(ctx: BotContext, header: string, ov: Partial<CardEmoji>): Promise<void> {
+  const em = { ...CARD_DEFAULT, ...ov };
+  const b = new CaptionBuilder();
+  b.add(`${header}\n`);
+  b.emoji(em.title).add(' العنوان · ').emoji(em.channel).add(' القناة · ');
+  b.emoji(em.duration).add(' المدة · ').emoji(em.requester).add(' الطلب');
+  const plain = b.entities.filter((e) => e.type !== 'custom_emoji');
+  await ctx
+    .reply(b.text, { entities: b.entities as never })
+    .catch(() => ctx.reply(b.text, { entities: plain as never }).catch(() => ctx.reply(b.text)));
 }
 
 // Assemble caption text while tracking UTF-16 offsets for entities (bold,
@@ -309,6 +361,7 @@ export const musicPlugin: Plugin = {
     { command: 'vcresume', description: '▶️ استئناف (مشرف)', staffOnly: true },
     { command: 'vcqueue', description: '📜 قائمة تشغيل الكول' },
     { command: 'vccard', description: '🎨 إيموجي بطاقة التشغيل (مشرف)', staffOnly: true },
+    { command: 'vccardall', description: '🌐 إيموجي البطاقة لكل البوت (مالك)', staffOnly: true },
     { command: 'vcstop', description: '👋 إنهاء الكول (مشرف)', staffOnly: true },
   ],
 
@@ -416,45 +469,42 @@ export const musicPlugin: Plugin = {
       const title = 'title' in ctx.chat ? ctx.chat.title : undefined;
       await ensureChat(ctx.chat.id, title, ctx.chat.type);
 
-      // Each whitespace-separated arg is one emoji; a premium one carries a
-      // custom_emoji entity at the same offset — capture its id.
-      const entities = ((ctx.message as { entities?: Entity[] }).entities || []).filter(
-        (e) => e.type === 'custom_emoji' && e.custom_emoji_id,
-      );
-      const customByOffset = new Map(entities.map((e) => [e.offset, e]));
-      const text = ctx.message.text;
-      const words: { e: string; id?: string }[] = [];
-      const re = /\S+/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(text))) {
-        const ce = customByOffset.get(m.index);
-        words.push(ce && ce.length === m[0].length ? { e: m[0], id: ce.custom_emoji_id } : { e: m[0] });
+      // Args come from the command text OR, if it's a reply, the replied-to
+      // message (reliable for premium emoji — replies aren't alias-rewritten).
+      const replied = (ctx.message as { reply_to_message?: RepliedMsg }).reply_to_message;
+      let args: EmojiVal[];
+      if (replied) {
+        args = parseEmojiVals(repliedText(replied), repliedEntities(replied));
+      } else {
+        args = parseEmojiVals(ctx.message.text, (ctx.message as { entities?: Entity[] }).entities).slice(1);
       }
-      const args = words.slice(1); // drop the command word
 
       if (!args.length) {
         await setVcCardEmoji(ctx.chat.id, null);
-        return void ctx.reply('✅ رجّعت إيموجي البطاقة للافتراضي.\nلتغييرها: بطاقة 🎼 🎤 ⏳ 💿');
+        return void ctx.reply('✅ رجّعت إيموجي البطاقة للافتراضي.\nلتغييرها: بطاقة 🎼 🎤 ⏳ 💿 (أو رُدّ على رسالة فيها الإيموجي)');
       }
 
-      // Positional: title, channel, duration, requester (extra args ignored).
-      const overrides: Partial<CardEmoji> = {};
-      args.slice(0, CARD_KEYS.length).forEach((v, i) => {
-        overrides[CARD_KEYS[i]] = v;
-      });
+      const overrides = toOverrides(args);
       await setVcCardEmoji(ctx.chat.id, JSON.stringify(overrides));
+      await replyEmojiConfirm(ctx, '✅ غيّرت إيموجي البطاقة لهالجروب:', overrides);
+    });
 
-      // Confirm with the actual emoji (entities) so a premium one shows here too.
-      const em = { ...CARD_DEFAULT, ...overrides };
-      const b = new CaptionBuilder();
-      b.add('✅ غيّرت إيموجي البطاقة:\n');
-      b.emoji(em.title).add(' العنوان · ').emoji(em.channel).add(' القناة · ');
-      b.emoji(em.duration).add(' المدة · ').emoji(em.requester).add(' الطلب');
-      b.add('\n\nجرّب: تشغيل اسم الأغنية');
-      const plain = b.entities.filter((e) => e.type !== 'custom_emoji');
-      await ctx
-        .reply(b.text, { entities: b.entities as never })
-        .catch(() => ctx.reply(b.text, { entities: plain as never }).catch(() => ctx.reply(b.text)));
+    // ايموجي عام — set the card emojis for the WHOLE bot. Reply to a message that
+    // contains the emoji (the reliable way for premium ones). Owner only; a
+    // per-group /vccard still overrides this. No reply → reset to defaults.
+    bot.command('vccardall', requireRole('owner'), async (ctx) => {
+      const replied = (ctx.message as { reply_to_message?: RepliedMsg }).reply_to_message;
+      if (!replied) {
+        await setGlobalVcCardEmoji(null);
+        return void ctx.reply('✅ رجّعت الإيموجي العام للافتراضي.\nلتعيينه: رُدّ على رسالة فيها الإيموجي واكتب: ايموجي عام');
+      }
+      const args = parseEmojiVals(repliedText(replied), repliedEntities(replied));
+      if (!args.length) {
+        return void ctx.reply('🤷 الرسالة اللي رديت عليها ما فيها إيموجي.\nرُدّ على رسالة فيها الإيموجي بالترتيب: العنوان القناة المدة الطلب.');
+      }
+      const overrides = toOverrides(args);
+      await setGlobalVcCardEmoji(overrides as Record<string, unknown>);
+      await replyEmojiConfirm(ctx, '✅ حفظت الإيموجي لكل البوت:', overrides);
     });
 
     // Inline card buttons (⏸ ⏭ 📜 ⏹). Moderators only — enforced here since

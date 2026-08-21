@@ -41,3 +41,22 @@ export async function setGlobalIdCard(template: string | null, entities: unknown
   if (!template) return void setGlobal(GLOBAL_ID_CARD_KEY, null);
   await setGlobal(GLOBAL_ID_CARD_KEY, JSON.stringify({ template, entities: entities ?? [] }));
 }
+
+const GLOBAL_VC_CARD_EMOJI_KEY = 'vcCardEmoji';
+
+/** Bot-wide voice-chat card emojis (JSON object), applied to every group that
+ *  hasn't set its own. null when unset. */
+export async function getGlobalVcCardEmoji(): Promise<Record<string, unknown> | null> {
+  const raw = await getGlobal(GLOBAL_VC_CARD_EMOJI_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setGlobalVcCardEmoji(overrides: Record<string, unknown> | null): Promise<void> {
+  await setGlobal(GLOBAL_VC_CARD_EMOJI_KEY, overrides ? JSON.stringify(overrides) : null);
+}
