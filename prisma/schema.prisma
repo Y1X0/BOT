@@ -113,6 +113,9 @@ model ChatSettings {
   idCardImage         Boolean  @default(true) // render the card as a designed image (else text)
   idCardTheme         String   @default("auto") // color theme: auto | random | <theme id>
 
+  // Voice-chat "now playing" card: JSON overrides for the card emojis
+  vcCardEmoji         String? // JSON like {"title":"🎼","channel":"🎤",...}; null = defaults
+
   updatedAt           DateTime @updatedAt
 }
 

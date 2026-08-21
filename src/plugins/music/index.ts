@@ -2,6 +2,7 @@ import { Markup, type Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { requireRole, resolveRole, hasRole } from '../../utils/permissions';
+import { ensureChat, getSettings, setVcCardEmoji } from '../../services/settings.service';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:music');
@@ -97,16 +98,30 @@ const CARD = {
   position: '🔢',
   divider: '━━━━━━━━━━━━━',
 };
+type CardEmoji = typeof CARD;
+// Which emojis the /vccard command lets a group change, in order.
+const CARD_KEYS = ['title', 'channel', 'duration', 'requester'] as const;
+
+// Per-chat emoji overrides (set with /vccard), merged over the defaults.
+async function cardEmoji(chatId: number): Promise<CardEmoji> {
+  try {
+    const s = await getSettings(chatId);
+    if (s?.vcCardEmoji) return { ...CARD, ...(JSON.parse(s.vcCardEmoji) as Partial<CardEmoji>) };
+  } catch {
+    /* bad JSON or no row → defaults */
+  }
+  return CARD;
+}
 
 // The "now playing" card body (used as a photo caption or as a text fallback).
-function nowPlayingCaption(r: StreamerResult, mention: string): string {
+function nowPlayingCaption(r: StreamerResult, mention: string, em: CardEmoji): string {
   return [
-    `${CARD.title} <b>${esc(r.title)}</b>`,
-    CARD.divider,
-    `${CARD.channel} القناة: ${esc(r.uploader) || '—'}`,
-    `${CARD.duration} المدة: ${fmtDuration(r.duration)}`,
-    `${CARD.requester} طلب: ${mention}`,
-    CARD.divider,
+    `${em.title} <b>${esc(r.title)}</b>`,
+    em.divider,
+    `${em.channel} القناة: ${esc(r.uploader) || '—'}`,
+    `${em.duration} المدة: ${fmtDuration(r.duration)}`,
+    `${em.requester} طلب: ${mention}`,
+    em.divider,
   ].join('\n');
 }
 
@@ -167,6 +182,7 @@ export const musicPlugin: Plugin = {
     { command: 'vcpause', description: '⏸ إيقاف مؤقت (مشرف)', staffOnly: true },
     { command: 'vcresume', description: '▶️ استئناف (مشرف)', staffOnly: true },
     { command: 'vcqueue', description: '📜 قائمة تشغيل الكول' },
+    { command: 'vccard', description: '🎨 إيموجي بطاقة التشغيل (مشرف)', staffOnly: true },
     { command: 'vcstop', description: '👋 إنهاء الكول (مشرف)', staffOnly: true },
   ],
 
@@ -186,18 +202,20 @@ export const musicPlugin: Plugin = {
       const r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
       if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
 
+      const em = await cardEmoji(ctx.chat.id);
+
       // Added behind a currently-playing track → a light text card (no photo).
       if (r.queued) {
         return void edit(
           ctx,
           status.message_id,
-          `${CARD.queued} <b>أضيفت للطابور</b>\n${CARD.title} ${esc(r.title)} (${fmtDuration(r.duration)})\n${CARD.position} الترتيب: ${r.position}`,
+          `${em.queued} <b>أضيفت للطابور</b>\n${em.title} ${esc(r.title)} (${fmtDuration(r.duration)})\n${em.position} الترتيب: ${r.position}`,
         );
       }
 
       // Now playing → a photo card with controls; fall back to text if we have
       // no thumbnail or Telegram can't fetch it.
-      const caption = nowPlayingCaption(r, mentionOf(ctx));
+      const caption = nowPlayingCaption(r, mentionOf(ctx), em);
       if (r.thumb) {
         try {
           await ctx.replyWithPhoto(r.thumb, { caption, parse_mode: 'HTML', ...CONTROLS });
@@ -281,6 +299,32 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/resume', { chat_id: ctx.chat.id });
       await ctx.reply(r?.ok ? '▶️ كمّلت.' : 'ما في شي موقوف.');
+    });
+
+    // بطاقة 🎼 🎤 ⏳ 💿 — set the card emojis (title channel duration requester).
+    // No args → reset to defaults. Moderators only.
+    bot.command('vccard', requireRole('moderator'), async (ctx) => {
+      if (!groupOnly(ctx) || !ctx.chat) return;
+      const title = 'title' in ctx.chat ? ctx.chat.title : undefined;
+      await ensureChat(ctx.chat.id, title, ctx.chat.type);
+
+      const tokens = ctx.message.text.split(/\s+/).slice(1).filter(Boolean);
+      if (!tokens.length) {
+        await setVcCardEmoji(ctx.chat.id, null);
+        return void ctx.reply('✅ رجّعت إيموجي البطاقة للافتراضي.\nلتغييرها: بطاقة 🎼 🎤 ⏳ 💿');
+      }
+
+      // Positional: title, channel, duration, requester (extra tokens ignored).
+      const overrides: Partial<CardEmoji> = {};
+      tokens.slice(0, CARD_KEYS.length).forEach((tok, i) => {
+        overrides[CARD_KEYS[i]] = tok;
+      });
+      await setVcCardEmoji(ctx.chat.id, JSON.stringify(overrides));
+
+      const em = { ...CARD, ...overrides };
+      await ctx.reply(
+        `✅ غيّرت إيموجي البطاقة:\n${em.title} العنوان · ${em.channel} القناة · ${em.duration} المدة · ${em.requester} الطلب\n\nجرّب: تشغيل اسم الأغنية`,
+      );
     });
 
     // Inline card buttons (⏸ ⏭ 📜 ⏹). Moderators only — enforced here since

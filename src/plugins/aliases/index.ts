@@ -207,6 +207,7 @@ const ALIASES: Alias[] = [
   { command: 'vcpause', triggers: ['وقف الاغنيه', 'ايقاف الاغنيه', 'وقف الكول'] },
   { command: 'vcresume', triggers: ['كمل الاغنيه', 'استكمال الاغنيه', 'كمل الكول'] },
   { command: 'vcqueue', triggers: ['قائمه التشغيل', 'طابور الاغاني', 'قائمه الكول'] },
+  { command: 'vccard', triggers: ['بطاقه', 'ايموجي البطاقه', 'ايموجي التشغيل'] },
   // Fun image editor
   { command: 'edit', triggers: ['تعديل', 'عدل الصوره', 'فن', 'محرر الصور'] },
   { command: 'imagine', triggers: ['تخيل', 'ولد صوره', 'ارسم', 'انشئ صوره'] },

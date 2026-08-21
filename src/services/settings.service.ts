@@ -142,6 +142,14 @@ export async function setIdCardTheme(chatId: number | bigint, theme: string): Pr
   });
 }
 
+/** Store (or clear, when json is null) custom voice-chat card emojis. */
+export async function setVcCardEmoji(chatId: number | bigint, json: string | null): Promise<void> {
+  await prisma.chatSettings.update({
+    where: { chatId: BigInt(chatId) },
+    data: { vcCardEmoji: json },
+  });
+}
+
 /** Store (or clear, when template is null) a custom id-card template + entities. */
 export async function setIdCard(
   chatId: number | bigint,
