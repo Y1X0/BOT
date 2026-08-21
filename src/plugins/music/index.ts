@@ -73,7 +73,8 @@ function errorText(r: StreamerResult | null): string {
   if (e === 'not_member' || /PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e))
     return '🔗 الحساب المساعد مش عضو بالجروب. استخدم /vcjoin مع رابط دعوة للجروب، بعدها رقّيه أدمن.';
   if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN|FORBIDDEN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
-  if (/GROUPCALL_INVALID|already/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
+  if (/already.?joined/i.test(e)) return 'ℹ️ المساعد عالق بكول قديم. جرّب: سكر كول ← افتح كول ← تشغيل';
+  if (/GROUPCALL_INVALID/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
   return `تعذّر التنفيذ: ${e || 'خطأ غير معروف'}`;
 }
 

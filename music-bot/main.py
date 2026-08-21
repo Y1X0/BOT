@@ -92,12 +92,23 @@ async def _play_now(chat_id: int, track: dict) -> None:
     We still retry a few times: a call just opened by /startvc may not be
     registered on Telegram's side yet. A fresh MediaStream is built per attempt
     (the object may hold state after a failed play).
+
+    Recovery: py-tgcalls can get stuck thinking it's still joined from an old
+    call (AlreadyJoinedError). If the first attempt hits that, leave_call to
+    clear the stale internal state, then retry.
     """
     try:
         await calls.play(chat_id, _audio(track["url"]))
         return
     except Exception as first:
-        log.info("play failed in %s (%s); retrying…", chat_id, type(first).__name__)
+        log.info("play failed in %s: %s: %s", chat_id, type(first).__name__, first)
+        name = type(first).__name__
+        if name == "AlreadyJoinedError" or "already joined" in str(first).lower():
+            log.info("stuck join in %s — leaving to clear stale state", chat_id)
+            try:
+                await calls.leave_call(chat_id)
+            except Exception as e:
+                log.info("leave_call during recovery in %s: %s", chat_id, e)
 
     last: Optional[Exception] = None
     for attempt in range(4):
@@ -107,7 +118,7 @@ async def _play_now(chat_id: int, track: dict) -> None:
             return
         except Exception as e:
             last = e
-            log.info("play retry %d in %s failed: %s", attempt + 1, chat_id, type(e).__name__)
+            log.info("play attempt %d in %s failed: %s: %s", attempt + 1, chat_id, type(e).__name__, e)
     raise last if last else RuntimeError("play failed")
 
 
