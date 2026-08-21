@@ -102,6 +102,29 @@ type CardEmoji = typeof CARD;
 // Which emojis the /vccard command lets a group change, in order.
 const CARD_KEYS = ['title', 'channel', 'duration', 'requester'] as const;
 
+type MsgEntity = { type: string; offset: number; length: number; custom_emoji_id?: string };
+
+// Split a command's text into emoji tokens, turning premium (custom) emoji into
+// <tg-emoji> tags so they render animated. Telegram sends a premium emoji as a
+// plain fallback glyph in the text plus a custom_emoji entity — without this we
+// would store only the fallback glyph.
+function emojiTokens(text: string, entities?: MsgEntity[]): string[] {
+  const custom = (entities || [])
+    .filter((e) => e.type === 'custom_emoji' && e.custom_emoji_id)
+    .sort((a, b) => a.offset - b.offset);
+  let out = '';
+  let i = 0;
+  for (const e of custom) {
+    if (e.offset < i) continue; // skip overlaps
+    out += text.slice(i, e.offset);
+    const glyph = text.slice(e.offset, e.offset + e.length);
+    out += `<tg-emoji emoji-id="${e.custom_emoji_id}">${esc(glyph)}</tg-emoji>`;
+    i = e.offset + e.length;
+  }
+  out += text.slice(i);
+  return out.trim().split(/\s+/).filter(Boolean);
+}
+
 // Per-chat emoji overrides (set with /vccard), merged over the defaults.
 async function cardEmoji(chatId: number): Promise<CardEmoji> {
   try {
@@ -308,7 +331,8 @@ export const musicPlugin: Plugin = {
       const title = 'title' in ctx.chat ? ctx.chat.title : undefined;
       await ensureChat(ctx.chat.id, title, ctx.chat.type);
 
-      const tokens = ctx.message.text.split(/\s+/).slice(1).filter(Boolean);
+      const entities = (ctx.message as { entities?: MsgEntity[] }).entities;
+      const tokens = emojiTokens(ctx.message.text, entities).slice(1); // drop the command word
       if (!tokens.length) {
         await setVcCardEmoji(ctx.chat.id, null);
         return void ctx.reply('✅ رجّعت إيموجي البطاقة للافتراضي.\nلتغييرها: بطاقة 🎼 🎤 ⏳ 💿');
@@ -324,6 +348,7 @@ export const musicPlugin: Plugin = {
       const em = { ...CARD, ...overrides };
       await ctx.reply(
         `✅ غيّرت إيموجي البطاقة:\n${em.title} العنوان · ${em.channel} القناة · ${em.duration} المدة · ${em.requester} الطلب\n\nجرّب: تشغيل اسم الأغنية`,
+        { parse_mode: 'HTML' },
       );
     });
 

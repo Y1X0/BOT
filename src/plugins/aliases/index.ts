@@ -304,9 +304,23 @@ export const aliasesPlugin: Plugin = {
         const isReply = Boolean((ctx.message as { reply_to_message?: unknown }).reply_to_message);
         if (REPLY_ONLY_COMMANDS.has(commandText) && !isReply) return next();
         // Rewrite message so Telegraf's command handlers match it.
-        const msg = ctx.message as { text: string; entities?: unknown[] };
+        type Ent = { type: string; offset: number; length: number; custom_emoji_id?: string };
+        const msg = ctx.message as { text: string; entities?: Ent[] };
+        const original = msg.text;
+        const customEmoji = (msg.entities || []).filter((e) => e.type === 'custom_emoji');
         msg.text = rewritten;
-        msg.entities = [{ type: 'bot_command', offset: 0, length: commandText.length }];
+        const entities: Ent[] = [{ type: 'bot_command', offset: 0, length: commandText.length }];
+        // Preserve custom (premium) emoji in the args so commands like /vccard
+        // can rebuild them — the rewrite replaces the whole entity list, which
+        // would otherwise drop them. Offsets shift because the command word
+        // differs in length from the Arabic trigger.
+        const newArgsStart = commandText.length + 1; // after "/cmd "
+        const argsStr = rewritten.slice(newArgsStart);
+        if (argsStr && customEmoji.length && original.endsWith(argsStr)) {
+          const delta = newArgsStart - (original.length - argsStr.length);
+          for (const e of customEmoji) entities.push({ ...e, offset: e.offset + delta });
+        }
+        msg.entities = entities;
       }
       return next();
     });
