@@ -75,99 +75,131 @@ function esc(s?: string): string {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// An HTML mention of whoever requested the track.
-function mentionOf(ctx: BotContext): string {
-  const u = ctx.from;
-  if (!u) return '—';
-  return `<a href="tg://user?id=${u.id}">${esc(u.first_name || 'مستخدم')}</a>`;
-}
-
-// ── Card emojis — change these freely ────────────────────────────────────────
-// Each value is rendered as-is inside the HTML caption, so it can be either:
-//   • a normal emoji:            title: '🎼'
-//   • a premium/custom emoji:    title: '<tg-emoji emoji-id="5368324170671202286">🎵</tg-emoji>'
-// To get a custom emoji-id: send that premium emoji to the bot and read the
-// message's custom_emoji entity id (or forward it to @userinfobot-style tools).
-// Keep a normal emoji as the fallback inside the tag — it shows for non-premium.
-const CARD = {
-  title: '🎵',
-  channel: '👤',
-  duration: '⏱',
-  requester: '🎧',
-  queued: '➕',
-  position: '🔢',
-  divider: '━━━━━━━━━━━━━',
+// ── Card emojis ──────────────────────────────────────────────────────────────
+// An emoji slot is a fallback glyph plus an optional custom (premium) emoji id.
+// Premium emoji are sent via message ENTITIES (like the id card), not HTML — a
+// <tg-emoji> tag is unreliable here, entities are what Telegram actually accepts.
+type EmojiVal = { e: string; id?: string };
+type Entity = {
+  type: string;
+  offset: number;
+  length: number;
+  custom_emoji_id?: string;
+  user?: unknown;
 };
-type CardEmoji = typeof CARD;
-// Which emojis the /vccard command lets a group change, in order.
+
 const CARD_KEYS = ['title', 'channel', 'duration', 'requester'] as const;
+type CardKey = (typeof CARD_KEYS)[number];
+type CardEmoji = Record<CardKey, EmojiVal>;
 
-type MsgEntity = { type: string; offset: number; length: number; custom_emoji_id?: string };
-
-// Split a command's text into emoji tokens, turning premium (custom) emoji into
-// <tg-emoji> tags so they render animated. Telegram sends a premium emoji as a
-// plain fallback glyph in the text plus a custom_emoji entity — without this we
-// would store only the fallback glyph.
-function emojiTokens(text: string, entities?: MsgEntity[]): string[] {
-  const custom = (entities || [])
-    .filter((e) => e.type === 'custom_emoji' && e.custom_emoji_id)
-    .sort((a, b) => a.offset - b.offset);
-  let out = '';
-  let i = 0;
-  for (const e of custom) {
-    if (e.offset < i) continue; // skip overlaps
-    out += text.slice(i, e.offset);
-    const glyph = text.slice(e.offset, e.offset + e.length);
-    out += `<tg-emoji emoji-id="${e.custom_emoji_id}">${esc(glyph)}</tg-emoji>`;
-    i = e.offset + e.length;
-  }
-  out += text.slice(i);
-  return out.trim().split(/\s+/).filter(Boolean);
-}
-
-// Reduce any <tg-emoji> back to its plain fallback glyph. Bots can't always
-// send custom (premium) emoji, so this is our safety net: if a card fails to
-// send, we retry with the plain version instead of leaving it stuck.
-function stripCustomEmoji(s: string): string {
-  return s.replace(/<tg-emoji\b[^>]*>([\s\S]*?)<\/tg-emoji>/gi, '$1');
-}
-
-// Edit a status message with HTML, retrying once with custom emoji stripped if
-// Telegram rejects it (e.g. an unsendable premium emoji). Returns nothing; it
-// never throws, and always leaves the message showing *something*.
-async function editCard(ctx: BotContext, messageId: number, html: string, extra: object): Promise<void> {
-  if (!ctx.chat) return;
-  const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, ...extra };
-  try {
-    await ctx.telegram.editMessageText(ctx.chat.id, messageId, undefined, html, opts as never);
-  } catch {
-    await ctx.telegram
-      .editMessageText(ctx.chat.id, messageId, undefined, stripCustomEmoji(html), opts as never)
-      .catch(() => undefined);
-  }
-}
+const CARD_DEFAULT: CardEmoji = {
+  title: { e: '🎵' },
+  channel: { e: '👤' },
+  duration: { e: '⏱' },
+  requester: { e: '🎧' },
+};
+const EXTRA = { queued: '➕', position: '🔢', divider: '━━━━━━━━━━━━━' };
 
 // Per-chat emoji overrides (set with /vccard), merged over the defaults.
 async function cardEmoji(chatId: number): Promise<CardEmoji> {
   try {
     const s = await getSettings(chatId);
-    if (s?.vcCardEmoji) return { ...CARD, ...(JSON.parse(s.vcCardEmoji) as Partial<CardEmoji>) };
+    if (s?.vcCardEmoji) return { ...CARD_DEFAULT, ...(JSON.parse(s.vcCardEmoji) as Partial<CardEmoji>) };
   } catch {
     /* bad JSON or no row → defaults */
   }
-  return CARD;
+  return CARD_DEFAULT;
 }
 
-// The "now playing" card body (used as a photo caption or as a text fallback).
-function nowPlayingCaption(r: StreamerResult, mention: string, em: CardEmoji): string {
-  return [
-    `${em.title} <b>${esc(r.title)}</b>`,
-    em.divider,
-    `${em.channel} القناة: ${esc(r.uploader) || '—'}`,
-    `${em.duration} المدة: ${fmtDuration(r.duration)}`,
-    `${em.requester} طلب: ${mention}`,
-    em.divider,
-  ].join('\n');
+// Assemble caption text while tracking UTF-16 offsets for entities (bold,
+// custom_emoji, text_mention) — the same mechanism the id card uses.
+class CaptionBuilder {
+  text = '';
+  entities: Entity[] = [];
+  add(s: string): this {
+    this.text += s;
+    return this;
+  }
+  emoji(v: EmojiVal): this {
+    const offset = this.text.length;
+    this.text += v.e;
+    if (v.id) this.entities.push({ type: 'custom_emoji', offset, length: v.e.length, custom_emoji_id: v.id });
+    return this;
+  }
+  bold(s: string): this {
+    const offset = this.text.length;
+    this.text += s;
+    this.entities.push({ type: 'bold', offset, length: s.length });
+    return this;
+  }
+  mention(name: string, user: unknown): this {
+    const offset = this.text.length;
+    this.text += name;
+    this.entities.push({ type: 'text_mention', offset, length: name.length, user });
+    return this;
+  }
+}
+
+// Build the "now playing" card as text + entities.
+function nowPlayingCard(r: StreamerResult, ctx: BotContext, em: CardEmoji): { text: string; entities: Entity[] } {
+  const b = new CaptionBuilder();
+  b.emoji(em.title).add(' ').bold(r.title || '').add('\n');
+  b.add(`${EXTRA.divider}\n`);
+  b.emoji(em.channel).add(` القناة: ${r.uploader || '—'}\n`);
+  b.emoji(em.duration).add(` المدة: ${fmtDuration(r.duration)}\n`);
+  b.emoji(em.requester).add(' طلب: ');
+  if (ctx.from) b.mention(ctx.from.first_name || 'مستخدم', ctx.from);
+  else b.add('—');
+  b.add(`\n${EXTRA.divider}`);
+  return { text: b.text, entities: b.entities };
+}
+
+// Edit a status message to text+entities, retrying without custom_emoji (premium
+// emoji fail if the bot owner lacks Premium) and finally with no entities — so
+// it always renders and never stays stuck on the "searching…" line.
+async function editEntities(
+  ctx: BotContext,
+  id: number,
+  text: string,
+  entities: Entity[],
+  extra: object = {},
+): Promise<void> {
+  if (!ctx.chat) return;
+  const plain = entities.filter((e) => e.type !== 'custom_emoji');
+  for (const ents of [entities, plain, [] as Entity[]]) {
+    try {
+      await ctx.telegram.editMessageText(ctx.chat.id, id, undefined, text, {
+        entities: ents as never,
+        link_preview_options: { is_disabled: true },
+        ...extra,
+      } as never);
+      return;
+    } catch {
+      /* try the next, less-decorated variant */
+    }
+  }
+}
+
+// Send the now-playing card: a photo if we have a thumbnail, else edit the
+// status message to text. Retries without custom_emoji if premium is rejected.
+async function sendNowPlaying(ctx: BotContext, statusId: number, r: StreamerResult, em: CardEmoji): Promise<void> {
+  const { text, entities } = nowPlayingCard(r, ctx, em);
+  const plain = entities.filter((e) => e.type !== 'custom_emoji');
+  if (r.thumb) {
+    for (const ents of [entities, plain]) {
+      try {
+        await ctx.replyWithPhoto(r.thumb, { caption: text, caption_entities: ents as never, ...CONTROLS });
+        // Edit (not delete) the status line — works even when the bot isn't
+        // admin, so no vague "searching…" message is left hanging.
+        await edit(ctx, statusId, '✅ بدأ التشغيل 🎶');
+        return;
+      } catch (err) {
+        log.warn({ err }, 'now-playing photo failed; retry/fallback');
+        if (ents === plain) break;
+      }
+    }
+  }
+  await editEntities(ctx, statusId, text, entities, CONTROLS);
 }
 
 // Playback controls shown under the card (handled by the vc:* callbacks).
@@ -251,33 +283,15 @@ export const musicPlugin: Plugin = {
 
       // Added behind a currently-playing track → a light text card (no photo).
       if (r.queued) {
-        return void editCard(
-          ctx,
-          status.message_id,
-          `${em.queued} <b>أضيفت للطابور</b>\n${em.title} ${esc(r.title)} (${fmtDuration(r.duration)})\n${em.position} الترتيب: ${r.position}`,
-          {},
-        );
+        const b = new CaptionBuilder();
+        b.add(`${EXTRA.queued} `).bold('أضيفت للطابور').add('\n');
+        b.emoji(em.title).add(` ${r.title} (${fmtDuration(r.duration)})\n`);
+        b.add(`${EXTRA.position} الترتيب: ${r.position}`);
+        return void editEntities(ctx, status.message_id, b.text, b.entities);
       }
 
-      // Now playing → a photo card with controls; fall back to text if we have
-      // no thumbnail or Telegram can't fetch it. Each send retries with custom
-      // emoji stripped, so an unsendable premium emoji never leaves it stuck.
-      const caption = nowPlayingCaption(r, mentionOf(ctx), em);
-      if (r.thumb) {
-        for (const cap of [caption, stripCustomEmoji(caption)]) {
-          try {
-            await ctx.replyWithPhoto(r.thumb, { caption: cap, parse_mode: 'HTML', ...CONTROLS });
-            // Edit (not delete) the status line — editing works even when the
-            // bot isn't admin, so no vague "searching…" message is left hanging.
-            await edit(ctx, status.message_id, '✅ بدأ التشغيل 🎶');
-            return;
-          } catch (err) {
-            log.warn({ err }, 'now-playing photo card failed; retrying/falling back');
-            if (cap === caption && stripCustomEmoji(caption) === caption) break; // nothing to strip
-          }
-        }
-      }
-      await editCard(ctx, status.message_id, caption, CONTROLS);
+      // Now playing → a photo card with controls (text fallback with no thumb).
+      await sendNowPlaying(ctx, status.message_id, r, em);
     });
 
     // قائمة التشغيل — anyone can view.
@@ -352,40 +366,45 @@ export const musicPlugin: Plugin = {
       const title = 'title' in ctx.chat ? ctx.chat.title : undefined;
       await ensureChat(ctx.chat.id, title, ctx.chat.type);
 
-      const entities = (ctx.message as { entities?: MsgEntity[] }).entities;
-      const tokens = emojiTokens(ctx.message.text, entities).slice(1); // drop the command word
-      if (!tokens.length) {
+      // Each whitespace-separated arg is one emoji; a premium one carries a
+      // custom_emoji entity at the same offset — capture its id.
+      const entities = ((ctx.message as { entities?: Entity[] }).entities || []).filter(
+        (e) => e.type === 'custom_emoji' && e.custom_emoji_id,
+      );
+      const customByOffset = new Map(entities.map((e) => [e.offset, e]));
+      const text = ctx.message.text;
+      const words: { e: string; id?: string }[] = [];
+      const re = /\S+/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text))) {
+        const ce = customByOffset.get(m.index);
+        words.push(ce && ce.length === m[0].length ? { e: m[0], id: ce.custom_emoji_id } : { e: m[0] });
+      }
+      const args = words.slice(1); // drop the command word
+
+      if (!args.length) {
         await setVcCardEmoji(ctx.chat.id, null);
         return void ctx.reply('✅ رجّعت إيموجي البطاقة للافتراضي.\nلتغييرها: بطاقة 🎼 🎤 ⏳ 💿');
       }
 
-      // Positional: title, channel, duration, requester (extra tokens ignored).
+      // Positional: title, channel, duration, requester (extra args ignored).
       const overrides: Partial<CardEmoji> = {};
-      tokens.slice(0, CARD_KEYS.length).forEach((tok, i) => {
-        overrides[CARD_KEYS[i]] = tok;
+      args.slice(0, CARD_KEYS.length).forEach((v, i) => {
+        overrides[CARD_KEYS[i]] = v;
       });
+      await setVcCardEmoji(ctx.chat.id, JSON.stringify(overrides));
 
-      const em = { ...CARD, ...overrides };
-      const summary = (m: Partial<CardEmoji>): string =>
-        `${m.title ?? em.title} العنوان · ${m.channel ?? em.channel} · ${m.duration ?? em.duration} · ${m.requester ?? em.requester}`;
-
-      // Validate by actually sending the confirmation — bots can't send every
-      // premium emoji. If it fails, downgrade to the plain fallback glyphs so
-      // the stored value can never break the card later.
-      try {
-        await ctx.reply(`✅ غيّرت إيموجي البطاقة:\n${summary(overrides)}\n\nجرّب: تشغيل اسم الأغنية`, {
-          parse_mode: 'HTML',
-        });
-        await setVcCardEmoji(ctx.chat.id, JSON.stringify(overrides));
-      } catch {
-        const plain: Partial<CardEmoji> = {};
-        for (const k of Object.keys(overrides) as (keyof CardEmoji)[]) plain[k] = stripCustomEmoji(overrides[k]!);
-        await setVcCardEmoji(ctx.chat.id, JSON.stringify(plain));
-        await ctx.reply(
-          `⚠️ الإيموجي المميّز هاد البوت ما بيقدر يبعته، فخزّنته كإيموجي عادي:\n${summary(plain)}`,
-          { parse_mode: 'HTML' },
-        );
-      }
+      // Confirm with the actual emoji (entities) so a premium one shows here too.
+      const em = { ...CARD_DEFAULT, ...overrides };
+      const b = new CaptionBuilder();
+      b.add('✅ غيّرت إيموجي البطاقة:\n');
+      b.emoji(em.title).add(' العنوان · ').emoji(em.channel).add(' القناة · ');
+      b.emoji(em.duration).add(' المدة · ').emoji(em.requester).add(' الطلب');
+      b.add('\n\nجرّب: تشغيل اسم الأغنية');
+      const plain = b.entities.filter((e) => e.type !== 'custom_emoji');
+      await ctx
+        .reply(b.text, { entities: b.entities as never })
+        .catch(() => ctx.reply(b.text, { entities: plain as never }).catch(() => ctx.reply(b.text)));
     });
 
     // Inline card buttons (⏸ ⏭ 📜 ⏹). Moderators only — enforced here since
