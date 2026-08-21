@@ -8,6 +8,8 @@
 py-tgcalls==2.2.11
 kurigram>=2.1.32
 tgcrypto==1.2.5
-yt-dlp>=2024.8.6
+# Install the latest master (nightly) — SoundCloud's client_id extraction breaks
+# periodically and is fixed fastest on master; the pinned release couldn't get it.
+yt-dlp @ https://github.com/yt-dlp/yt-dlp/archive/refs/heads/master.tar.gz
 python-dotenv==1.0.1
 aiohttp==3.10.11
