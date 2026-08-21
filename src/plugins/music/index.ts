@@ -125,6 +125,28 @@ function emojiTokens(text: string, entities?: MsgEntity[]): string[] {
   return out.trim().split(/\s+/).filter(Boolean);
 }
 
+// Reduce any <tg-emoji> back to its plain fallback glyph. Bots can't always
+// send custom (premium) emoji, so this is our safety net: if a card fails to
+// send, we retry with the plain version instead of leaving it stuck.
+function stripCustomEmoji(s: string): string {
+  return s.replace(/<tg-emoji\b[^>]*>([\s\S]*?)<\/tg-emoji>/gi, '$1');
+}
+
+// Edit a status message with HTML, retrying once with custom emoji stripped if
+// Telegram rejects it (e.g. an unsendable premium emoji). Returns nothing; it
+// never throws, and always leaves the message showing *something*.
+async function editCard(ctx: BotContext, messageId: number, html: string, extra: object): Promise<void> {
+  if (!ctx.chat) return;
+  const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, ...extra };
+  try {
+    await ctx.telegram.editMessageText(ctx.chat.id, messageId, undefined, html, opts as never);
+  } catch {
+    await ctx.telegram
+      .editMessageText(ctx.chat.id, messageId, undefined, stripCustomEmoji(html), opts as never)
+      .catch(() => undefined);
+  }
+}
+
 // Per-chat emoji overrides (set with /vccard), merged over the defaults.
 async function cardEmoji(chatId: number): Promise<CardEmoji> {
   try {
@@ -229,34 +251,33 @@ export const musicPlugin: Plugin = {
 
       // Added behind a currently-playing track → a light text card (no photo).
       if (r.queued) {
-        return void edit(
+        return void editCard(
           ctx,
           status.message_id,
           `${em.queued} <b>أضيفت للطابور</b>\n${em.title} ${esc(r.title)} (${fmtDuration(r.duration)})\n${em.position} الترتيب: ${r.position}`,
+          {},
         );
       }
 
       // Now playing → a photo card with controls; fall back to text if we have
-      // no thumbnail or Telegram can't fetch it.
+      // no thumbnail or Telegram can't fetch it. Each send retries with custom
+      // emoji stripped, so an unsendable premium emoji never leaves it stuck.
       const caption = nowPlayingCaption(r, mentionOf(ctx), em);
       if (r.thumb) {
-        try {
-          await ctx.replyWithPhoto(r.thumb, { caption, parse_mode: 'HTML', ...CONTROLS });
-          // Edit (not delete) the status line — editing works even when the bot
-          // isn't admin, so no vague "searching…" message is left hanging.
-          await edit(ctx, status.message_id, '✅ بدأ التشغيل 🎶');
-          return;
-        } catch (err) {
-          log.warn({ err }, 'now-playing photo card failed; using text');
+        for (const cap of [caption, stripCustomEmoji(caption)]) {
+          try {
+            await ctx.replyWithPhoto(r.thumb, { caption: cap, parse_mode: 'HTML', ...CONTROLS });
+            // Edit (not delete) the status line — editing works even when the
+            // bot isn't admin, so no vague "searching…" message is left hanging.
+            await edit(ctx, status.message_id, '✅ بدأ التشغيل 🎶');
+            return;
+          } catch (err) {
+            log.warn({ err }, 'now-playing photo card failed; retrying/falling back');
+            if (cap === caption && stripCustomEmoji(caption) === caption) break; // nothing to strip
+          }
         }
       }
-      await ctx.telegram
-        .editMessageText(ctx.chat.id, status.message_id, undefined, caption, {
-          parse_mode: 'HTML',
-          link_preview_options: { is_disabled: true },
-          ...CONTROLS,
-        } as never)
-        .catch(() => undefined);
+      await editCard(ctx, status.message_id, caption, CONTROLS);
     });
 
     // قائمة التشغيل — anyone can view.
@@ -343,13 +364,28 @@ export const musicPlugin: Plugin = {
       tokens.slice(0, CARD_KEYS.length).forEach((tok, i) => {
         overrides[CARD_KEYS[i]] = tok;
       });
-      await setVcCardEmoji(ctx.chat.id, JSON.stringify(overrides));
 
       const em = { ...CARD, ...overrides };
-      await ctx.reply(
-        `✅ غيّرت إيموجي البطاقة:\n${em.title} العنوان · ${em.channel} القناة · ${em.duration} المدة · ${em.requester} الطلب\n\nجرّب: تشغيل اسم الأغنية`,
-        { parse_mode: 'HTML' },
-      );
+      const summary = (m: Partial<CardEmoji>): string =>
+        `${m.title ?? em.title} العنوان · ${m.channel ?? em.channel} · ${m.duration ?? em.duration} · ${m.requester ?? em.requester}`;
+
+      // Validate by actually sending the confirmation — bots can't send every
+      // premium emoji. If it fails, downgrade to the plain fallback glyphs so
+      // the stored value can never break the card later.
+      try {
+        await ctx.reply(`✅ غيّرت إيموجي البطاقة:\n${summary(overrides)}\n\nجرّب: تشغيل اسم الأغنية`, {
+          parse_mode: 'HTML',
+        });
+        await setVcCardEmoji(ctx.chat.id, JSON.stringify(overrides));
+      } catch {
+        const plain: Partial<CardEmoji> = {};
+        for (const k of Object.keys(overrides) as (keyof CardEmoji)[]) plain[k] = stripCustomEmoji(overrides[k]!);
+        await setVcCardEmoji(ctx.chat.id, JSON.stringify(plain));
+        await ctx.reply(
+          `⚠️ الإيموجي المميّز هاد البوت ما بيقدر يبعته، فخزّنته كإيموجي عادي:\n${summary(plain)}`,
+          { parse_mode: 'HTML' },
+        );
+      }
     });
 
     // Inline card buttons (⏸ ⏭ 📜 ⏹). Moderators only — enforced here since
