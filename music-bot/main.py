@@ -252,23 +252,38 @@ async def join(request: web.Request) -> web.Response:
     invite = (data.get("invite_link") or "").strip()
     if not invite:
         return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+    want_id = data.get("chat_id")
 
     global _last_join
     now = time.monotonic()
     if now - _last_join < _JOIN_COOLDOWN:
         return web.json_response({"ok": False, "error": "too_fast"})
-    _last_join = now
 
     try:
-        await assistant.join_chat(invite)
+        chat = await assistant.join_chat(invite)
+        # Every outcome below actually reached Telegram's join path, so it
+        # counts toward the anti-flood cooldown — but a bad/expired link (in
+        # the except) never resolved and must NOT burn the user's minute.
+        _last_join = time.monotonic()
+        # Safety: the invite must be for the SAME group the command came from.
+        # Otherwise a moderator could point the assistant at an unrelated group.
+        joined_id = getattr(chat, "id", None)
+        if want_id and joined_id is not None and joined_id != int(want_id):
+            try:
+                await assistant.leave_chat(joined_id)
+            except Exception:
+                pass
+            return web.json_response({"ok": False, "error": "wrong_group"})
         return web.json_response({"ok": True})
     except Exception as e:
         name = type(e).__name__
         log.info("join failed (%s): %s", name, e)
+        if name in ("InviteHashExpired", "InviteHashInvalid", "InviteHashEmpty"):
+            # Invite never resolved — not a real join attempt, don't cool down.
+            return web.json_response({"ok": False, "error": "bad_link"})
+        _last_join = time.monotonic()
         if name == "UserAlreadyParticipant":
             return web.json_response({"ok": True, "already": True})
-        if name in ("InviteHashExpired", "InviteHashInvalid", "InviteHashEmpty"):
-            return web.json_response({"ok": False, "error": "bad_link"})
         if name in ("UserBannedInChannel", "ChannelBanned", "ChatWriteForbidden"):
             return web.json_response({"ok": False, "error": "banned"})
         if name == "FloodWait":
