@@ -17,6 +17,9 @@ const URL_RE = /(https?:\/\/[^\s]+)/i;
 /** Domains we auto-offer download when a link is posted (short-video platforms). */
 const AUTO_DOMAINS =
   /(tiktok\.com|vm\.tiktok\.com|instagram\.com|instagr\.am|(^|\.)(twitter|x)\.com|fb\.watch|facebook\.com|snapchat\.com|pinterest\.|pin\.it|reddit\.com|redd\.it|youtube\.com|youtu\.be)/i;
+/** Links that are never downloadable media — Telegram message/group/channel
+ *  links. We must not offer to download these (it makes the bot look silly). */
+const SKIP_DOMAINS = /https?:\/\/(t\.me|telegram\.(me|org|dog))\b/i;
 
 const ERRORS: Record<DlError, string> = {
   notinstalled: '⚠️ خدمة التنزيل غير مهيّأة على الخادم.',
@@ -43,6 +46,7 @@ export const downloaderPlugin: Plugin = {
       const text = fromArg || replied?.text || replied?.caption || '';
       const url = text.match(URL_RE)?.[1];
       if (!url) return void ctx.reply('⬇️ أرسل: /dl <رابط>\nأو ردّ على رسالة فيها رابط.');
+      if (SKIP_DOMAINS.test(url)) return void ctx.reply('❌ روابط تيليجرام مش قابلة للتنزيل.');
       await offerChoice(ctx, url, false);
     });
 
@@ -54,6 +58,8 @@ export const downloaderPlugin: Plugin = {
       if (text.startsWith('/')) return next();
       const url = text.match(URL_RE)?.[1];
       if (!url) return next();
+      // Never auto-offer for Telegram links (message/group/channel) — not media.
+      if (SKIP_DOMAINS.test(url)) return next();
       const isLoneUrl = /^https?:\/\/\S+$/i.test(text);
       if (isLoneUrl || AUTO_DOMAINS.test(url)) {
         await offerChoice(ctx, url, true);
