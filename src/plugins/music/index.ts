@@ -4,6 +4,7 @@ import type { Plugin } from '../../core/plugin';
 import { requireRole, resolveRole, hasRole } from '../../utils/permissions';
 import { ensureChat, getSettings, setVcCardEmoji } from '../../services/settings.service';
 import { getGlobalVcCardEmoji, setGlobalVcCardEmoji } from '../../services/global.service';
+import { getEmojiMap, setEmojiMap } from '../../services/emojiMap';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:music');
@@ -362,6 +363,7 @@ export const musicPlugin: Plugin = {
     { command: 'vcqueue', description: '📜 قائمة تشغيل الكول' },
     { command: 'vccard', description: '🎨 إيموجي بطاقة التشغيل (مشرف)', staffOnly: true },
     { command: 'vccardall', description: '🌐 إيموجي البطاقة لكل البوت (مالك)', staffOnly: true },
+    { command: 'premiumemoji', description: '✨ حوّل إيموجي لمميّز بكل البوت (مالك)', staffOnly: true },
     { command: 'vcstop', description: '👋 إنهاء الكول (مشرف)', staffOnly: true },
   ],
 
@@ -505,6 +507,38 @@ export const musicPlugin: Plugin = {
       const overrides = toOverrides(args);
       await setGlobalVcCardEmoji(overrides as Record<string, unknown>);
       await replyEmojiConfirm(ctx, '✅ حفظت الإيموجي لكل البوت:', overrides);
+    });
+
+    // مميز — upgrade a normal emoji to premium across ALL bot messages. Send (or
+    // reply to a message with) the premium emoji; its plain fallback glyph is
+    // mapped to it everywhere. Owner only. "مميز مسح" clears the whole map.
+    bot.command('premiumemoji', requireRole('owner'), async (ctx) => {
+      const replied = (ctx.message as { reply_to_message?: RepliedMsg }).reply_to_message;
+      const text = replied ? repliedText(replied) : ctx.message.text;
+      const ents = replied ? repliedEntities(replied) : (ctx.message as { entities?: Entity[] }).entities;
+      const customs = (ents || []).filter((e) => e.type === 'custom_emoji' && e.custom_emoji_id);
+      if (!customs.length) {
+        if (/مسح|clear|reset|صفر/i.test(text)) {
+          await setEmojiMap({});
+          return void ctx.reply('🧹 مسحت كل تبديلات الإيموجي المميّز.');
+        }
+        return void ctx.reply(
+          '✨ لتخلّي إيموجي عادي يصير مميّز بكل رسائل البوت:\n' +
+            'ابعت (أو رُدّ على رسالة فيها) الإيموجي المميّز واكتب: مميز\n' +
+            'كل إيموجي مميّز رح يستبدل نسخته العادية بكل مكان.\n\nللمسح: مميز مسح',
+        );
+      }
+      const map = { ...getEmojiMap() };
+      let n = 0;
+      for (const e of customs) {
+        const g = text.slice(e.offset, e.offset + e.length);
+        if (g && e.custom_emoji_id) {
+          map[g] = e.custom_emoji_id;
+          n++;
+        }
+      }
+      await setEmojiMap(map);
+      await ctx.reply(`✅ سجّلت ${n} إيموجي. من هلأ نسخته العادية رح تطلع مميّزة بكل رسائل البوت.`);
     });
 
     // Inline card buttons (⏸ ⏭ 📜 ⏹). Moderators only — enforced here since

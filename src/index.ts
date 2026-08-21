@@ -12,6 +12,13 @@ async function main(): Promise<void> {
   await ensureSchema();
 
   const { bot, plugins } = await createBot();
+
+  // Bot-wide premium-emoji substitution: upgrade mapped normal emoji to premium
+  // in every outgoing message. Install before launch; load the map now.
+  const { installEmojiSubstitution, refreshEmojiMap } = await import('./services/emojiMap');
+  installEmojiSubstitution(bot.telegram);
+  await refreshEmojiMap();
+
   const app = createServer(bot);
   const server: Server = await startServer(app);
 
