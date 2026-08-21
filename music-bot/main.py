@@ -30,7 +30,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 from aiohttp import web
-from pytgcalls.exceptions import NoActiveGroupCall
+from pytgcalls import filters as call_filters
 from pytgcalls.types import MediaStream
 
 from typing import Optional
@@ -46,6 +46,9 @@ log = logging.getLogger("streamer")
 
 routes = web.RouteTableDef()
 
+# True once the assistant + PyTgCalls are connected and playback is possible.
+_ready = False
+
 
 def _audio(url: str) -> MediaStream:
     return MediaStream(url, video_flags=MediaStream.Flags.IGNORE)
@@ -56,11 +59,11 @@ async def _play_now(chat_id: int, track: dict) -> None:
 
     Robust against: no active call (any of several py-tgcalls errors), and the
     race where a freshly-created call isn't registered on Telegram's side yet —
-    so open the call, wait, and retry a few times.
+    so open the call, wait, and retry a few times. A fresh MediaStream is built
+    per attempt (the object may hold state after a failed play).
     """
-    stream = _audio(track["url"])
     try:
-        await calls.play(chat_id, stream)
+        await calls.play(chat_id, _audio(track["url"]))
         return
     except Exception as first:
         log.info("play needs a call in %s (%s); opening one…", chat_id, type(first).__name__)
@@ -75,7 +78,7 @@ async def _play_now(chat_id: int, track: dict) -> None:
     for attempt in range(4):
         await asyncio.sleep(1.5)  # let Telegram register the new call
         try:
-            await calls.play(chat_id, stream)
+            await calls.play(chat_id, _audio(track["url"]))
             return
         except Exception as e:
             last = e
@@ -110,6 +113,8 @@ async def health(_: web.Request) -> web.Response:
 async def play(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
     data = await _body(request)
     chat_id, query = data.get("chat_id"), (data.get("query") or "").strip()
     if not chat_id or not query:
@@ -120,8 +125,11 @@ async def play(request: web.Request) -> web.Response:
     if not track or not track.get("url"):
         return web.json_response({"ok": False, "error": "not_found"})
 
-    # Play immediately, replacing whatever is currently on. (Simple + robust —
-    # no queue/auto-advance, which was fragile on this py-tgcalls version.)
+    # Something already playing → enqueue. Otherwise play now.
+    if qm.active(chat_id):
+        pos = qm.enqueue(chat_id, track)
+        return web.json_response({"ok": True, "queued": True, "position": pos, **_track_info(track)})
+
     qm.set_active(chat_id, track)
     try:
         await _play_now(chat_id, track)
@@ -234,6 +242,27 @@ async def queue(request: web.Request) -> web.Response:
     })
 
 
+# Auto-advance: when a track ends, play the next queued one (or leave if empty).
+# NOTE: pass an INSTANCE — stream_end() — not the class; the framework awaits it.
+@calls.on_update(call_filters.stream_end())
+async def _on_stream_end(_, update) -> None:
+    chat_id = getattr(update, "chat_id", None)
+    if chat_id is None:
+        return
+    nxt = qm.next_track(chat_id)
+    if not nxt:
+        try:
+            await calls.leave_call(chat_id)
+        except Exception:
+            pass
+        return
+    try:
+        await calls.play(chat_id, _audio(nxt["url"]))
+        log.info("auto-advanced in %s → %s", chat_id, nxt.get("title"))
+    except Exception as e:
+        log.warning("auto-advance failed in %s: %s", chat_id, e)
+
+
 def _udp_ok() -> bool:
     """Log whether outbound UDP works here (WebRTC needs it)."""
     try:
@@ -271,10 +300,12 @@ async def _serve() -> None:
     # Connect the assistant + PyTgCalls (needed for actual playback). Do NOT
     # crash the whole service if this fails — keep serving so search still works
     # and the session can be fixed without the container crash-looping.
+    global _ready
     try:
         await assistant.start()
         await calls.start()
         me = await assistant.get_me()
+        _ready = True
         log.info("Streamer up. Assistant: %s (id %s). PyTgCalls started.", me.first_name, me.id)
     except Exception as e:
         log.error("Assistant/PyTgCalls failed to start — playback disabled until the session is fixed: %s", e)

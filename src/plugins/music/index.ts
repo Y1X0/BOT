@@ -60,6 +60,7 @@ function errorText(r: StreamerResult | null): string {
   if (!r) return NOT_CONFIGURED;
   const e = r.error || '';
   if (e === 'unreachable') return '⚠️ ما قدرت أوصل لسيرفر البث. تأكد إنه شغّال.';
+  if (e === 'starting') return '🔄 سيرفر البث لسه عم يشتغل، جرّب بعد شوي.';
   if (e === 'not_found') return '❌ ما لقيت الأغنية. جرّب اسم تاني.';
   if (/PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e)) return '🔗 الحساب المساعد مش عضو بالجروب. ضيفه وخلّيه أدمن مع صلاحية إدارة المكالمات.';
   if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN|FORBIDDEN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
