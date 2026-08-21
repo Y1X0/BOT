@@ -70,7 +70,8 @@ function errorText(r: StreamerResult | null): string {
   if (e === 'banned') return '⛔️ الحساب المساعد محظور من هالجروب. فُكّ الحظر عنه وجرّب.';
   if (e === 'too_fast') return '🐌 في محاولة انضمام قريبة. استنى دقيقة وجرّب.';
   if (e === 'flood_wait') return `⏳ تيليجرام طالب انتظار ${r.seconds || 0} ثانية قبل انضمام جديد. جرّب بعدها.`;
-  if (/PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e)) return '🔗 الحساب المساعد مش عضو بالجروب. استخدم /vcjoin مع رابط دعوة للجروب، بعدها رقّيه أدمن.';
+  if (e === 'not_member' || /PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e))
+    return '🔗 الحساب المساعد مش عضو بالجروب. استخدم /vcjoin مع رابط دعوة للجروب، بعدها رقّيه أدمن.';
   if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN|FORBIDDEN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
   if (/GROUPCALL_INVALID|already/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
   return `تعذّر التنفيذ: ${e || 'خطأ غير معروف'}`;

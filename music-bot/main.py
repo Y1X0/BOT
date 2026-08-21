@@ -146,7 +146,7 @@ async def _require_open_call(chat_id: int) -> Optional[web.Response]:
         if await call_is_open(assistant, chat_id):
             return None
     except NoAccess:
-        return web.json_response({"ok": False, "error": "PEER_ID_INVALID"})
+        return web.json_response({"ok": False, "error": "not_member"})
     return web.json_response({"ok": False, "error": "no_call"})
 
 
