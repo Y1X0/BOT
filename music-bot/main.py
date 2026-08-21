@@ -81,6 +81,26 @@ async def _has_live_call(chat_id: int) -> bool:
         return True
 
 
+async def _log_playback_soon(chat_id: int) -> None:
+    """After a play() succeeds, check whether audio is REALLY flowing.
+
+    py-tgcalls has no stream_start event in this version, but Call.playback
+    reflects the actual state: ACTIVE = ffmpeg is feeding audio, IDLE = the
+    play() call "succeeded" yet nothing is streaming (e.g. a silent manifest).
+    Runs detached so it never delays the HTTP response.
+    """
+    try:
+        await asyncio.sleep(1.5)  # let frames start before we sample
+        call = (await calls.calls).get(int(chat_id))
+        state = getattr(call, "playback", None)
+        if state is not None and "ACTIVE" in str(state):
+            log.info("stream started in %s (playback=%s)", chat_id, state)
+        else:
+            log.warning("no audio flowing in %s (playback=%s) — likely a bad/silent stream", chat_id, state)
+    except Exception as e:
+        log.info("could not read playback state in %s: %s", chat_id, e)
+
+
 async def _play_now(chat_id: int, track: dict) -> None:
     """Stream a track into an ALREADY-OPEN voice chat.
 
@@ -105,6 +125,7 @@ async def _play_now(chat_id: int, track: dict) -> None:
             await asyncio.sleep(1.5)  # let Telegram register a freshly-opened call
         try:
             await calls.play(chat_id, _audio(track["url"]))
+            asyncio.ensure_future(_log_playback_soon(chat_id))  # detached audio-liveness check
             return
         except Exception as e:
             last = e
