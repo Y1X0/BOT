@@ -224,14 +224,9 @@ async def _serve() -> None:
     log.info("Checking outbound UDP (needed for WebRTC voice)…")
     _udp_ok()
 
-    # Start the assistant + PyTgCalls and the HTTP control API on ONE loop.
-    # (web.run_app would spin up its own loop, which clashes with the clients
-    # created at import — "attached to a different loop".)
-    await assistant.start()
-    await calls.start()
-    me = await assistant.get_me()
-    log.info("Streamer up. Assistant: %s (id %s). PyTgCalls started.", me.first_name, me.id)
-
+    # Start the HTTP control API FIRST so /health and /play (search) work even
+    # if the assistant can't connect — search is independent of the session, and
+    # this avoids a crash loop when the session is temporarily invalid.
     app = web.Application()
     app.add_routes(routes)
     runner = web.AppRunner(app)
@@ -239,6 +234,18 @@ async def _serve() -> None:
     site = web.TCPSite(runner, "0.0.0.0", config.PORT)
     await site.start()
     log.info("HTTP control API listening on 0.0.0.0:%s", config.PORT)
+
+    # Connect the assistant + PyTgCalls (needed for actual playback). Do NOT
+    # crash the whole service if this fails — keep serving so search still works
+    # and the session can be fixed without the container crash-looping.
+    try:
+        await assistant.start()
+        await calls.start()
+        me = await assistant.get_me()
+        log.info("Streamer up. Assistant: %s (id %s). PyTgCalls started.", me.first_name, me.id)
+    except Exception as e:
+        log.error("Assistant/PyTgCalls failed to start — playback disabled until the session is fixed: %s", e)
+
     await asyncio.Event().wait()  # serve forever
 
 
