@@ -35,7 +35,9 @@ PORT = _int("PORT", 8080)
 # Seconds to wait before connecting the assistant on startup. Lets a previous
 # deployment fully shut down first, so a redeploy doesn't briefly run two
 # instances on the same session (which Telegram kills with AUTH_KEY_DUPLICATED).
-START_DELAY = _int("STREAMER_START_DELAY", 12)
+# 12s wasn't enough against Railway's deploy overlap — default to 25s. Also set
+# the platform's zero-downtime/overlap window to 0 and keep replicas at 1.
+START_DELAY = _int("STREAMER_START_DELAY", 25)
 
 
 def validate() -> None:
