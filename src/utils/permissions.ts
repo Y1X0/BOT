@@ -72,6 +72,12 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
 
   if (chat.type === 'private') return 'member';
 
+  // Anonymous admins post AS the group itself (sender_chat === this chat) — only
+  // admins can do that, and getChatMember on the GroupAnonymousBot would wrongly
+  // read as 'member'. Treat them as manager-level so they can still moderate.
+  const senderChat = ctx.senderChat;
+  if (senderChat && senderChat.id === chat.id) return 'manager';
+
   const key = roleKey(chat.id, userId);
   const cached = roleCache.get(key);
   if (cached && Date.now() - cached.at < ROLE_TTL_MS) return cached.role;
