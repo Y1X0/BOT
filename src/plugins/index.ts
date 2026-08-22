@@ -1,6 +1,7 @@
 import type { Plugin } from '../core/plugin';
 import { aliasesPlugin } from './aliases';
 import { usagePlugin } from './usage';
+import { musicArchivePlugin } from './musicarchive';
 import { createGeneralPlugin } from './general';
 import { menuPlugin } from './menu';
 import { infoPlugin } from './info';
@@ -89,6 +90,7 @@ allPlugins.push(
   managementPlugin, // includes service-message cleanup (before analytics)
   analyticsPlugin,
   usagePlugin,
+  musicArchivePlugin,
   islamicPlugin,
   toolboxPlugin,
   utilitiesPlugin,

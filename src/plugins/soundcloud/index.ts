@@ -7,6 +7,7 @@ import { createLogger } from '../../core/logger';
 import { youtubeQueue } from '../../services/youtube/queue';
 import { scSearch, scDownload, type ScItem } from '../../services/soundcloud';
 import { searchPodcasts, registerShowResults } from '../podcast';
+import { archiveSearch, indexAudio } from '../../services/archive';
 
 const log = createLogger('plugin:soundcloud');
 const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024; // ~50MB bot upload cap
@@ -38,15 +39,23 @@ export const soundcloudPlugin: Plugin = {
       const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!query) return void ctx.reply('🔎 اكتب اسم الأغنية أو البودكاست:\nيوت اسم البحث');
       const status = await ctx.reply('🔎 عم دوّر بالأغاني والبودكاست…');
+      // Cache-first: if the song is archived, send it instantly and skip the
+      // SoundCloud song list (still show podcasts).
+      const served = await trySendFromArchive(ctx, query);
       const [songsRes, showsRes] = await Promise.all([
-        scSearch(query, 5),
+        served ? Promise.resolve([] as ScItem[]) : scSearch(query, 5),
         searchPodcasts(query, 5).catch(() => ({ error: 'failed' as const })),
       ]);
       const songs = 'error' in songsRes ? [] : songsRes;
       const shows = 'error' in showsRes ? [] : showsRes;
       if (!songs.length && !shows.length) {
         return void ctx.telegram
-          .editMessageText(ctx.chat.id, status.message_id, undefined, '❌ ما لقيت ولا نتيجة، جرّب كلمات ثانية.')
+          .editMessageText(
+            ctx.chat.id,
+            status.message_id,
+            undefined,
+            served ? '✅ بعتّها من الأرشيف 🎵' : '❌ ما لقيت ولا نتيجة، جرّب كلمات ثانية.',
+          )
           .catch(() => undefined);
       }
       const rows = [
@@ -91,7 +100,11 @@ export const soundcloudPlugin: Plugin = {
               await telegram.sendMessage(chatId, '⚠️ الملف أكبر من الحد المسموح (50MB).').catch(() => undefined);
               return;
             }
-            await telegram.sendAudio(chatId, Input.fromLocalFile(dl.filePath), { title: dl.title, caption: `🎵 ${dl.title}` });
+            const sent = await telegram.sendAudio(chatId, Input.fromLocalFile(dl.filePath), { title: dl.title, caption: `🎵 ${dl.title}` });
+            // Dynamic cache: remember this file_id so the next request for the
+            // same song is served instantly, no re-download.
+            const fid = (sent as { audio?: { file_id?: string; duration?: number } }).audio;
+            if (fid?.file_id) void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache' });
             if (ctx.callbackQuery.message) await telegram.deleteMessage(chatId, ctx.callbackQuery.message.message_id).catch(() => undefined);
           } catch (err) {
             log.error({ err }, 'soundcloud send failed');
@@ -107,9 +120,23 @@ export const soundcloudPlugin: Plugin = {
   },
 };
 
+/** Send a cached archive hit if there is one. Returns true if served from cache. */
+async function trySendFromArchive(ctx: BotContext, query: string): Promise<boolean> {
+  if (!ctx.chat) return false;
+  const hit = await archiveSearch(query);
+  if (!hit) return false;
+  const ok = await ctx.telegram
+    .sendAudio(ctx.chat.id, hit.fileId, { title: hit.title, caption: `🎵 ${hit.title}` })
+    .then(() => true)
+    .catch(() => false); // stale file_id → let the caller fall back to a live search
+  return ok;
+}
+
 /** Search SoundCloud and post the pick-a-song keyboard (shared by /song and يوت). */
 async function postSongResults(ctx: BotContext, query: string): Promise<void> {
   if (!ctx.chat) return;
+  // Cache-first: instant if the song is already in the archive.
+  if (await trySendFromArchive(ctx, query)) return;
   const status = await ctx.reply('🔎 جاري البحث في ساوندكلاود...');
   const res = await scSearch(query, 5);
   if ('error' in res) {

@@ -43,6 +43,10 @@ const envSchema = z.object({
   // raise it (e.g. 300) only when TELEGRAM_API_ROOT points at a local server.
   MEDIA_UPLOAD_LIMIT_MB: z.coerce.number().default(50),
 
+  // Private channel (bot is admin) whose audio posts are auto-indexed into the
+  // audio archive. 0 = disabled.
+  MUSIC_STORAGE_CHANNEL_ID: z.coerce.number().default(0),
+
   // HTTP server
   PORT: z.coerce.number().default(3000),
 
