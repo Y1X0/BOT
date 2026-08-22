@@ -32,6 +32,17 @@ async function callStreamer(path: string, body: Record<string, unknown>): Promis
 }
 
 type TgAudio = { file_id: string; title?: string; performer?: string; file_name?: string; duration?: number };
+type TgDocument = { file_id: string; file_name?: string; mime_type?: string };
+
+const AUDIO_EXT = /\.(mp3|m4a|flac|wav|ogg|opus|aac|wma|alac|aiff?)$/i;
+
+/** Is this document actually an audio file (music channels often upload MP3s as
+ *  documents, not as Telegram's native "audio" type)? */
+function isAudioDoc(doc: TgDocument | undefined): doc is TgDocument {
+  if (!doc?.file_id) return false;
+  const mime = (doc.mime_type || '').toLowerCase();
+  return mime.startsWith('audio/') || AUDIO_EXT.test(doc.file_name || '');
+}
 
 /** Auto-index audio posted to the storage channel, and expose the archive size. */
 export const musicArchivePlugin: Plugin = {
@@ -52,16 +63,29 @@ export const musicArchivePlugin: Plugin = {
       const chatId = ctx.chat?.id;
       if (!chatId) return;
       if (!env.ARCHIVE_ALL_CHANNELS && chatId !== env.MUSIC_STORAGE_CHANNEL_ID) return;
-      const audio = (ctx.channelPost as { audio?: TgAudio } | undefined)?.audio;
-      if (!audio?.file_id) return;
-      const res = await indexAudio({
-        fileId: audio.file_id,
-        title: audio.title || audio.file_name || 'غير معروف',
-        artist: audio.performer ?? null,
-        duration: audio.duration ?? 0,
-        source: 'channel',
-      });
-      if (res.indexed) log.info({ title: audio.title, chatId }, 'archived channel audio');
+      const post = ctx.channelPost as { audio?: TgAudio; document?: TgDocument } | undefined;
+      const audio = post?.audio;
+      const doc = post?.document;
+      let res: { indexed: boolean } | null = null;
+      if (audio?.file_id) {
+        res = await indexAudio({
+          fileId: audio.file_id,
+          title: audio.title || audio.file_name || 'غير معروف',
+          artist: audio.performer ?? null,
+          duration: audio.duration ?? 0,
+          source: 'channel',
+          kind: 'audio',
+        });
+      } else if (isAudioDoc(doc)) {
+        res = await indexAudio({
+          fileId: doc.file_id,
+          title: (doc.file_name || 'غير معروف').replace(AUDIO_EXT, ''),
+          duration: 0,
+          source: 'channel',
+          kind: 'document',
+        });
+      }
+      if (res?.indexed) log.info({ chatId }, 'archived channel audio');
     });
 
     bot.command('archivecount', requireRole('owner'), async (ctx) => {

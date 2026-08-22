@@ -499,11 +499,28 @@ async def _notify_import(notify_chat, text: str) -> None:
         log.info("import notify failed: %s", e)
 
 
+_AUDIO_EXT = (".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus", ".aac", ".wma", ".alac", ".aif", ".aiff")
+
+
+def _is_audio_msg(msg) -> bool:
+    """Music channels often upload MP3s as documents, not native audio — treat
+    an audio-mime / audio-extension document as a song too."""
+    if getattr(msg, "audio", None):
+        return True
+    doc = getattr(msg, "document", None)
+    if doc:
+        mime = (getattr(doc, "mime_type", "") or "").lower()
+        name = (getattr(doc, "file_name", "") or "").lower()
+        if mime.startswith("audio/") or name.endswith(_AUDIO_EXT):
+            return True
+    return False
+
+
 async def _run_import(source: str, limit: int, storage: int, notify_chat) -> None:
     global _importing, _import_stop
     copied = 0
     scanned = 0
-    scan_cap = limit * 10  # don't crawl an entire huge channel
+    scan_cap = limit * 20  # don't crawl an entire huge channel
     try:
         try:
             await assistant.join_chat(source)
@@ -517,7 +534,7 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
             scanned += 1
             if scanned > scan_cap:
                 break
-            if not getattr(msg, "audio", None):
+            if not _is_audio_msg(msg):
                 continue
             try:
                 await msg.copy(storage)
@@ -534,7 +551,8 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
             if copied % 25 == 0:
                 await _notify_import(notify_chat, f"📥 استوردت {copied} أغنية…")
             await asyncio.sleep(IMPORT_MIN_DELAY + random.random() * 2)  # 3–5s
-        await _notify_import(notify_chat, f"✅ خلص الاستيراد: {copied} أغنية.")
+        tail = "" if copied else f" (فحصت {scanned} رسالة — تأكد إنها أغاني ومو صور/فيديو، والحساب المساعد عضو بالقناة)."
+        await _notify_import(notify_chat, f"✅ خلص الاستيراد: {copied} أغنية.{tail}")
     except Exception as e:
         log.warning("import error: %s", e)
         await _notify_import(notify_chat, f"⚠️ توقّف الاستيراد بخطأ عند {copied}: {e}")

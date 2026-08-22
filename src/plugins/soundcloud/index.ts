@@ -125,8 +125,11 @@ async function trySendFromArchive(ctx: BotContext, query: string): Promise<boole
   if (!ctx.chat) return false;
   const hit = await archiveSearch(query);
   if (!hit) return false;
-  const ok = await ctx.telegram
-    .sendAudio(ctx.chat.id, hit.fileId, { title: hit.title, caption: `🎵 ${hit.title}` })
+  const send =
+    hit.kind === 'document'
+      ? ctx.telegram.sendDocument(ctx.chat.id, hit.fileId, { caption: `🎵 ${hit.title}` })
+      : ctx.telegram.sendAudio(ctx.chat.id, hit.fileId, { title: hit.title, caption: `🎵 ${hit.title}` });
+  const ok = await send
     .then(() => true)
     .catch(() => false); // stale file_id → let the caller fall back to a live search
   return ok;

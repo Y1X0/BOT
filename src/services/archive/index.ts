@@ -17,10 +17,13 @@ function latinFold(norm: string): string {
   return [...norm].map((ch) => AR2LAT[ch] ?? ch).join('');
 }
 
+export type AudioKind = 'audio' | 'document';
+
 export interface ArchiveHit {
   fileId: string;
   title: string;
   duration: number;
+  kind: AudioKind;
 }
 
 /** Index a track by its Telegram file_id, unless a near-duplicate already exists
@@ -31,6 +34,7 @@ export async function indexAudio(input: {
   artist?: string | null;
   duration?: number;
   source?: 'channel' | 'cache' | 'import';
+  kind?: AudioKind;
 }): Promise<{ indexed: boolean }> {
   const title = (input.title || '').trim() || 'غير معروف';
   const normTitle = normalizeTitle(title);
@@ -51,6 +55,7 @@ export async function indexAudio(input: {
         normTitle,
         latinKey: latinFold(normTitle),
         source: input.source ?? 'channel',
+        kind: input.kind ?? 'audio',
       },
     });
     return { indexed: true };
@@ -97,7 +102,13 @@ export async function archiveSearch(query: string): Promise<ArchiveHit | null> {
       best = c;
     }
   }
-  if (best && bestScore >= 0.5) return { fileId: best.fileId, title: best.title, duration: best.duration };
+  if (best && bestScore >= 0.5)
+    return {
+      fileId: best.fileId,
+      title: best.title,
+      duration: best.duration,
+      kind: (best.kind as AudioKind) ?? 'audio',
+    };
   return null;
 }
 
