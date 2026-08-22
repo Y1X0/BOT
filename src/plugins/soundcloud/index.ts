@@ -6,6 +6,7 @@ import type { Plugin } from '../../core/plugin';
 import { createLogger } from '../../core/logger';
 import { youtubeQueue } from '../../services/youtube/queue';
 import { scSearch, scDownload, type ScItem } from '../../services/soundcloud';
+import { runSearch as searchPodcasts } from '../podcast';
 
 const log = createLogger('plugin:soundcloud');
 const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024; // ~50MB bot upload cap
@@ -18,24 +19,26 @@ const fmtDur = (s: number | null) => (s == null ? '' : ` (${Math.floor(s / 60)}:
 export const soundcloudPlugin: Plugin = {
   name: 'soundcloud',
   description: 'Search and download songs from SoundCloud',
-  commands: [{ command: 'song', description: '🎵 ابحث عن أغنية: /song اسم الأغنية' }],
+  commands: [
+    { command: 'song', description: '🎵 ابحث عن أغنية: /song اسم الأغنية' },
+    { command: 'ytall', description: '🔎 ابحث بأغاني وبودكاست معاً: يوت اسم البحث' },
+  ],
 
   register(bot: Telegraf<BotContext>) {
     bot.command('song', async (ctx) => {
       if (!ctx.chat) return;
       const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!query) return void ctx.reply('🎵 اكتب اسم الأغنية:\n/song بابا الحاره   أو   اغنية اسم الأغنية');
-      const status = await ctx.reply('🔎 جاري البحث في ساوندكلاود...');
-      const res = await scSearch(query, 5);
-      if ('error' in res) {
-        const msg = res.error === 'notfound' ? '❌ ما لقيت نتائج، جرّب كلمات ثانية.' : res.error === 'notinstalled' ? '❌ أداة التنزيل غير مثبّتة.' : '⚠️ تعذّر البحث، حاول لاحقاً.';
-        return void ctx.telegram.editMessageText(ctx.chat.id, status.message_id, undefined, msg).catch(() => undefined);
-      }
-      const rows = res.map((r, i) => [Markup.button.callback(`${i + 1}. ${r.title.slice(0, 45)}${fmtDur(r.duration)}`, `sc:${i}`)]);
-      pending.set(`${ctx.chat.id}:${status.message_id}`, res);
-      await ctx.telegram
-        .editMessageText(ctx.chat.id, status.message_id, undefined, `🎵 اختر أغنية للتنزيل:`, Markup.inlineKeyboard(rows))
-        .catch(() => undefined);
+      await postSongResults(ctx, query);
+    });
+
+    // "يوت" — search SoundCloud (songs) AND podcasts, showing both result sets.
+    bot.command('ytall', async (ctx) => {
+      if (!ctx.chat) return;
+      const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      if (!query) return void ctx.reply('🔎 اكتب اسم الأغنية أو البودكاست:\nيوت اسم البحث');
+      await postSongResults(ctx, query);
+      await searchPodcasts(ctx, query).catch(() => undefined);
     });
 
     bot.action(/^sc:(\d+)$/, async (ctx) => {
@@ -78,3 +81,26 @@ export const soundcloudPlugin: Plugin = {
     });
   },
 };
+
+/** Search SoundCloud and post the pick-a-song keyboard (shared by /song and يوت). */
+async function postSongResults(ctx: BotContext, query: string): Promise<void> {
+  if (!ctx.chat) return;
+  const status = await ctx.reply('🔎 جاري البحث في ساوندكلاود...');
+  const res = await scSearch(query, 5);
+  if ('error' in res) {
+    const msg =
+      res.error === 'notfound'
+        ? '❌ ما لقيت نتائج، جرّب كلمات ثانية.'
+        : res.error === 'notinstalled'
+          ? '❌ أداة التنزيل غير مثبّتة.'
+          : '⚠️ تعذّر البحث، حاول لاحقاً.';
+    return void ctx.telegram.editMessageText(ctx.chat.id, status.message_id, undefined, msg).catch(() => undefined);
+  }
+  const rows = res.map((r, i) => [
+    Markup.button.callback(`${i + 1}. ${r.title.slice(0, 45)}${fmtDur(r.duration)}`, `sc:${i}`),
+  ]);
+  pending.set(`${ctx.chat.id}:${status.message_id}`, res);
+  await ctx.telegram
+    .editMessageText(ctx.chat.id, status.message_id, undefined, '🎵 اختر أغنية للتنزيل:', Markup.inlineKeyboard(rows))
+    .catch(() => undefined);
+}
