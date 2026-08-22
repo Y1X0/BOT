@@ -29,6 +29,7 @@ interface Game {
   round: number;
   night: { kill?: number; save?: number; check?: number };
   votes: Map<number, number>; // day: voterId → targetId
+  voteMsgId?: number; // the single live vote board (edited as votes come in)
   donId?: number; // current mafia boss (شيخ المافيا) — only he kills
   accused?: number; // most-voted player, on trial in the defense phase
   finalVotes: Map<number, boolean>; // defense: voterId → lynch?
@@ -63,6 +64,17 @@ function targetKeyboard(players: Player[], action: string) {
   return Markup.inlineKeyboard(
     players.map((p) => [Markup.button.callback(p.name, `maf:${action}:${p.id}`)]),
   );
+}
+
+/** One tidy board, edited live: a line per player showing who they voted for. */
+function renderVoteBoard(g: Game): string {
+  const voters = alive(g);
+  const lines = voters.map((p) => {
+    const targetId = g.votes.get(p.id);
+    const target = targetId ? g.players.get(targetId)?.name : null;
+    return target ? `✅ ${p.name} ⟵ ${target}` : `▫️ ${p.name} ⟵ —`;
+  });
+  return `☀️ التصويت (${g.votes.size}/${voters.length})\nمين المشتبه فيه؟\n\n${lines.join('\n')}`;
 }
 
 export const mafiaPlugin: Plugin = {
@@ -181,7 +193,9 @@ export const mafiaPlugin: Plugin = {
         // detective — one reveal per night.
         if (actor.role !== 'detective') return void ctx.answerCbQuery('ليس دورك.').catch(() => undefined);
         if (g.night.check != null)
-          return void ctx.answerCbQuery('كشفت لاعباً هذه الليلة مسبقاً.', { show_alert: true }).catch(() => undefined);
+          return void ctx
+            .answerCbQuery('🕵️ انت سألت عن حد هالجولة — استنى للجولة الي بعدها.', { show_alert: true })
+            .catch(() => undefined);
         g.night.check = targetId;
         await ctx.answerCbQuery('تم ✅').catch(() => undefined);
         await ctx.reply(`🔍 ${target.name}: ${target.role === 'mafia' ? 'مافيا 🔫' : 'بريء ✅'}`).catch(() => undefined);
@@ -198,11 +212,13 @@ export const mafiaPlugin: Plugin = {
       const targetId = Number(ctx.match[1]);
       const target = g.players.get(targetId);
       if (!target?.alive) return void ctx.answerCbQuery('اختر لاعباً حياً.').catch(() => undefined);
-      const changed = g.votes.get(ctx.from.id) !== targetId;
       g.votes.set(ctx.from.id, targetId);
-      await ctx.answerCbQuery('تم تصويتك ✅').catch(() => undefined);
-      if (changed)
-        await ctx.telegram.sendMessage(g.chatId, `🗳 ${voter.name} صوّت على ${target.name}`).catch(() => undefined);
+      await ctx.answerCbQuery(`صوّتت على ${target.name} ✅`).catch(() => undefined);
+      // Update the one live board instead of spamming a message per vote.
+      if (g.voteMsgId)
+        await ctx.telegram
+          .editMessageText(g.chatId, g.voteMsgId, undefined, renderVoteBoard(g), targetKeyboard(alive(g), 'vote'))
+          .catch(() => undefined);
       if (g.votes.size >= alive(g).length) await tallyDay(ctx.telegram, g);
     });
 
@@ -323,14 +339,13 @@ async function beginDay(telegram: BotContext['telegram'], g: Game): Promise<void
   g.phase = 'day';
   g.resolving = false;
   g.votes = new Map();
+  g.voteMsgId = undefined;
   if (g.timer) clearTimeout(g.timer);
-  await telegram
-    .sendMessage(
-      g.chatId,
-      '☀️ النهار: ناقشوا من المشتبه به، ثم صوّتوا 👇\n(كل صوت يظهر للجميع)',
-      targetKeyboard(alive(g), 'vote'),
-    )
+  await telegram.sendMessage(g.chatId, '☀️ النهار: ناقشوا مين المشتبه فيه، ثم صوّتوا 👇').catch(() => undefined);
+  const sent = await telegram
+    .sendMessage(g.chatId, renderVoteBoard(g), targetKeyboard(alive(g), 'vote'))
     .catch(() => undefined);
+  g.voteMsgId = sent?.message_id;
   g.timer = setTimeout(() => void tallyDay(telegram, g), DAY_MS);
   g.timer.unref?.();
 }
@@ -343,24 +358,10 @@ async function tallyDay(telegram: BotContext['telegram'], g: Game): Promise<void
   if (g.timer) clearTimeout(g.timer);
 
   const tally = new Map<number, number>();
-  const byTarget = new Map<number, string[]>();
-  for (const [voterId, targetId] of g.votes) {
-    tally.set(targetId, (tally.get(targetId) ?? 0) + 1);
-    const arr = byTarget.get(targetId) ?? [];
-    arr.push(g.players.get(voterId)?.name ?? '؟');
-    byTarget.set(targetId, arr);
-  }
+  for (const targetId of g.votes.values()) tally.set(targetId, (tally.get(targetId) ?? 0) + 1);
   const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
   const top = sorted[0];
   const tie = sorted.length > 1 && sorted[1][1] === top?.[1];
-
-  if (byTarget.size) {
-    const summary = [...byTarget.entries()]
-      .sort((a, b) => b[1].length - a[1].length)
-      .map(([tId, voters]) => `▫️ ${g.players.get(tId)?.name}: ${voters.length} (${voters.join('، ')})`)
-      .join('\n');
-    await telegram.sendMessage(g.chatId, `🗳 نتيجة التصويت:\n${summary}`).catch(() => undefined);
-  }
 
   if (!top || tie) {
     await telegram.sendMessage(g.chatId, '🤷 تعادل أو لا أصوات — لم يُطرد أحد اليوم.').catch(() => undefined);
