@@ -527,6 +527,7 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
         except Exception as e:
             log.info("import join %s: %s", source, e)
         await _notify_import(notify_chat, f"📥 بدأ الاستيراد من {source} (حد {limit}).")
+        seen = {"audio": 0, "document": 0, "video": 0, "voice": 0, "photo": 0, "other": 0}
         async for msg in assistant.get_chat_history(source):
             if _import_stop:
                 await _notify_import(notify_chat, f"🛑 وقّفت الاستيراد عند {copied} أغنية.")
@@ -534,6 +535,13 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
             scanned += 1
             if scanned > scan_cap:
                 break
+            # Tally what we see so a "0 songs" result can explain itself.
+            for kind in ("audio", "document", "video", "voice", "photo"):
+                if getattr(msg, kind, None):
+                    seen[kind] += 1
+                    break
+            else:
+                seen["other"] += 1
             if not _is_audio_msg(msg):
                 continue
             try:
@@ -551,7 +559,13 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
             if copied % 25 == 0:
                 await _notify_import(notify_chat, f"📥 استوردت {copied} أغنية…")
             await asyncio.sleep(IMPORT_MIN_DELAY + random.random() * 2)  # 3–5s
-        tail = "" if copied else f" (فحصت {scanned} رسالة — تأكد إنها أغاني ومو صور/فيديو، والحساب المساعد عضو بالقناة)."
+        if copied:
+            tail = ""
+        else:
+            tail = (
+                f" (فحصت {scanned} رسالة → صوت={seen['audio']}, ملفات={seen['document']}, "
+                f"فيديو={seen['video']}, صوتيات={seen['voice']}, صور={seen['photo']}, غير ذلك={seen['other']})."
+            )
         await _notify_import(notify_chat, f"✅ خلص الاستيراد: {copied} أغنية.{tail}")
     except Exception as e:
         log.warning("import error: %s", e)
