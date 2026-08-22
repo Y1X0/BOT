@@ -6,6 +6,23 @@ import { createBot, publishCommands } from './core/bot';
 import { createServer, startServer } from './core/server';
 import type { Server } from 'http';
 
+// Update types the bot must receive. This MUST be passed explicitly: when it's
+// omitted, Telegram reuses the previously-saved setting, so if the list was ever
+// narrowed it stays narrowed forever — which is exactly how `channel_post`
+// (needed to index audio posted to the storage channel) silently goes missing
+// even when the bot is a channel admin.
+const ALLOWED_UPDATES = [
+  'message',
+  'edited_message',
+  'channel_post',
+  'edited_channel_post',
+  'callback_query',
+  'inline_query',
+  'chat_member',
+  'my_chat_member',
+  'chat_join_request',
+] as const;
+
 async function main(): Promise<void> {
   logger.info({ mode: env.BOT_MODE, env: env.NODE_ENV }, 'Starting Telegram bot');
 
@@ -51,12 +68,13 @@ async function main(): Promise<void> {
     const path = env.WEBHOOK_PATH.startsWith('/') ? env.WEBHOOK_PATH : `/${env.WEBHOOK_PATH}`;
     await bot.telegram.setWebhook(`${env.WEBHOOK_DOMAIN}${path}`, {
       secret_token: env.WEBHOOK_SECRET,
+      allowed_updates: [...ALLOWED_UPDATES],
     });
     logger.info({ url: `${env.WEBHOOK_DOMAIN}${path}` }, 'Webhook registered');
   } else {
     // Long polling. Do not await launch() — it resolves only when the bot stops.
     await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => undefined);
-    bot.launch(() => logger.info('Bot started (long polling)'));
+    bot.launch({ allowedUpdates: [...ALLOWED_UPDATES] }, () => logger.info('Bot started (long polling)'));
   }
 
   // --- Graceful shutdown ---
