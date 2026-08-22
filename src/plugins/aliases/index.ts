@@ -79,7 +79,7 @@ const ALIASES: Alias[] = [
   { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه'] },
   { command: 'musaraha', triggers: ['مصارحه', 'مصارحة', 'صارحني', 'رسايل مجهوله'] },
   { command: 'yt', triggers: ['yt'] },
-  // "يوت"/"يوتيوب" search BOTH songs (SoundCloud) and podcasts at once.
+  // "يوت"/"يوتيوب" → instant top result (no list). "اغنيه" → pick from a list.
   { command: 'ytall', triggers: ['يوت', 'يوتيوب'] },
   { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
   // NB: bare "تنزيل" belongs to /unrank (bot ranks); download keeps نزل/حمل.

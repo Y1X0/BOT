@@ -6,7 +6,6 @@ import type { Plugin } from '../../core/plugin';
 import { createLogger } from '../../core/logger';
 import { youtubeQueue } from '../../services/youtube/queue';
 import { scSearch, scDownload, type ScItem } from '../../services/soundcloud';
-import { searchPodcasts, registerShowResults } from '../podcast';
 import { archiveSearch, indexAudio } from '../../services/archive';
 
 const log = createLogger('plugin:soundcloud');
@@ -21,8 +20,8 @@ export const soundcloudPlugin: Plugin = {
   name: 'soundcloud',
   description: 'Search and download songs from SoundCloud',
   commands: [
-    { command: 'song', description: '🎵 ابحث عن أغنية: /song اسم الأغنية' },
-    { command: 'ytall', description: '🔎 ابحث بأغاني وبودكاست معاً: يوت اسم البحث' },
+    { command: 'song', description: '🎵 ابحث عن أغنية واختر من القائمة: /song اسم الأغنية' },
+    { command: 'ytall', description: '⚡ أغنية فورية بلا اختيار: يوت اسم الأغنية' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -33,46 +32,12 @@ export const soundcloudPlugin: Plugin = {
       await postSongResults(ctx, query);
     });
 
-    // "يوت" — one search, one merged list: songs (🎵 SoundCloud) + podcasts (🎙).
+    // "يوت" — instant: grab the top result and send it, no picking a list.
     bot.command('ytall', async (ctx) => {
       if (!ctx.chat) return;
       const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
-      if (!query) return void ctx.reply('🔎 اكتب اسم الأغنية أو البودكاست:\nيوت اسم البحث');
-      const status = await ctx.reply('🔎 عم دوّر بالأغاني والبودكاست…');
-      // Cache-first: if the song is archived, send it instantly and skip the
-      // SoundCloud song list (still show podcasts).
-      const served = await trySendFromArchive(ctx, query);
-      const [songsRes, showsRes] = await Promise.all([
-        served ? Promise.resolve([] as ScItem[]) : scSearch(query, 5),
-        searchPodcasts(query, 5).catch(() => ({ error: 'failed' as const })),
-      ]);
-      const songs = 'error' in songsRes ? [] : songsRes;
-      const shows = 'error' in showsRes ? [] : showsRes;
-      if (!songs.length && !shows.length) {
-        return void ctx.telegram
-          .editMessageText(
-            ctx.chat.id,
-            status.message_id,
-            undefined,
-            served ? '✅ بعتّها من الأرشيف 🎵' : '❌ ما لقيت ولا نتيجة، جرّب كلمات ثانية.',
-          )
-          .catch(() => undefined);
-      }
-      const rows = [
-        ...songs.map((r, i) => [Markup.button.callback(`🎵 ${r.title.slice(0, 40)}${fmtDur(r.duration)}`, `sc:${i}`)]),
-        ...shows.map((s, i) => [Markup.button.callback(`🎙 ${s.name.slice(0, 40)}`, `pod:s:${i}`)]),
-      ];
-      pending.set(`${ctx.chat.id}:${status.message_id}`, songs);
-      registerShowResults(ctx.chat.id, status.message_id, shows);
-      await ctx.telegram
-        .editMessageText(
-          ctx.chat.id,
-          status.message_id,
-          undefined,
-          '🔎 اختر من النتائج:\n🎵 = أغنية  ·  🎙 = بودكاست',
-          Markup.inlineKeyboard(rows),
-        )
-        .catch(() => undefined);
+      if (!query) return void ctx.reply('⚡ اكتب اسم الأغنية وبتوصلك فوراً:\nيوت اسم الأغنية');
+      await sendTopSong(ctx, query);
     });
 
     bot.action(/^sc:(\d+)$/, async (ctx) => {
@@ -83,42 +48,73 @@ export const soundcloudPlugin: Plugin = {
       pending.delete(key);
       await ctx.answerCbQuery('⏳ جاري التنزيل...').catch(() => undefined);
       const chatId = ctx.chat!.id;
-      const telegram = ctx.telegram;
       await ctx.editMessageText(`⏳ جاري تنزيل: ${item.title}`).catch(() => undefined);
-
-      youtubeQueue.enqueue(
-        chatId,
-        async () => {
-          const dl = await scDownload(item.url);
-          if ('error' in dl) {
-            await telegram.sendMessage(chatId, '⚠️ تعذّر تنزيل هذه الأغنية، جرّب وحدة ثانية.').catch(() => undefined);
-            return;
-          }
-          try {
-            const { size } = await stat(dl.filePath);
-            if (size > TELEGRAM_SEND_LIMIT) {
-              await telegram.sendMessage(chatId, '⚠️ الملف أكبر من الحد المسموح (50MB).').catch(() => undefined);
-              return;
-            }
-            const sent = await telegram.sendAudio(chatId, Input.fromLocalFile(dl.filePath), { title: dl.title, caption: `🎵 ${dl.title}` });
-            // Dynamic cache: remember this file_id so the next request for the
-            // same song is served instantly, no re-download.
-            const fid = (sent as { audio?: { file_id?: string; duration?: number } }).audio;
-            if (fid?.file_id) void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache' });
-            if (ctx.callbackQuery.message) await telegram.deleteMessage(chatId, ctx.callbackQuery.message.message_id).catch(() => undefined);
-          } catch (err) {
-            log.error({ err }, 'soundcloud send failed');
-            await telegram.sendMessage(chatId, '⚠️ حدث خطأ أثناء الإرسال.').catch(() => undefined);
-          } finally {
-            await dl.cleanup();
-          }
-        },
-        3,
-        20,
-      );
+      enqueueDownloadAndSend(ctx.telegram, chatId, item, ctx.callbackQuery.message?.message_id);
     });
   },
 };
+
+/** Download a SoundCloud item and send it as audio (queued), caching its file_id.
+ *  If cleanupMsgId is given, that status message is deleted on success. */
+function enqueueDownloadAndSend(
+  telegram: BotContext['telegram'],
+  chatId: number,
+  item: ScItem,
+  cleanupMsgId?: number,
+): void {
+  youtubeQueue.enqueue(
+    chatId,
+    async () => {
+      const dl = await scDownload(item.url);
+      if ('error' in dl) {
+        await telegram.sendMessage(chatId, '⚠️ تعذّر تنزيل هذه الأغنية، جرّب وحدة ثانية.').catch(() => undefined);
+        return;
+      }
+      try {
+        const { size } = await stat(dl.filePath);
+        if (size > TELEGRAM_SEND_LIMIT) {
+          await telegram.sendMessage(chatId, '⚠️ الملف أكبر من الحد المسموح (50MB).').catch(() => undefined);
+          return;
+        }
+        const sent = await telegram.sendAudio(chatId, Input.fromLocalFile(dl.filePath), { title: dl.title, caption: `🎵 ${dl.title}` });
+        // Dynamic cache: remember this file_id so the next request for the same
+        // song is served instantly, no re-download.
+        const fid = (sent as { audio?: { file_id?: string; duration?: number } }).audio;
+        if (fid?.file_id) void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache' });
+        if (cleanupMsgId != null) await telegram.deleteMessage(chatId, cleanupMsgId).catch(() => undefined);
+      } catch (err) {
+        log.error({ err }, 'soundcloud send failed');
+        await telegram.sendMessage(chatId, '⚠️ حدث خطأ أثناء الإرسال.').catch(() => undefined);
+      } finally {
+        await dl.cleanup();
+      }
+    },
+    3,
+    20,
+  );
+}
+
+/** "يوت" fast path: archive-first, else auto-pick the top SoundCloud result and
+ *  send it directly — no keyboard, no choosing. */
+async function sendTopSong(ctx: BotContext, query: string): Promise<void> {
+  if (!ctx.chat) return;
+  const status = await ctx.reply('⚡ عم جيب الأغنية…');
+  if (await trySendFromArchive(ctx, query)) {
+    await ctx.telegram.deleteMessage(ctx.chat.id, status.message_id).catch(() => undefined);
+    return;
+  }
+  const res = await scSearch(query, 5);
+  if ('error' in res || !res.length) {
+    return void ctx.telegram
+      .editMessageText(ctx.chat.id, status.message_id, undefined, '❌ ما لقيت الأغنية، جرّب كلمات ثانية.')
+      .catch(() => undefined);
+  }
+  const item = res[0];
+  await ctx.telegram
+    .editMessageText(ctx.chat.id, status.message_id, undefined, `⏳ جاري تنزيل: ${item.title}`)
+    .catch(() => undefined);
+  enqueueDownloadAndSend(ctx.telegram, ctx.chat.id, item, status.message_id);
+}
 
 /** Send a cached archive hit if there is one. Returns true if served from cache. */
 async function trySendFromArchive(ctx: BotContext, query: string): Promise<boolean> {
