@@ -30,6 +30,7 @@ interface Game {
   night: { kill?: number; save?: number; check?: number };
   votes: Map<number, number>;
   timer?: NodeJS.Timeout;
+  resolving?: boolean; // re-entrancy guard so a phase never resolves twice
 }
 
 const games = new Map<number, Game>();
@@ -159,7 +160,12 @@ export const mafiaPlugin: Plugin = {
 };
 
 async function assignRoles(telegram: BotContext['telegram'], g: Game): Promise<void> {
-  const ids = [...g.players.keys()].sort(() => Math.random() - 0.5);
+  // Fisher-Yates: a uniform shuffle (sort(()=>Math.random()-0.5) is biased).
+  const ids = [...g.players.keys()];
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
   const n = ids.length;
   const mafiaCount = n >= 6 ? 2 : 1;
   const roles: Role[] = [];
@@ -172,14 +178,21 @@ async function assignRoles(telegram: BotContext['telegram'], g: Game): Promise<v
     const p = g.players.get(id)!;
     p.role = roles[i];
   });
-  // DM each their role.
+  // DM each their role. Mafia also learn their teammates so they can coordinate.
+  const mafiaTeam = [...g.players.values()].filter((p) => p.role === 'mafia');
   for (const p of g.players.values()) {
-    await telegram.sendMessage(p.id, `دورك في المافيا: ${ROLE_AR[p.role]}`).catch(() => undefined);
+    let msg = `دورك في المافيا: ${ROLE_AR[p.role]}`;
+    if (p.role === 'mafia' && mafiaTeam.length > 1) {
+      const partners = mafiaTeam.filter((m) => m.id !== p.id).map((m) => m.name).join('، ');
+      msg += `\n🤝 شركاؤك بالمافيا: ${partners}`;
+    }
+    await telegram.sendMessage(p.id, msg).catch(() => undefined);
   }
 }
 
 async function beginNight(telegram: BotContext['telegram'], g: Game): Promise<void> {
   g.phase = 'night';
+  g.resolving = false;
   g.round++;
   g.night = {};
   if (g.timer) clearTimeout(g.timer);
@@ -212,7 +225,8 @@ async function maybeResolveNight(telegram: BotContext['telegram'], g: Game): Pro
 }
 
 async function resolveNight(telegram: BotContext['telegram'], g: Game): Promise<void> {
-  if (g.phase !== 'night') return;
+  if (g.phase !== 'night' || g.resolving) return;
+  g.resolving = true;
   if (g.timer) clearTimeout(g.timer);
   let deadName: string | null = null;
   if (g.night.kill && g.night.kill !== g.night.save) {
@@ -233,6 +247,7 @@ async function resolveNight(telegram: BotContext['telegram'], g: Game): Promise<
 
 async function beginDay(telegram: BotContext['telegram'], g: Game): Promise<void> {
   g.phase = 'day';
+  g.resolving = false;
   g.votes = new Map();
   if (g.timer) clearTimeout(g.timer);
   await telegram
@@ -247,7 +262,8 @@ async function beginDay(telegram: BotContext['telegram'], g: Game): Promise<void
 }
 
 async function resolveDay(telegram: BotContext['telegram'], g: Game): Promise<void> {
-  if (g.phase !== 'day') return;
+  if (g.phase !== 'day' || g.resolving) return;
+  g.resolving = true;
   if (g.timer) clearTimeout(g.timer);
   const tally = new Map<number, number>();
   for (const target of g.votes.values()) tally.set(target, (tally.get(target) ?? 0) + 1);
