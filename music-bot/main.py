@@ -520,6 +520,7 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
     global _importing, _import_stop
     copied = 0
     scanned = 0
+    first_err = ""
     scan_cap = limit * 20  # don't crawl an entire huge channel
     try:
         try:
@@ -552,6 +553,8 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
                     secs = getattr(e, "value", None) or getattr(e, "x", None) or 30
                     await _notify_import(notify_chat, f"⏸ FloodWait {secs}s — بوقف الاستيراد احتراماً له عند {copied}.")
                     return  # full stop on flood, per policy
+                if not first_err:
+                    first_err = f"{type(e).__name__}: {e}"
                 log.info("import copy failed: %s", e)
                 continue
             if copied >= limit:
@@ -561,6 +564,15 @@ async def _run_import(source: str, limit: int, storage: int, notify_chat) -> Non
             await asyncio.sleep(IMPORT_MIN_DELAY + random.random() * 2)  # 3–5s
         if copied:
             tail = ""
+        elif first_err:
+            # We found audio but every copy failed — surface the real reason.
+            hint = ""
+            up = first_err.upper()
+            if "FORWARD" in up or "PROTECT" in up or "SAVE" in up:
+                hint = "\n↳ القناة المصدر مانعة النسخ/الحفظ (Restrict Saving Content). لازم مصدر غير مقيّد."
+            elif "PEER_ID_INVALID" in up or "CHANNEL_INVALID" in up or "WRITE_FORBIDDEN" in up or "BANNED" in up:
+                hint = "\n↳ الحساب المساعد مش عضو/مخوّل بقناة الأرشيف. ضيفه عضو فيها وخليه يقدر ينشر."
+            tail = f" وجدت {seen['audio']} صوت بس فشل النسخ.\nالخطأ: {first_err}{hint}"
         else:
             tail = (
                 f" (فحصت {scanned} رسالة → صوت={seen['audio']}, ملفات={seen['document']}, "
