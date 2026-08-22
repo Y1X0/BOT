@@ -70,6 +70,22 @@ export function createServer(bot: Telegraf<BotContext>): Express {
     }
   });
 
+  // Bulk-import progress from the streamer → relayed to whoever started it.
+  app.post('/import/progress', async (req, res): Promise<void> => {
+    const token = process.env.STREAMER_TOKEN || '';
+    if (!token || req.header('X-Token') !== token) {
+      res.status(401).json({ ok: false });
+      return;
+    }
+    const { chat_id, text } = (req.body ?? {}) as { chat_id?: number | string; text?: string };
+    if (!chat_id || !text) {
+      res.status(400).json({ ok: false });
+      return;
+    }
+    await bot.telegram.sendMessage(Number(chat_id), String(text)).catch(() => undefined);
+    res.json({ ok: true });
+  });
+
   // In webhook mode, mount Telegraf's callback at the secret path.
   if (env.BOT_MODE === 'webhook') {
     const path = env.WEBHOOK_PATH.startsWith('/')

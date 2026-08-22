@@ -44,6 +44,10 @@ START_DELAY = _int("STREAMER_START_DELAY", 25)
 # now-playing card. Authenticated with STREAMER_TOKEN. Optional.
 BOT_CALLBACK_URL = os.getenv("BOT_CALLBACK_URL", "")
 
+# The archive storage channel the assistant copies imported audio into (the bot
+# is admin there and indexes it). Same id the bot uses as MUSIC_STORAGE_CHANNEL_ID.
+MUSIC_STORAGE_CHANNEL_ID = _int("MUSIC_STORAGE_CHANNEL_ID", 0)
+
 
 def validate() -> None:
     missing = [n for n, v in {

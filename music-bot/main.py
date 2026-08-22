@@ -21,7 +21,9 @@ The assistant must be an admin with the "manage voice chats" right.
 """
 import asyncio
 import logging
+import random
 import time
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -62,6 +64,14 @@ _last_join = 0.0
 # The assistant's own Telegram user id (set once at startup) — the management
 # bot needs it to promote the assistant to admin after it joins.
 _assistant_id = 0
+
+# Bulk-import state. Conservative by design — a user account that copies too fast
+# gets banned, so: one import at a time, slow random delays, a hard per-session
+# cap, and a full stop on the first FloodWait.
+_importing = False
+_import_stop = False
+IMPORT_MAX = 200          # hard cap per session
+IMPORT_MIN_DELAY = 3.0    # seconds between copies (randomized up to +2)
 
 # Strong refs to detached background tasks so the event loop's weak references
 # don't let them be garbage-collected before they finish.
@@ -436,6 +446,101 @@ async def remove(request: web.Request) -> web.Response:
     if not track:
         return web.json_response({"ok": False, "error": "bad_index"})
     return web.json_response({"ok": True, **_track_info(track)})
+
+
+@routes.post("/import")
+async def import_audio(request: web.Request) -> web.Response:
+    """Bulk-import audio from a source channel into the archive storage channel.
+    Runs in the background, slowly, and stops on the first FloodWait."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
+    global _importing
+    if _importing:
+        return web.json_response({"ok": False, "error": "already_importing"})
+    if not config.MUSIC_STORAGE_CHANNEL_ID:
+        return web.json_response({"ok": False, "error": "no_storage_channel"})
+    data = await _body(request)
+    source = (data.get("source") or "").strip()
+    limit = max(1, min(int(data.get("limit") or 50), IMPORT_MAX))
+    notify_chat = data.get("notify_chat")
+    if not source:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+    _importing = True
+    _spawn(_run_import(source, limit, config.MUSIC_STORAGE_CHANNEL_ID, notify_chat))
+    return web.json_response({"ok": True, "started": True, "limit": limit})
+
+
+@routes.post("/importstop")
+async def import_stop(request: web.Request) -> web.Response:
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    global _import_stop
+    _import_stop = True
+    return web.json_response({"ok": True, "importing": _importing})
+
+
+async def _notify_import(notify_chat, text: str) -> None:
+    """Send import progress to the bot, which relays it to the owner."""
+    if not notify_chat or not config.BOT_CALLBACK_URL:
+        return
+    parts = urlsplit(config.BOT_CALLBACK_URL)
+    url = f"{parts.scheme}://{parts.netloc}/import/progress"
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(
+                url,
+                json={"chat_id": notify_chat, "text": text},
+                headers={"X-Token": config.STREAMER_TOKEN},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+    except Exception as e:
+        log.info("import notify failed: %s", e)
+
+
+async def _run_import(source: str, limit: int, storage: int, notify_chat) -> None:
+    global _importing, _import_stop
+    copied = 0
+    scanned = 0
+    scan_cap = limit * 10  # don't crawl an entire huge channel
+    try:
+        try:
+            await assistant.join_chat(source)
+        except Exception as e:
+            log.info("import join %s: %s", source, e)
+        await _notify_import(notify_chat, f"📥 بدأ الاستيراد من {source} (حد {limit}).")
+        async for msg in assistant.get_chat_history(source):
+            if _import_stop:
+                await _notify_import(notify_chat, f"🛑 وقّفت الاستيراد عند {copied} أغنية.")
+                return
+            scanned += 1
+            if scanned > scan_cap:
+                break
+            if not getattr(msg, "audio", None):
+                continue
+            try:
+                await msg.copy(storage)
+                copied += 1
+            except Exception as e:
+                if type(e).__name__ == "FloodWait":
+                    secs = getattr(e, "value", None) or getattr(e, "x", None) or 30
+                    await _notify_import(notify_chat, f"⏸ FloodWait {secs}s — بوقف الاستيراد احتراماً له عند {copied}.")
+                    return  # full stop on flood, per policy
+                log.info("import copy failed: %s", e)
+                continue
+            if copied >= limit:
+                break
+            if copied % 25 == 0:
+                await _notify_import(notify_chat, f"📥 استوردت {copied} أغنية…")
+            await asyncio.sleep(IMPORT_MIN_DELAY + random.random() * 2)  # 3–5s
+        await _notify_import(notify_chat, f"✅ خلص الاستيراد: {copied} أغنية.")
+    except Exception as e:
+        log.warning("import error: %s", e)
+        await _notify_import(notify_chat, f"⚠️ توقّف الاستيراد بخطأ عند {copied}: {e}")
+    finally:
+        _importing = False
+        _import_stop = False
 
 
 # Auto-advance: when a track ends, play the next queued one (or leave if empty).
