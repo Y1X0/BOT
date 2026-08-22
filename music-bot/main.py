@@ -59,6 +59,10 @@ _ready = False
 _JOIN_COOLDOWN = 60.0
 _last_join = 0.0
 
+# The assistant's own Telegram user id (set once at startup) — the management
+# bot needs it to promote the assistant to admin after it joins.
+_assistant_id = 0
+
 # Strong refs to detached background tasks so the event loop's weak references
 # don't let them be garbage-collected before they finish.
 _bg_tasks: set = set()
@@ -350,7 +354,7 @@ async def join(request: web.Request) -> web.Response:
             except Exception:
                 pass
             return web.json_response({"ok": False, "error": "wrong_group"})
-        return web.json_response({"ok": True})
+        return web.json_response({"ok": True, "assistant_id": _assistant_id})
     except Exception as e:
         name = type(e).__name__
         log.info("join failed (%s): %s", name, e)
@@ -359,7 +363,7 @@ async def join(request: web.Request) -> web.Response:
             return web.json_response({"ok": False, "error": "bad_link"})
         _last_join = time.monotonic()
         if name == "UserAlreadyParticipant":
-            return web.json_response({"ok": True, "already": True})
+            return web.json_response({"ok": True, "already": True, "assistant_id": _assistant_id})
         if name in ("UserBannedInChannel", "ChannelBanned", "ChatWriteForbidden"):
             return web.json_response({"ok": False, "error": "banned"})
         if name == "FloodWait":
@@ -517,11 +521,12 @@ async def _serve() -> None:
     # Connect the assistant + PyTgCalls (needed for actual playback). Do NOT
     # crash the whole service if this fails — keep serving so search still works
     # and the session can be fixed without the container crash-looping.
-    global _ready
+    global _ready, _assistant_id
     try:
         await assistant.start()
         await calls.start()
         me = await assistant.get_me()
+        _assistant_id = me.id
         _ready = True
         log.info("Streamer up. Assistant: %s (id %s). PyTgCalls started.", me.first_name, me.id)
     except Exception as e:

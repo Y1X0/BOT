@@ -37,6 +37,7 @@ interface StreamerResult {
   already?: boolean;
   removed?: number;
   seconds?: number;
+  assistant_id?: number;
   title?: string;
   duration?: number;
   thumb?: string;
@@ -62,6 +63,38 @@ async function callStreamer(path: string, body: Record<string, unknown>): Promis
     log.warn({ err, path }, 'streamer call failed');
     return { ok: false, error: 'unreachable' };
   }
+}
+
+function isNotMember(r: StreamerResult | null): boolean {
+  const e = r?.error || '';
+  return e === 'not_member' || /PEER_ID_INVALID|not.*member|CHAT_WRITE_FORBIDDEN/i.test(e);
+}
+
+// Add the assistant to this group automatically: the bot creates a one-use
+// invite link, the streamer joins with it, then the bot promotes the assistant
+// to admin (voice-chat management). Best-effort — returns the join result.
+async function autoAddAssistant(ctx: BotContext): Promise<StreamerResult | null> {
+  if (!ctx.chat) return null;
+  const chatId = ctx.chat.id;
+  let inviteLink: string;
+  try {
+    const res = await ctx.telegram.createChatInviteLink(chatId, {
+      member_limit: 1,
+      expire_date: Math.floor(Date.now() / 1000) + 600,
+    });
+    inviteLink = res.invite_link;
+  } catch {
+    return { ok: false, error: 'bot_cant_invite' };
+  }
+  const r = await callStreamer('/join', { chat_id: chatId, invite_link: inviteLink });
+  if ((r?.ok || r?.already) && r?.assistant_id) {
+    // Promote so it can manage voice chats. If the bot lacks "add admins" this
+    // silently no-ops and the user can promote manually.
+    await ctx.telegram
+      .promoteChatMember(chatId, r.assistant_id, { can_manage_video_chats: true })
+      .catch(() => undefined);
+  }
+  return r;
 }
 
 function fmtDuration(seconds?: number): string {
@@ -332,6 +365,7 @@ function errorText(r: StreamerResult | null): string {
   if (e === 'not_found') return '❌ ما لقيت الأغنية. جرّب اسم تاني.';
   if (e === 'bad_index') return '❌ رقم غلط. شوف الطابور بأمر: قائمة الكول';
   if (e === 'no_call') return '🔇 الكول مسكّر. افتح كول أول: افتح كول';
+  if (e === 'bot_cant_invite') return '⚠️ خلّي البوت أدمن مع صلاحية «دعوة أعضاء عبر رابط» عشان يضيف المساعد لحاله.';
   if (e === 'bad_link') return '🔗 رابط الدعوة غلط أو منتهي. جيب رابط دعوة جديد من إعدادات الجروب.';
   if (e === 'wrong_group') return '🔗 هذا الرابط لجروب ثاني، مش لهالجروب. استخدم رابط دعوة نفس الجروب.';
   if (e === 'banned') return '⛔️ الحساب المساعد محظور من هالجروب. فُكّ الحظر عنه وجرّب.';
@@ -384,7 +418,13 @@ export const musicPlugin: Plugin = {
       const query = parts || replied?.text || replied?.caption || '';
       if (!query) return void ctx.reply('🎵 اكتب اسم الأغنية:\nتشغيل نانسي عجرم');
       const status = await ctx.reply(pickSearching());
-      const r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
+      let r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
+      if (isNotMember(r)) {
+        await edit(ctx, status.message_id, '⏳ عم ضيف الحساب المساعد للجروب…');
+        const j = await autoAddAssistant(ctx);
+        if (!(j?.ok || j?.already)) return void edit(ctx, status.message_id, errorText(j));
+        r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
+      }
       if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
 
       const em = await cardEmoji(ctx.chat.id);
@@ -434,7 +474,14 @@ export const musicPlugin: Plugin = {
     bot.command('vcstart', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
-      const r = await callStreamer('/startvc', { chat_id: ctx.chat.id });
+      let r = await callStreamer('/startvc', { chat_id: ctx.chat.id });
+      if (isNotMember(r)) {
+        const status = await ctx.reply('⏳ عم ضيف الحساب المساعد للجروب…');
+        const j = await autoAddAssistant(ctx);
+        if (!(j?.ok || j?.already)) return void edit(ctx, status.message_id, errorText(j));
+        await edit(ctx, status.message_id, '✅ ضفت المساعد وعم افتح الكول…');
+        r = await callStreamer('/startvc', { chat_id: ctx.chat.id });
+      }
       await ctx.reply(r?.ok ? '✅ فتحت الكول. اكتب: تشغيل اسم الأغنية' : errorText(r));
     });
 
