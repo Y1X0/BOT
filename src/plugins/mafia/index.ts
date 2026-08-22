@@ -24,11 +24,14 @@ interface Player {
 interface Game {
   chatId: number;
   hostId: number;
-  phase: 'lobby' | 'night' | 'day' | 'ended';
+  phase: 'lobby' | 'night' | 'day' | 'defense' | 'ended';
   players: Map<number, Player>;
   round: number;
   night: { kill?: number; save?: number; check?: number };
-  votes: Map<number, number>;
+  votes: Map<number, number>; // day: voterId → targetId
+  donId?: number; // current mafia boss (شيخ المافيا) — only he kills
+  accused?: number; // most-voted player, on trial in the defense phase
+  finalVotes: Map<number, boolean>; // defense: voterId → lynch?
   timer?: NodeJS.Timeout;
   resolving?: boolean; // re-entrancy guard so a phase never resolves twice
 }
@@ -38,9 +41,23 @@ const playerGame = new Map<number, number>(); // userId → chatId
 const LOBBY_MIN = 4;
 const NIGHT_MS = 60_000;
 const DAY_MS = 60_000;
+const DEFENSE_MS = 45_000;
 
 const alive = (g: Game) => [...g.players.values()].filter((p) => p.alive);
 const aliveMafia = (g: Game) => alive(g).filter((p) => p.role === 'mafia');
+
+/** The current mafia boss: only he chooses the night kill. If the stored boss is
+ *  gone, the next living mafia inherits the role (طلع شيخ المافيا → التالي دوره). */
+function ensureDon(g: Game): Player | undefined {
+  const mafias = aliveMafia(g);
+  if (!mafias.length) return undefined;
+  let don = g.donId ? g.players.get(g.donId) : undefined;
+  if (!don || !don.alive || don.role !== 'mafia') {
+    don = mafias[0];
+    g.donId = don.id;
+  }
+  return don;
+}
 
 function targetKeyboard(players: Player[], action: string) {
   return Markup.inlineKeyboard(
@@ -68,6 +85,7 @@ export const mafiaPlugin: Plugin = {
         round: 0,
         night: {},
         votes: new Map(),
+        finalVotes: new Map(),
       };
       games.set(ctx.chat.id, g);
       await ctx.reply(
@@ -123,7 +141,7 @@ export const mafiaPlugin: Plugin = {
       await beginNight(ctx.telegram, g);
     });
 
-    // Night actions (from DM).
+    // Night actions (from DM). One choice per role per night — locked once made.
     bot.action(/^maf:(kill|save|check):(\d+)$/, async (ctx) => {
       const action = ctx.match[1] as 'kill' | 'save' | 'check';
       const targetId = Number(ctx.match[2]);
@@ -132,29 +150,73 @@ export const mafiaPlugin: Plugin = {
       if (!g || g.phase !== 'night' || !ctx.from) return void ctx.answerCbQuery().catch(() => undefined);
       const actor = g.players.get(ctx.from.id);
       if (!actor?.alive) return void ctx.answerCbQuery('لا يمكنك التصرف.').catch(() => undefined);
+      const target = g.players.get(targetId);
+      if (!target?.alive) return void ctx.answerCbQuery('اختر لاعباً حياً.').catch(() => undefined);
 
-      if (action === 'kill' && actor.role === 'mafia') g.night.kill = targetId;
-      else if (action === 'save' && actor.role === 'doctor') g.night.save = targetId;
-      else if (action === 'check' && actor.role === 'detective') {
-        g.night.check = targetId;
-        const t = g.players.get(targetId);
-        await ctx.reply(`🔍 ${t?.name}: ${t?.role === 'mafia' ? 'مافيا 🔫' : 'بريء ✅'}`).catch(() => undefined);
+      if (action === 'kill') {
+        if (actor.role !== 'mafia') return void ctx.answerCbQuery('ليس دورك.').catch(() => undefined);
+        const don = ensureDon(g);
+        // Only the boss kills; the rest wait their turn until he's gone.
+        if (!don || actor.id !== don.id)
+          return void ctx.answerCbQuery('🔫 شيخ المافيا فقط يغتال الليلة.', { show_alert: true }).catch(() => undefined);
+        if (g.night.kill != null) {
+          const prev = g.players.get(g.night.kill);
+          return void ctx
+            .answerCbQuery(`لا يجوز — اخترت ${prev?.name} مسبقاً. اغتيال واحد فقط بالجولة.`, { show_alert: true })
+            .catch(() => undefined);
+        }
+        g.night.kill = targetId;
+        await ctx.answerCbQuery(`تم اختيار الضحية: ${target.name} ✅`).catch(() => undefined);
+      } else if (action === 'save') {
+        if (actor.role !== 'doctor') return void ctx.answerCbQuery('ليس دورك.').catch(() => undefined);
+        if (g.night.save != null) {
+          const prev = g.players.get(g.night.save);
+          return void ctx
+            .answerCbQuery(`انت حميت ${prev?.name} — حماية واحد فقط بالجولة.`, { show_alert: true })
+            .catch(() => undefined);
+        }
+        g.night.save = targetId;
+        await ctx.answerCbQuery(`تحمي: ${target.name} ✅`).catch(() => undefined);
       } else {
-        return void ctx.answerCbQuery('ليس دورك.').catch(() => undefined);
+        // detective — one reveal per night.
+        if (actor.role !== 'detective') return void ctx.answerCbQuery('ليس دورك.').catch(() => undefined);
+        if (g.night.check != null)
+          return void ctx.answerCbQuery('كشفت لاعباً هذه الليلة مسبقاً.', { show_alert: true }).catch(() => undefined);
+        g.night.check = targetId;
+        await ctx.answerCbQuery('تم ✅').catch(() => undefined);
+        await ctx.reply(`🔍 ${target.name}: ${target.role === 'mafia' ? 'مافيا 🔫' : 'بريء ✅'}`).catch(() => undefined);
       }
-      await ctx.answerCbQuery('تم اختيارك ✅').catch(() => undefined);
       await maybeResolveNight(ctx.telegram, g);
     });
 
-    // Day vote (in group).
+    // Day vote (in group) — transparent: every vote is announced.
     bot.action(/^maf:vote:(\d+)$/, async (ctx) => {
       const g = games.get(ctx.chat!.id);
       if (!g || g.phase !== 'day' || !ctx.from) return void ctx.answerCbQuery().catch(() => undefined);
       const voter = g.players.get(ctx.from.id);
       if (!voter?.alive) return void ctx.answerCbQuery('غير المشاركين لا يصوّتون.').catch(() => undefined);
-      g.votes.set(ctx.from.id, Number(ctx.match[1]));
+      const targetId = Number(ctx.match[1]);
+      const target = g.players.get(targetId);
+      if (!target?.alive) return void ctx.answerCbQuery('اختر لاعباً حياً.').catch(() => undefined);
+      const changed = g.votes.get(ctx.from.id) !== targetId;
+      g.votes.set(ctx.from.id, targetId);
       await ctx.answerCbQuery('تم تصويتك ✅').catch(() => undefined);
-      if (g.votes.size >= alive(g).length) await resolveDay(ctx.telegram, g);
+      if (changed)
+        await ctx.telegram.sendMessage(g.chatId, `🗳 ${voter.name} صوّت على ${target.name}`).catch(() => undefined);
+      if (g.votes.size >= alive(g).length) await tallyDay(ctx.telegram, g);
+    });
+
+    // Final verdict after the accused defends himself.
+    bot.action(/^maf:final:(0|1)$/, async (ctx) => {
+      const g = games.get(ctx.chat!.id);
+      if (!g || g.phase !== 'defense' || !ctx.from) return void ctx.answerCbQuery().catch(() => undefined);
+      const voter = g.players.get(ctx.from.id);
+      if (!voter?.alive) return void ctx.answerCbQuery('غير المشاركين لا يصوّتون.').catch(() => undefined);
+      if (ctx.from.id === g.accused) return void ctx.answerCbQuery('لا تصوّت على نفسك.').catch(() => undefined);
+      g.finalVotes.set(ctx.from.id, ctx.match[1] === '1');
+      await ctx.answerCbQuery('تم ✅').catch(() => undefined);
+      const eligible = alive(g).filter((p) => p.id !== g.accused).length;
+      if (g.finalVotes.size >= eligible) await resolveDefense(ctx.telegram, g);
     });
   },
 };
@@ -178,13 +240,20 @@ async function assignRoles(telegram: BotContext['telegram'], g: Game): Promise<v
     const p = g.players.get(id)!;
     p.role = roles[i];
   });
-  // DM each their role. Mafia also learn their teammates so they can coordinate.
+  // The first mafia is the boss (شيخ المافيا) — only he kills.
   const mafiaTeam = [...g.players.values()].filter((p) => p.role === 'mafia');
+  g.donId = mafiaTeam[0]?.id;
+  // DM each their role. Mafia also learn their teammates + who the boss is.
   for (const p of g.players.values()) {
     let msg = `دورك في المافيا: ${ROLE_AR[p.role]}`;
-    if (p.role === 'mafia' && mafiaTeam.length > 1) {
-      const partners = mafiaTeam.filter((m) => m.id !== p.id).map((m) => m.name).join('، ');
-      msg += `\n🤝 شركاؤك بالمافيا: ${partners}`;
+    if (p.role === 'mafia') {
+      const boss = g.players.get(g.donId!);
+      const isBoss = p.id === g.donId;
+      msg += isBoss ? '\n👑 أنت شيخ المافيا — أنت من يختار الضحية.' : `\n👑 شيخ المافيا: ${boss?.name} (هو من يغتال).`;
+      if (mafiaTeam.length > 1) {
+        const partners = mafiaTeam.filter((m) => m.id !== p.id).map((m) => m.name).join('، ');
+        msg += `\n🤝 شركاؤك بالمافيا: ${partners}`;
+      }
     }
     await telegram.sendMessage(p.id, msg).catch(() => undefined);
   }
@@ -197,18 +266,23 @@ async function beginNight(telegram: BotContext['telegram'], g: Game): Promise<vo
   g.night = {};
   if (g.timer) clearTimeout(g.timer);
   await telegram
-    .sendMessage(g.chatId, `🌙 الليلة ${g.round}: الجميع نام. المافيا تختار ضحيتها...`)
+    .sendMessage(g.chatId, `🌙 الليلة ${g.round}: الجميع نام. شيخ المافيا يختار ضحيته...`)
     .catch(() => undefined);
 
+  const don = ensureDon(g);
   const others = alive(g).filter((p) => p.role !== 'mafia');
   for (const p of alive(g)) {
     if (p.role === 'mafia') {
-      await telegram.sendMessage(p.id, '🔫 اختر ضحية:', targetKeyboard(others, 'kill')).catch(() => undefined);
+      if (don && p.id === don.id) {
+        await telegram.sendMessage(p.id, '🔫 أنت شيخ المافيا — اختر ضحية (اختيار واحد فقط):', targetKeyboard(others, 'kill')).catch(() => undefined);
+      } else {
+        await telegram.sendMessage(p.id, `🔫 شيخ المافيا (${don?.name}) هو من يختار هذه الليلة. انتظر دورك.`).catch(() => undefined);
+      }
     } else if (p.role === 'doctor') {
-      await telegram.sendMessage(p.id, '💉 اختر من تنقذه:', targetKeyboard(alive(g), 'save')).catch(() => undefined);
+      await telegram.sendMessage(p.id, '💉 اختر من تنقذه (واحد فقط):', targetKeyboard(alive(g), 'save')).catch(() => undefined);
     } else if (p.role === 'detective') {
       await telegram
-        .sendMessage(p.id, '🕵️ اختر من تكشفه:', targetKeyboard(alive(g).filter((x) => x.id !== p.id), 'check'))
+        .sendMessage(p.id, '🕵️ اختر من تكشفه (واحد فقط):', targetKeyboard(alive(g).filter((x) => x.id !== p.id), 'check'))
         .catch(() => undefined);
     }
   }
@@ -253,34 +327,88 @@ async function beginDay(telegram: BotContext['telegram'], g: Game): Promise<void
   await telegram
     .sendMessage(
       g.chatId,
-      '☀️ النهار: ناقشوا من المشتبه به، ثم صوّتوا لطرده 👇',
+      '☀️ النهار: ناقشوا من المشتبه به، ثم صوّتوا 👇\n(كل صوت يظهر للجميع)',
       targetKeyboard(alive(g), 'vote'),
     )
     .catch(() => undefined);
-  g.timer = setTimeout(() => void resolveDay(telegram, g), DAY_MS);
+  g.timer = setTimeout(() => void tallyDay(telegram, g), DAY_MS);
   g.timer.unref?.();
 }
 
-async function resolveDay(telegram: BotContext['telegram'], g: Game): Promise<void> {
+/** Count the day votes, show who voted for whom, then put the top suspect on
+ *  trial (defense phase) — a tie or no votes means nobody is accused. */
+async function tallyDay(telegram: BotContext['telegram'], g: Game): Promise<void> {
   if (g.phase !== 'day' || g.resolving) return;
   g.resolving = true;
   if (g.timer) clearTimeout(g.timer);
+
   const tally = new Map<number, number>();
-  for (const target of g.votes.values()) tally.set(target, (tally.get(target) ?? 0) + 1);
+  const byTarget = new Map<number, string[]>();
+  for (const [voterId, targetId] of g.votes) {
+    tally.set(targetId, (tally.get(targetId) ?? 0) + 1);
+    const arr = byTarget.get(targetId) ?? [];
+    arr.push(g.players.get(voterId)?.name ?? '؟');
+    byTarget.set(targetId, arr);
+  }
   const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
   const top = sorted[0];
   const tie = sorted.length > 1 && sorted[1][1] === top?.[1];
 
+  if (byTarget.size) {
+    const summary = [...byTarget.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([tId, voters]) => `▫️ ${g.players.get(tId)?.name}: ${voters.length} (${voters.join('، ')})`)
+      .join('\n');
+    await telegram.sendMessage(g.chatId, `🗳 نتيجة التصويت:\n${summary}`).catch(() => undefined);
+  }
+
   if (!top || tie) {
-    await telegram.sendMessage(g.chatId, '🤷 لم يتفق الجميع، لم يُطرد أحد اليوم.').catch(() => undefined);
+    await telegram.sendMessage(g.chatId, '🤷 تعادل أو لا أصوات — لم يُطرد أحد اليوم.').catch(() => undefined);
+    const winner = checkWin(g);
+    if (winner) return void endGame(telegram, g, winner);
+    return void beginNight(telegram, g);
+  }
+  await beginDefense(telegram, g, top[0], top[1]);
+}
+
+/** The most-voted player defends himself, then everyone else votes to lynch. */
+async function beginDefense(telegram: BotContext['telegram'], g: Game, accusedId: number, voteCount: number): Promise<void> {
+  g.phase = 'defense';
+  g.resolving = false;
+  g.accused = accusedId;
+  g.finalVotes = new Map();
+  if (g.timer) clearTimeout(g.timer);
+  const acc = g.players.get(accusedId);
+  await telegram
+    .sendMessage(
+      g.chatId,
+      `🗣 ${acc?.name} هو الأكثر اشتباهاً (${voteCount} أصوات).\n${acc?.name}، عندك ${DEFENSE_MS / 1000} ثانية تبرّر نفسك!\nثم صوّتوا: نطرده؟`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('⚖️ اطرده', 'maf:final:1'), Markup.button.callback('🕊 بريء', 'maf:final:0')],
+      ]),
+    )
+    .catch(() => undefined);
+  g.timer = setTimeout(() => void resolveDefense(telegram, g), DEFENSE_MS);
+  g.timer.unref?.();
+}
+
+async function resolveDefense(telegram: BotContext['telegram'], g: Game): Promise<void> {
+  if (g.phase !== 'defense' || g.resolving) return;
+  g.resolving = true;
+  if (g.timer) clearTimeout(g.timer);
+  const yes = [...g.finalVotes.values()].filter(Boolean).length;
+  const no = g.finalVotes.size - yes;
+  const acc = g.accused ? g.players.get(g.accused) : undefined;
+  g.accused = undefined;
+  if (acc?.alive && yes > no) {
+    acc.alive = false;
+    await telegram
+      .sendMessage(g.chatId, `⚖️ ${yes} مع الطرد مقابل ${no}. تم طرد ${acc.name}! دوره كان ${ROLE_AR[acc.role]}.`)
+      .catch(() => undefined);
   } else {
-    const lynched = g.players.get(top[0]);
-    if (lynched?.alive) {
-      lynched.alive = false;
-      await telegram
-        .sendMessage(g.chatId, `⚖️ تم طرد ${lynched.name}! دوره كان ${ROLE_AR[lynched.role]}.`)
-        .catch(() => undefined);
-    }
+    await telegram
+      .sendMessage(g.chatId, `🕊 ${yes} مع الطرد مقابل ${no}. نجا ${acc?.name ?? 'المتهم'} من الطرد.`)
+      .catch(() => undefined);
   }
   const winner = checkWin(g);
   if (winner) return void endGame(telegram, g, winner);
