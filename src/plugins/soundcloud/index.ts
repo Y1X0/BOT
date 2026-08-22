@@ -6,7 +6,7 @@ import type { Plugin } from '../../core/plugin';
 import { createLogger } from '../../core/logger';
 import { youtubeQueue } from '../../services/youtube/queue';
 import { scSearch, scDownload, type ScItem } from '../../services/soundcloud';
-import { runSearch as searchPodcasts } from '../podcast';
+import { searchPodcasts, registerShowResults } from '../podcast';
 
 const log = createLogger('plugin:soundcloud');
 const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024; // ~50MB bot upload cap
@@ -32,13 +32,38 @@ export const soundcloudPlugin: Plugin = {
       await postSongResults(ctx, query);
     });
 
-    // "يوت" — search SoundCloud (songs) AND podcasts, showing both result sets.
+    // "يوت" — one search, one merged list: songs (🎵 SoundCloud) + podcasts (🎙).
     bot.command('ytall', async (ctx) => {
       if (!ctx.chat) return;
       const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!query) return void ctx.reply('🔎 اكتب اسم الأغنية أو البودكاست:\nيوت اسم البحث');
-      await postSongResults(ctx, query);
-      await searchPodcasts(ctx, query).catch(() => undefined);
+      const status = await ctx.reply('🔎 عم دوّر بالأغاني والبودكاست…');
+      const [songsRes, showsRes] = await Promise.all([
+        scSearch(query, 5),
+        searchPodcasts(query, 5).catch(() => ({ error: 'failed' as const })),
+      ]);
+      const songs = 'error' in songsRes ? [] : songsRes;
+      const shows = 'error' in showsRes ? [] : showsRes;
+      if (!songs.length && !shows.length) {
+        return void ctx.telegram
+          .editMessageText(ctx.chat.id, status.message_id, undefined, '❌ ما لقيت ولا نتيجة، جرّب كلمات ثانية.')
+          .catch(() => undefined);
+      }
+      const rows = [
+        ...songs.map((r, i) => [Markup.button.callback(`🎵 ${r.title.slice(0, 40)}${fmtDur(r.duration)}`, `sc:${i}`)]),
+        ...shows.map((s, i) => [Markup.button.callback(`🎙 ${s.name.slice(0, 40)}`, `pod:s:${i}`)]),
+      ];
+      pending.set(`${ctx.chat.id}:${status.message_id}`, songs);
+      registerShowResults(ctx.chat.id, status.message_id, shows);
+      await ctx.telegram
+        .editMessageText(
+          ctx.chat.id,
+          status.message_id,
+          undefined,
+          '🔎 اختر من النتائج:\n🎵 = أغنية  ·  🎙 = بودكاست',
+          Markup.inlineKeyboard(rows),
+        )
+        .catch(() => undefined);
     });
 
     bot.action(/^sc:(\d+)$/, async (ctx) => {

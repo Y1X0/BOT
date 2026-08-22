@@ -95,6 +95,16 @@ export const podcastPlugin: Plugin = {
   },
 };
 
+/** Register show results under a message id so the `pod:s:*` buttons work when
+ *  the list is posted by another command (the combined يوت search). */
+export function registerShowResults(chatId: number, msgId: number, shows: PodcastShow[]): void {
+  showState.set(`${chatId}:${msgId}`, shows);
+}
+
+/** Search Apple's podcast directory. Exposed so the combined search can merge
+ *  its results with SoundCloud songs in one keyboard. */
+export { searchPodcasts };
+
 export async function runSearch(ctx: BotContext, query: string): Promise<void> {
   if (!ctx.chat) return;
   const status = await ctx.reply('🔎 جاري البحث عن البودكاست...');
