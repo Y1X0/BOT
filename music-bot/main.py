@@ -88,6 +88,43 @@ def _audio(url: str) -> MediaStream:
     return MediaStream(url, video_flags=MediaStream.Flags.IGNORE)
 
 
+# Tracks already pushed to the archive this session, so replaying a song doesn't
+# re-upload it every time. Keyed by webpage url (or title|duration as a fallback).
+_archived_keys: set = set()
+
+
+async def _archive_bg(track: dict) -> None:
+    """Best-effort: upload a just-played track to the archive channel so the next
+    request for it is served instantly. Fully detached — it must NEVER affect
+    playback, so every failure is swallowed."""
+    storage = config.MUSIC_STORAGE_CHANNEL_ID
+    if not storage or not track:
+        return
+    key = (track.get("webpage") or "").strip() or f"{track.get('title', '')}|{int(track.get('duration') or 0)}"
+    if key in _archived_keys:
+        return
+    _archived_keys.add(key)
+    if len(_archived_keys) > 3000:
+        _archived_keys.clear()
+        _archived_keys.add(key)
+    url = track.get("url")
+    if not url:
+        _archived_keys.discard(key)
+        return
+    try:
+        await assistant.send_audio(
+            storage,
+            url,
+            title=(track.get("title") or "غير معروف")[:200],
+            performer=((track.get("uploader") or "")[:120] or None),
+            duration=int(track.get("duration") or 0),
+        )
+        log.info("archived played track: %s", track.get("title"))
+    except Exception as e:
+        _archived_keys.discard(key)  # let a later play retry it
+        log.info("archive-on-play failed for %s: %s", track.get("title"), e)
+
+
 async def _has_live_call(chat_id: int) -> bool:
     """True only if the assistant is really streaming in this chat right now.
 
@@ -152,6 +189,7 @@ async def _play_now(chat_id: int, track: dict) -> None:
         try:
             await calls.play(chat_id, _audio(track["url"]))
             _spawn(_log_playback_soon(chat_id))  # detached audio-liveness check
+            _spawn(_archive_bg(track))  # detached archive-on-play
             return
         except Exception as e:
             last = e
@@ -278,6 +316,7 @@ async def skip(request: web.Request) -> web.Response:
         return web.json_response({"ok": True, "ended": True})
     try:
         await calls.play(chat_id, _audio(nxt["url"]))
+        _spawn(_archive_bg(nxt))  # detached archive-on-play
     except Exception as e:
         return web.json_response({"ok": False, "error": str(e)})
     return web.json_response({"ok": True, "ended": False, **_track_info(nxt)})
@@ -605,6 +644,7 @@ async def _on_stream_end(_, update) -> None:
         await calls.play(chat_id, _audio(nxt["url"]))
         log.info("auto-advanced in %s → %s", chat_id, nxt.get("title"))
         await _notify_now_playing(chat_id, nxt)
+        _spawn(_archive_bg(nxt))  # detached archive-on-play
     except Exception as e:
         log.warning("auto-advance failed in %s: %s", chat_id, e)
 
