@@ -44,10 +44,14 @@ export const musicArchivePlugin: Plugin = {
   ],
 
   register(bot: Telegraf<BotContext>) {
-    // Any audio landing in the configured storage channel gets indexed.
+    // Auto-index audio from channels. By default this covers EVERY channel the
+    // bot is admin in (the bot only receives channel_post from those), so you
+    // can post songs to any of your channels and they all feed one archive. Set
+    // ARCHIVE_ALL_CHANNELS=false to restrict indexing to the storage channel.
     bot.on('channel_post', async (ctx) => {
-      const storageId = env.MUSIC_STORAGE_CHANNEL_ID;
-      if (!storageId || ctx.chat?.id !== storageId) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      if (!env.ARCHIVE_ALL_CHANNELS && chatId !== env.MUSIC_STORAGE_CHANNEL_ID) return;
       const audio = (ctx.channelPost as { audio?: TgAudio } | undefined)?.audio;
       if (!audio?.file_id) return;
       const res = await indexAudio({
@@ -57,7 +61,7 @@ export const musicArchivePlugin: Plugin = {
         duration: audio.duration ?? 0,
         source: 'channel',
       });
-      if (res.indexed) log.info({ title: audio.title }, 'archived channel audio');
+      if (res.indexed) log.info({ title: audio.title, chatId }, 'archived channel audio');
     });
 
     bot.command('archivecount', requireRole('owner'), async (ctx) => {

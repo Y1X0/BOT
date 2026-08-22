@@ -43,9 +43,17 @@ const envSchema = z.object({
   // raise it (e.g. 300) only when TELEGRAM_API_ROOT points at a local server.
   MEDIA_UPLOAD_LIMIT_MB: z.coerce.number().default(50),
 
-  // Private channel (bot is admin) whose audio posts are auto-indexed into the
-  // audio archive. 0 = disabled.
+  // Bulk-import target: the channel the assistant copies imported audio into.
+  // Also indexed like any other channel. 0 = no dedicated import target.
   MUSIC_STORAGE_CHANNEL_ID: z.coerce.number().default(0),
+
+  // Index audio from EVERY channel the bot is admin in (default), not just the
+  // storage channel. Set to false to restrict indexing to MUSIC_STORAGE_CHANNEL_ID.
+  ARCHIVE_ALL_CHANNELS: z
+    .string()
+    .optional()
+    .transform((v) => v !== 'false' && v !== '0')
+    .pipe(z.boolean()),
 
   // HTTP server
   PORT: z.coerce.number().default(3000),
