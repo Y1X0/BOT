@@ -84,14 +84,28 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
 
   let tgRole: Role = 'member';
   let isCreator = false;
+  let resolved = false;
   try {
     const member = await ctx.telegram.getChatMember(chat.id, userId);
+    resolved = true;
     if (member.status === 'creator') isCreator = true;
     // A real Telegram admin is trusted with manager-level bot powers (settings
     // + assigning the lighter bot ranks). supervisor/owner sit above them.
     else if (member.status === 'administrator') tgRole = 'manager';
   } catch {
-    // getChatMember can fail transiently; fall through to member.
+    // getChatMember can fail right after the bot is added to a group. The admin
+    // list is a more reliable source (one call covers everyone), so fall back to
+    // it before giving up — otherwise a real admin is wrongly seen as a member.
+    try {
+      const admins = await ctx.telegram.getChatAdministrators(chat.id);
+      const me = admins.find((a) => a.user?.id === Number(userId));
+      resolved = true;
+      if (me?.status === 'creator') isCreator = true;
+      else if (me) tgRole = 'manager';
+    } catch {
+      // Still unknown — treat as member for THIS message but don't cache it, so
+      // the next message retries instead of being stuck denied for the full TTL.
+    }
   }
 
   // A rank assigned through the bot grants powers even if the user isn't a
@@ -105,10 +119,14 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
     if (custom && RANK[custom] > RANK[tgRole]) role = custom;
   }
 
-  roleCache.set(key, { role, at: Date.now() });
-  if (roleCache.size > ROLE_MAX) {
-    const oldest = roleCache.keys().next().value;
-    if (oldest) roleCache.delete(oldest);
+  // Only cache a confirmed lookup — never a failed one (that would pin an admin
+  // to "member" for the whole TTL).
+  if (resolved) {
+    roleCache.set(key, { role, at: Date.now() });
+    if (roleCache.size > ROLE_MAX) {
+      const oldest = roleCache.keys().next().value;
+      if (oldest) roleCache.delete(oldest);
+    }
   }
   return role;
 }
