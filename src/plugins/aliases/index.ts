@@ -78,8 +78,10 @@ const ALIASES: Alias[] = [
   { command: 'decorate', triggers: ['زخرفه', 'زخرف', 'زخرفه كلمه'] },
   { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه'] },
   { command: 'musaraha', triggers: ['مصارحه', 'مصارحة', 'صارحني', 'رسايل مجهوله'] },
-  { command: 'yt', triggers: ['يوت', 'يوتيوب', 'yt'] },
-  { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
+  { command: 'yt', triggers: ['yt'] },
+  // "يوت"/"يوتيوب" search SoundCloud (the /song backend) per preference — the
+  // word is just the trigger, the results still come from SoundCloud.
+  { command: 'song', triggers: ['يوت', 'يوتيوب', 'اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
   // NB: bare "تنزيل" belongs to /unrank (bot ranks); download keeps نزل/حمل.
   { command: 'dl', triggers: ['نزل', 'حمل', 'نزلها', 'dl'] },
   { command: 'sticker', triggers: ['ملصق', 'ستيكر', 'حولها ملصق', 'sticker'] },
