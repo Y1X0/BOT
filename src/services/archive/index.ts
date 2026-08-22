@@ -115,3 +115,42 @@ export async function archiveSearch(query: string): Promise<ArchiveHit | null> {
 export async function archiveCount(): Promise<number> {
   return prisma.audioArchive.count().catch(() => 0);
 }
+
+export interface ArchiveEntry {
+  title: string;
+  artist: string | null;
+  duration: number;
+  kind: AudioKind;
+}
+
+/** List archive entries. With a query, returns fuzzy matches ranked by score;
+ *  without one, returns the most recently added. Capped at `limit`. */
+export async function archiveList(query: string | undefined, limit = 20): Promise<ArchiveEntry[]> {
+  const toEntry = (r: { title: string; artist: string | null; duration: number; kind: string }): ArchiveEntry => ({
+    title: r.title,
+    artist: r.artist,
+    duration: r.duration,
+    kind: (r.kind as AudioKind) ?? 'audio',
+  });
+
+  const q = query ? normalizeTitle(query) : '';
+  if (q.length >= 2) {
+    const needle = longestToken(q);
+    const where =
+      needle.length >= 2
+        ? { OR: [{ normTitle: { contains: needle } }, { latinKey: { contains: latinFold(needle) } }] }
+        : {};
+    const rows = await prisma.audioArchive
+      .findMany({ where, take: 300, orderBy: { createdAt: 'desc' } })
+      .catch(() => []);
+    return rows
+      .map((r) => ({ r, s: Math.max(similarity(q, r.normTitle), r.latinKey ? similarity(q, r.latinKey) : 0) }))
+      .filter((x) => x.s >= 0.35)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, limit)
+      .map((x) => toEntry(x.r));
+  }
+
+  const rows = await prisma.audioArchive.findMany({ take: limit, orderBy: { createdAt: 'desc' } }).catch(() => []);
+  return rows.map(toEntry);
+}

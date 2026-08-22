@@ -3,7 +3,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { requireRole } from '../../utils/permissions';
-import { indexAudio, archiveCount } from '../../services/archive';
+import { indexAudio, archiveCount, archiveList } from '../../services/archive';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:musicarchive');
@@ -50,6 +50,7 @@ export const musicArchivePlugin: Plugin = {
   description: 'Index audio from the storage channel into the archive',
   commands: [
     { command: 'archivecount', description: '🗂 عدد الأغاني بالأرشيف (مالك)', staffOnly: true },
+    { command: 'archivelist', description: '🔍 تصفّح/ابحث بالأرشيف: /archivelist [اسم] (مالك)', staffOnly: true },
     { command: 'import', description: '📥 استيراد أغاني من قناة للأرشيف (مالك)', staffOnly: true },
     { command: 'importstop', description: '🛑 إيقاف الاستيراد (مالك)', staffOnly: true },
   ],
@@ -91,6 +92,22 @@ export const musicArchivePlugin: Plugin = {
     bot.command('archivecount', requireRole('owner'), async (ctx) => {
       const n = await archiveCount();
       await ctx.reply(`🗂 الأرشيف الصوتي: ${n} أغنية.`);
+    });
+
+    // Browse or search the archive: "/archivelist" → latest 20; "/archivelist نانسي"
+    // → fuzzy matches. Lets the owner verify a song is stored.
+    bot.command('archivelist', requireRole('owner'), async (ctx) => {
+      const q = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      const [list, total] = await Promise.all([archiveList(q || undefined, 20), archiveCount()]);
+      if (!list.length) {
+        return void ctx.reply(q ? `🔍 ما لقيت «${q}» بالأرشيف.` : '🗂 الأرشيف فاضي لسه.');
+      }
+      const dur = (s: number) => (s ? ` (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})` : '');
+      const lines = list.map((e, i) => `${i + 1}. ${e.title}${e.artist ? ' — ' + e.artist : ''}${dur(e.duration)}`);
+      const header = q
+        ? `🔍 نتائج «${q}» (${list.length}):`
+        : `🗂 آخر ${list.length} أغنية (المجموع ${total}):`;
+      await ctx.reply(`${header}\n${lines.join('\n')}`);
     });
 
     // Bulk-import audio from a source channel via the assistant account. The

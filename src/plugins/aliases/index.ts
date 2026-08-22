@@ -82,6 +82,7 @@ const ALIASES: Alias[] = [
   // "يوت"/"يوتيوب" → instant top result (no list). "اغنيه" → pick from a list.
   { command: 'ytall', triggers: ['يوت', 'يوتيوب'] },
   { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
+  { command: 'archivelist', triggers: ['الارشيف', 'الأرشيف', 'ارشيف'] },
   // NB: bare "تنزيل" belongs to /unrank (bot ranks); download keeps نزل/حمل.
   { command: 'dl', triggers: ['نزل', 'حمل', 'نزلها', 'dl'] },
   { command: 'sticker', triggers: ['ملصق', 'ستيكر', 'حولها ملصق', 'sticker'] },
