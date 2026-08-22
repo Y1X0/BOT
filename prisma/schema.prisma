@@ -296,6 +296,24 @@ model GlobalConfig {
   updatedAt DateTime @updatedAt
 }
 
+/// Audio archive: Telegram file_ids the bot can re-send instantly, so songs are
+/// served from cache instead of re-downloading from YouTube/SoundCloud. Grows
+/// automatically (channel indexing + successful downloads + bulk import).
+model AudioArchive {
+  id        Int      @id @default(autoincrement())
+  fileId    String   @unique
+  title     String
+  artist    String?
+  duration  Int      @default(0)
+  normTitle String // normalized title for fuzzy search (SQL pre-filter)
+  latinKey  String? // best-effort latin fold so "nancy" can match "نانسي"
+  source    String   @default("channel") // channel | cache | import
+  createdAt DateTime @default(now())
+
+  @@index([normTitle])
+  @@index([duration])
+}
+
 /// How many times each command was invoked (slash or Arabic alias), bot-wide.
 /// Turns "which features do people actually use?" from a guess into a number.
 model CommandStat {
