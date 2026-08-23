@@ -91,6 +91,7 @@ export const TOGGLEABLE_SETTINGS = [
   'gamesEnabled',
   'economyEnabled',
   'xpEnabled',
+  'musicBlocked',
   'aiEnabled',
   'cleanServiceEnabled',
   'moderationEnabled',

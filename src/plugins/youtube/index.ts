@@ -10,6 +10,7 @@ import { resolveSearch, resolveDownload } from '../../services/youtube/resolver'
 import { youtubeQueue } from '../../services/youtube/queue';
 import { youtubeConfig, setConfig, TELEGRAM_SEND_LIMIT, type YoutubeConfig } from '../../services/youtube/config';
 import { getCachedAudio, cacheAudio, bumpCacheHit, dropCachedAudio } from '../../services/youtube/cache';
+import { MUSIC_LOCKED } from '../soundcloud';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:youtube');
@@ -57,6 +58,7 @@ export const youtubePlugin: Plugin = {
     // --- Search → show numbered results ---
     bot.command('yt', async (ctx) => {
       if (!env.YT_ENABLED) return void ctx.reply('🎵 خدمة الصوت غير مفعّلة.');
+      if (ctx.state.settings?.musicBlocked) return void ctx.reply(MUSIC_LOCKED);
       const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!query) return void ctx.reply('🎵 اكتب اسم الأغنية.\nمثال: يوت باب الحارة');
       if (query.length > 150) return void ctx.reply('🎵 البحث طويل جداً.');

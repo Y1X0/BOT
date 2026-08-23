@@ -173,9 +173,21 @@ export const protectionPlugin: Plugin = {
       const word = ctx.match[2];
       const target = QUICK_TARGETS[word];
       const isAll = ALL_WORDS.has(word);
-      if (!target && !isAll) return next(); // a known verb but not a protection word
+      const isMusic = MUSIC_WORDS.has(word);
+      if (!target && !isAll && !isMusic) return next(); // known verb but not a toggle word
       if (!ctx.state.isStaff) return next(); // silently ignore for non-staff
       const enable = BLOCK_VERBS.has(verb);
+
+      // Music lock: «منع اليوت» blocks, «فتح اليوت» opens (polarity: block-flag).
+      if (isMusic) {
+        await setBoolean(ctx.chat.id, 'musicBlocked', enable).catch(() => undefined);
+        await ctx.reply(
+          enable
+            ? '🔒 <b>تم قفل اليوت والأغاني</b> بالجروب — «فتح اليوت» لإعادتها.'
+            : '🔓 <b>تم فتح اليوت والأغاني</b> بالجروب.',
+        );
+        return;
+      }
 
       if (isAll) {
         await prisma.chatSettings
@@ -195,6 +207,7 @@ const BLOCK_VERBS = new Set(['منع', 'امنع', 'تفعيل', 'فعل', 'فع
 const ALLOW_VERBS = new Set(['فتح', 'افتح', 'ايقاف', 'إيقاف', 'وقف', 'اوقف', 'اطفي', 'اطفئ', 'اطفاء', 'الغاء', 'إلغاء', 'سماح', 'اسمح']);
 const QUICK_RE = new RegExp(`^(${[...BLOCK_VERBS, ...ALLOW_VERBS].join('|')})\\s+(\\S+)$`);
 const ALL_WORDS = new Set(['الكل', 'كلشي', 'كلشيء', 'الحمايات', 'الحمايه', 'الحماية', 'حمايه', 'حماية']);
+const MUSIC_WORDS = new Set(['اليوت', 'يوت', 'الاغاني', 'الأغاني', 'اغاني', 'الاغنية', 'الموسيقى', 'الموسيقا', 'الموسيقه']);
 const QUICK_TARGETS: Record<string, { key: ToggleableSetting; name: string }> = {
   سب: { key: 'badwordsEnabled', name: 'منع السب' },
   السب: { key: 'badwordsEnabled', name: 'منع السب' },

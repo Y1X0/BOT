@@ -66,6 +66,7 @@ model ChatSettings {
   gamesEnabled        Boolean  @default(true)
   economyEnabled      Boolean  @default(true)
   xpEnabled           Boolean  @default(true)
+  musicBlocked        Boolean  @default(false) // lock يوت/اغنيه song search & download
 
   // AI
   aiEnabled           Boolean  @default(false)

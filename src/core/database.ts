@@ -44,6 +44,7 @@ export async function ensureSchema(): Promise<void> {
     'ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "idCardEntities" TEXT',
     'ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "idCardImage" BOOLEAN NOT NULL DEFAULT true',
     `ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "idCardTheme" TEXT NOT NULL DEFAULT 'auto'`,
+    'ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "musicBlocked" BOOLEAN NOT NULL DEFAULT false',
     `CREATE TABLE IF NOT EXISTS "GlobalConfig" (
       "key" TEXT NOT NULL,
       "value" TEXT NOT NULL,

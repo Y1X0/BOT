@@ -12,6 +12,13 @@ import { env } from '../../config/env';
 const log = createLogger('plugin:soundcloud');
 const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024; // ~50MB bot upload cap
 
+/** Decorated notice shown when an admin has locked music (يوت/اغنيه) in a group.
+ *  Exported so the YouTube plugin shows the exact same message. */
+export const MUSIC_LOCKED =
+  '🔒 <b>اليوت والأغاني مقفلة</b> بهالجروب حالياً.\n' +
+  '✦ ┈┈┈┈┈┈┈┈ ✦\n' +
+  '🎧 راجع إدارة الجروب لفتحها.';
+
 const escHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -50,6 +57,7 @@ export const soundcloudPlugin: Plugin = {
   register(bot: Telegraf<BotContext>) {
     bot.command('song', async (ctx) => {
       if (!ctx.chat) return;
+      if (ctx.state.settings?.musicBlocked) return void ctx.reply(MUSIC_LOCKED);
       const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!query) return void ctx.reply('🎵 اكتب اسم الأغنية:\n/song بابا الحاره   أو   اغنية اسم الأغنية');
       await postSongResults(ctx, query);
@@ -58,6 +66,7 @@ export const soundcloudPlugin: Plugin = {
     // "يوت" — instant: grab the top result and send it, no picking a list.
     bot.command('ytall', async (ctx) => {
       if (!ctx.chat) return;
+      if (ctx.state.settings?.musicBlocked) return void ctx.reply(MUSIC_LOCKED);
       const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!query) return void ctx.reply('⚡ اكتب اسم الأغنية وبتوصلك فوراً:\nيوت اسم الأغنية');
       await sendTopSong(ctx, query);
