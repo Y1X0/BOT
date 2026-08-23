@@ -47,19 +47,88 @@ type Payload = Record<string, unknown> & {
   caption_entities?: unknown[];
 };
 
-// Auto-enable HTML for messages that carry our <b> styling markup, so a styled
-// string renders bold everywhere without every call site opting in. Conservative
-// by design: only when there's no parse_mode already, no manual entities to
-// conflict with, and the text actually contains a <b>/<i>/<u> tag.
-function maybeEnableHtml(method: string, payload: Payload): void {
+type Ent = { type: string; offset: number; length: number; url?: string; custom_emoji_id?: string };
+
+const TAG_TYPE: Record<string, string> = {
+  b: 'bold', strong: 'bold', i: 'italic', em: 'italic', u: 'underline',
+  s: 'strikethrough', strike: 'strikethrough', del: 'strikethrough',
+  code: 'code', pre: 'pre', 'tg-emoji': 'custom_emoji', a: 'text_link',
+};
+
+function unescapeHtml(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * Convert our HTML styling tags (<b>/<i>/<u>/<s>/<code>/<pre>/<a>/<tg-emoji>) into
+ * Telegram message entities, returning clean text (tags removed, HTML unescaped)
+ * + entities with UTF-16 offsets. This is bullet-proof: no parse_mode is needed,
+ * so a message can NEVER render a literal "<b>". Returns null if there's nothing
+ * to convert.
+ */
+function htmlToEntities(input: string): { text: string; entities: Ent[] } | null {
+  if (!/<\/?[a-z]/i.test(input)) return null;
+  const tagRe = /<(\/)?([a-z0-9-]+)([^>]*)>/gi;
+  let out = '';
+  let last = 0;
+  const stack: Ent[] = [];
+  const entities: Ent[] = [];
+  let m: RegExpExecArray | null;
+  let matched = false;
+  while ((m = tagRe.exec(input))) {
+    const type = TAG_TYPE[m[2].toLowerCase()];
+    if (!type) continue; // unknown tag: leave it in the text as-is
+    matched = true;
+    out += unescapeHtml(input.slice(last, m.index));
+    last = tagRe.lastIndex;
+    if (m[1]) {
+      // closing tag → pop the nearest matching open
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].type === type) {
+          const open = stack.splice(i, 1)[0];
+          const length = out.length - open.offset;
+          if (length > 0) entities.push({ ...open, length });
+          break;
+        }
+      }
+    } else {
+      const e: Ent = { type, offset: out.length, length: 0 };
+      const attrs = m[3] || '';
+      if (type === 'text_link') e.url = /href="([^"]*)"/i.exec(attrs)?.[1];
+      if (type === 'custom_emoji') e.custom_emoji_id = /emoji-id="(\d+)"/i.exec(attrs)?.[1];
+      stack.push(e);
+    }
+  }
+  if (!matched) return null;
+  out += unescapeHtml(input.slice(last));
+  return { text: out, entities: entities.filter((e) => e.type !== 'text_link' || e.url) };
+}
+
+// Turn our <b>… styling into entities in place (no parse_mode). Runs before the
+// premium-emoji transform, which then adds custom_emoji entities on the clean text.
+function applyStyleEntities(method: string, payload: Payload): boolean {
   const field = TEXT_METHODS.has(method) ? 'text' : CAPTION_METHODS.has(method) ? 'caption' : null;
-  if (!field) return;
+  if (!field) return false;
   const text = payload[field];
-  if (typeof text !== 'string' || !text) return;
-  if (payload.parse_mode) return;
-  if (Array.isArray(payload.entities) && payload.entities.length) return;
-  if (Array.isArray(payload.caption_entities) && payload.caption_entities.length) return;
-  if (/<\/?(b|i|u|s|code|pre|a|tg-emoji)\b/i.test(text)) payload.parse_mode = 'HTML';
+  if (typeof text !== 'string' || !text) return false;
+  if (payload.parse_mode) return false; // caller opted into HTML/Markdown — leave it
+  const conv = htmlToEntities(text);
+  if (!conv || !conv.entities.length) {
+    // Tags present but nothing convertible (or none) — if it was all tags with no
+    // real entities, still drop stray tags so no literal "<b>" shows.
+    if (conv) payload[field] = conv.text;
+    return !!conv;
+  }
+  payload[field] = conv.text;
+  const entField = field === 'text' ? 'entities' : 'caption_entities';
+  const existing = Array.isArray(payload[entField]) ? (payload[entField] as unknown[]) : [];
+  payload[entField] = [...existing, ...conv.entities];
+  return true;
 }
 
 // Mutate the payload to upgrade mapped glyphs to premium emoji. Returns true if
@@ -119,8 +188,8 @@ export function installEmojiSubstitution(telegram: Telegram): void {
     };
     let changed = false;
     try {
-      maybeEnableHtml(method, payload);
-      changed = transform(method, payload) || payload.parse_mode !== snapshot.parse_mode;
+      const styled = applyStyleEntities(method, payload);
+      changed = transform(method, payload) || styled;
     } catch {
       changed = false;
     }
