@@ -2,6 +2,7 @@ import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { HOME_TEXT, homeKeyboard } from '../menu';
+import { escapeHtml } from '../../locales';
 
 /**
  * Core /start and /help. Help is generated at call time from the registered
@@ -35,12 +36,14 @@ export function createGeneralPlugin(getPlugins: () => Plugin[]): Plugin {
           .map((p) => {
             const cmds = p.commands!.filter((c) => isStaff || !c.staffOnly);
             if (!cmds.length) return null;
-            const lines = cmds.map((c) => `/${c.command} — ${c.description}`).join('\n');
-            return `*${p.name}*\n${lines}`;
+            const lines = cmds
+              .map((c) => `<code>/${c.command}</code> — ${escapeHtml(c.description)}`)
+              .join('\n');
+            return `<b>${escapeHtml(p.name)}</b>\n${lines}`;
           })
           .filter(Boolean);
 
-        await ctx.reply(`${t('help.header')}\n\n${sections.join('\n\n')}`);
+        await ctx.reply(`${t('help.header')}\n\n${sections.join('\n\n')}`, { parse_mode: 'HTML' });
       });
     },
   };
