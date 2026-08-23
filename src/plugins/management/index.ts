@@ -24,24 +24,48 @@ function inNightWindow(hour: number, start: number, end: number): boolean {
   return start <= end ? hour >= start && hour < end : hour >= start || hour < end;
 }
 
-/** Mention up to 50 registered members in batches (shared by /all and @all). */
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+// Per-chat cooldown for the mention-all call, shared across all admins.
+const ALL_COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
+const allLastUsed = new Map<number, number>();
+
+/**
+ * Mention EVERY registered member (those the bot has seen) in batches. A bot
+ * can't list a group's full membership via the Bot API, so this reaches everyone
+ * the bot has recorded. Rate-limited with a delay so Telegram doesn't drop the
+ * later batches (which is why it used to stop early), and gated by a 20-minute
+ * per-chat cooldown shared across admins.
+ */
 async function mentionAll(ctx: BotContext, note: string): Promise<void> {
   if (!ctx.chat || ctx.chat.type === 'private') return;
+  const chatId = ctx.chat.id;
+
+  const last = allLastUsed.get(chatId);
+  if (last && Date.now() - last < ALL_COOLDOWN_MS) {
+    const leftMin = Math.ceil((ALL_COOLDOWN_MS - (Date.now() - last)) / 60000);
+    return void ctx.reply(`⏳ تم النداء مؤخراً. ضل <b>${leftMin}</b> دقيقة قبل نداء جديد.`);
+  }
+
   const members = await prisma.member.findMany({
-    where: { chatId: BigInt(ctx.chat.id) },
+    where: { chatId: BigInt(chatId) },
     orderBy: { lastSeenAt: 'desc' },
-    take: 50,
+    take: 1000, // safety cap; a bot rarely records more active members than this
   });
   if (!members.length) return void ctx.reply('لا يوجد أعضاء مسجّلون بعد.');
+
+  allLastUsed.set(chatId, Date.now()); // start the cooldown now
 
   const mentions = members.map(
     (m) => `<a href="tg://user?id=${m.userId}">${escapeHtml(m.firstName ?? 'عضو')}</a>`,
   );
-  const header = note ? `📢 ${escapeHtml(note)}\n\n` : '📢 نداء للجميع:\n\n';
-  // 8 mentions per message to avoid hitting entity limits.
+  const header = note ? `📢 ${escapeHtml(note)}\n\n` : `📢 نداء للجميع (${mentions.length}):\n\n`;
+  // 8 mentions per message; pause between batches so Telegram doesn't rate-limit
+  // and silently drop the later ones.
   for (let i = 0; i < mentions.length; i += 8) {
     const chunk = mentions.slice(i, i + 8).join(' ');
     await ctx.reply((i === 0 ? header : '') + chunk, { parse_mode: 'HTML' }).catch(() => undefined);
+    if (i + 8 < mentions.length) await sleep(700);
   }
 }
 
