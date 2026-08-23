@@ -18,10 +18,19 @@ export function translate(
   const dict = dictionaries[locale] ?? dictionaries.ar;
   let template = dict[key] ?? dictionaries.ar[key] ?? key;
 
+  // Styled strings carry HTML (<b>…</b>); escape interpolated values there so a
+  // user's name/text can never break the markup. Plain strings interpolate as-is.
+  const isHtml = /<\/?[a-z]/i.test(template);
   for (const [name, value] of Object.entries(vars)) {
-    template = template.replaceAll(`{${name}}`, String(value));
+    const v = isHtml ? escapeHtml(String(value)) : String(value);
+    template = template.replaceAll(`{${name}}`, v);
   }
   return template;
+}
+
+/** Escape the five HTML-sensitive characters for Telegram's HTML parse mode. */
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** Build a translator bound to a locale. */

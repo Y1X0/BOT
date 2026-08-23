@@ -47,6 +47,21 @@ type Payload = Record<string, unknown> & {
   caption_entities?: unknown[];
 };
 
+// Auto-enable HTML for messages that carry our <b> styling markup, so a styled
+// string renders bold everywhere without every call site opting in. Conservative
+// by design: only when there's no parse_mode already, no manual entities to
+// conflict with, and the text actually contains a <b>/<i>/<u> tag.
+function maybeEnableHtml(method: string, payload: Payload): void {
+  const field = TEXT_METHODS.has(method) ? 'text' : CAPTION_METHODS.has(method) ? 'caption' : null;
+  if (!field) return;
+  const text = payload[field];
+  if (typeof text !== 'string' || !text) return;
+  if (payload.parse_mode) return;
+  if (Array.isArray(payload.entities) && payload.entities.length) return;
+  if (Array.isArray(payload.caption_entities) && payload.caption_entities.length) return;
+  if (/<\/?(b|i|u|s|code|pre|a|tg-emoji)\b/i.test(text)) payload.parse_mode = 'HTML';
+}
+
 // Mutate the payload to upgrade mapped glyphs to premium emoji. Returns true if
 // it changed anything (so the caller can restore + retry on send failure).
 function transform(method: string, payload: Payload): boolean {
@@ -100,10 +115,12 @@ export function installEmojiSubstitution(telegram: Telegram): void {
       caption: payload.caption,
       entities: payload.entities,
       caption_entities: payload.caption_entities,
+      parse_mode: payload.parse_mode,
     };
     let changed = false;
     try {
-      changed = transform(method, payload);
+      maybeEnableHtml(method, payload);
+      changed = transform(method, payload) || payload.parse_mode !== snapshot.parse_mode;
     } catch {
       changed = false;
     }
