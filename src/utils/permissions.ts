@@ -99,9 +99,9 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
   // so it cannot be verified and stays a member.
   const senderChat = ctx.senderChat;
   if (senderChat) {
-    if (senderChat.id === chat.id) return 'manager';
+    if (senderChat.id === chat.id) return 'supervisor';
     const linkedId = await getLinkedChatId(ctx, chat.id);
-    if (linkedId && senderChat.id === linkedId) return 'manager';
+    if (linkedId && senderChat.id === linkedId) return 'supervisor';
   }
 
   const key = roleKey(chat.id, userId);
@@ -115,9 +115,10 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
     const member = await ctx.telegram.getChatMember(chat.id, userId);
     resolved = true;
     if (member.status === 'creator') isCreator = true;
-    // A real Telegram admin is trusted with manager-level bot powers (settings
-    // + assigning the lighter bot ranks). supervisor/owner sit above them.
-    else if (member.status === 'administrator') tgRole = 'manager';
+    // A real Telegram admin is trusted with supervisor-level bot powers: they can
+    // moderate everyone below them and promote managers/admins/vips. Only the
+    // group's creator (owner) sits above them.
+    else if (member.status === 'administrator') tgRole = 'supervisor';
   } catch {
     // getChatMember can fail right after the bot is added to a group. The admin
     // list is a more reliable source (one call covers everyone), so fall back to
@@ -171,7 +172,7 @@ export async function resolveUserRole(ctx: BotContext, userId: number | bigint):
   try {
     const member = await ctx.telegram.getChatMember(chat.id, Number(userId));
     if (member.status === 'creator') return 'owner';
-    if (member.status === 'administrator') tgRole = 'manager';
+    if (member.status === 'administrator') tgRole = 'supervisor';
   } catch {
     /* transient — fall through */
   }

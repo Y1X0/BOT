@@ -24,7 +24,7 @@ const RANK_ORDER: Record<string, number> = { supervisor: 0, manager: 1, admin: 2
 
 /**
  * Custom bot ranks (رتب البوت) — a single hierarchy independent of Telegram's
- * own admin, though a Telegram admin counts as 🔰 مدير and the creator as 👑 مالك.
+ * own admin, though a Telegram admin counts as 🛡 مشرف and the creator as 👑 مالك.
  * Rules: you can only grant a rank BELOW yours, and only to someone currently
  * below you; nobody can outrank or act on an equal-or-higher member.
  */

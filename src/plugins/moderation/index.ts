@@ -281,8 +281,17 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
     const t = ctx.state.t!;
     const target = resolveTarget(ctx);
     if (!target) return void ctx.reply(t('mod.need_reply'));
-    if (kind !== 'unban' && kind !== 'unmute' && (await isProtected(ctx, target.id))) {
-      return void ctx.reply(t('mod.cant_target_admin'));
+
+    // Rank guard — tell the actor EXACTLY why they can't act (the target's real
+    // rank), instead of a vague "can't target an admin".
+    if (kind !== 'unban' && kind !== 'unmute') {
+      const actor: Role = ctx.state.role ?? 'member';
+      const targetRole = await resolveUserRole(ctx, target.id);
+      if (!canActOn(actor, targetRole)) {
+        return void ctx.reply(
+          `⛔️ ما بتقدر تطبّق هذا على ${targetName(target)} — رتبته (${roleBadge(targetRole)}) مساوية أو أعلى من رتبتك (${roleBadge(actor)}).`,
+        );
+      }
     }
 
     let ok = false;
@@ -303,16 +312,55 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
       await logAction(ctx.chat.id, kind, ctx.from.id, target.id);
       await ctx.reply(t(replyKey[kind], { name: mention(target) }));
     } else if (!ok) {
-      await ctx.reply(t('errors.generic'));
+      // The bot API refused — surface the real reason (usually the bot isn't an
+      // admin, or lacks the "ban/restrict members" right).
+      await ctx.reply(await botFailureReason(ctx));
     }
   };
 }
 
+/** Rank badges for clear rejection messages. */
+const ROLE_BADGE: Record<string, string> = {
+  owner: '👑 مالك',
+  supervisor: '🛡 مشرف',
+  manager: '🔰 مدير',
+  admin: '⭐ أدمن',
+  vip: '💎 مميز',
+  member: '👤 عضو',
+};
+const roleBadge = (r: string): string => ROLE_BADGE[r] ?? r;
+const targetName = (u: { first_name?: string; username?: string }): string =>
+  u.first_name || (u.username ? `@${u.username}` : 'الشخص');
+
 /** True if the sender may NOT act on the target: nobody can moderate someone of
- *  equal or higher rank (a Telegram admin counts as 🔰 مدير, the creator as مالك). */
+ *  equal or higher rank (a Telegram admin counts as 🛡 مشرف, the creator as مالك). */
 async function isProtected(ctx: BotContext, userId: number): Promise<boolean> {
   if (!ctx.chat) return false;
   const actor: Role = ctx.state.role ?? 'member';
   const targetRole = await resolveUserRole(ctx, userId);
   return !canActOn(actor, targetRole);
+}
+
+/**
+ * Explain why a Telegram moderation call failed. Almost always it's the BOT's
+ * own rights, not the sender's — so say so plainly instead of "حدث خطأ".
+ */
+async function botFailureReason(ctx: BotContext): Promise<string> {
+  if (!ctx.chat) return '⚠️ تعذّر تنفيذ الإجراء.';
+  try {
+    const meId = ctx.botInfo?.id ?? (await ctx.telegram.getMe()).id;
+    const me = (await ctx.telegram.getChatMember(ctx.chat.id, meId)) as {
+      status: string;
+      can_restrict_members?: boolean;
+    };
+    if (me.status !== 'administrator' && me.status !== 'creator') {
+      return '⚠️ البوت مش مشرف بالجروب. رقّي البوت مشرف وأعطيه صلاحية «حظر الأعضاء» عشان يكتم/يطرد/يحظر.';
+    }
+    if (me.can_restrict_members === false) {
+      return '⚠️ البوت مشرف بس ما عندو صلاحية «حظر الأعضاء». فعّلها من: إعدادات المشرفين ← البوت ← حظر المستخدمين.';
+    }
+  } catch {
+    /* couldn't check — fall through to a general hint */
+  }
+  return `⚠️ تعذّر تنفيذ الإجراء. غالباً الهدف مشرف في تيليجرام أعلى من البوت — البوت ما بيقدر يطبّق على مشرف مرتبته أعلى منه.`;
 }
