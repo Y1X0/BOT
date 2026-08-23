@@ -307,6 +307,7 @@ model AudioArchive {
   duration  Int      @default(0)
   normTitle String // normalized title for fuzzy search (SQL pre-filter)
   latinKey  String? // best-effort latin fold so "nancy" can match "نانسي"
+  queryKey  String? // normalized search phrase that first found this track
   source    String   @default("channel") // channel | cache | import
   kind      String   @default("audio") // audio | document — decides send method
   createdAt DateTime @default(now())

@@ -29,7 +29,7 @@ async function songCaption(telegram: BotContext['telegram'], title: string): Pro
   return tag ? `🎵 ${title}\n${tag}` : `🎵 ${title}`;
 }
 
-const pending = new Map<string, ScItem[]>(); // `${chatId}:${msgId}` → results
+const pending = new Map<string, { query: string; items: ScItem[] }>(); // `${chatId}:${msgId}` → results
 
 const fmtDur = (s: number | null) => (s == null ? '' : ` (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`);
 
@@ -60,14 +60,14 @@ export const soundcloudPlugin: Plugin = {
 
     bot.action(/^sc:(\d+)$/, async (ctx) => {
       const key = `${ctx.chat!.id}:${ctx.callbackQuery.message?.message_id}`;
-      const list = pending.get(key);
-      const item = list?.[Number(ctx.match[1])];
+      const entry = pending.get(key);
+      const item = entry?.items[Number(ctx.match[1])];
       if (!item) return void ctx.answerCbQuery('انتهت الصلاحية، أعد البحث.').catch(() => undefined);
       pending.delete(key);
       await ctx.answerCbQuery('⏳ جاري التنزيل...').catch(() => undefined);
       const chatId = ctx.chat!.id;
       await ctx.editMessageText(`⏳ جاري تنزيل: ${item.title}`).catch(() => undefined);
-      enqueueDownloadAndSend(ctx.telegram, chatId, item, ctx.callbackQuery.message?.message_id);
+      enqueueDownloadAndSend(ctx.telegram, chatId, item, entry?.query, ctx.callbackQuery.message?.message_id);
     });
   },
 };
@@ -78,6 +78,7 @@ function enqueueDownloadAndSend(
   telegram: BotContext['telegram'],
   chatId: number,
   item: ScItem,
+  query?: string,
   cleanupMsgId?: number,
 ): void {
   youtubeQueue.enqueue(
@@ -100,7 +101,7 @@ function enqueueDownloadAndSend(
         // song is served instantly, no re-download.
         const fid = (sent as { audio?: { file_id?: string; duration?: number } }).audio;
         if (fid?.file_id) {
-          void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache' });
+          void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache', query });
           // Also drop a copy into the archive channel so it's stored there too
           // (reuses the file_id — no re-upload). The channel indexer dedups it.
           // Needs the bot to have "post messages" rights there; log why if not.
@@ -143,7 +144,7 @@ async function sendTopSong(ctx: BotContext, query: string): Promise<void> {
   await ctx.telegram
     .editMessageText(ctx.chat.id, status.message_id, undefined, `⏳ جاري تنزيل: ${item.title}`)
     .catch(() => undefined);
-  enqueueDownloadAndSend(ctx.telegram, ctx.chat.id, item, status.message_id);
+  enqueueDownloadAndSend(ctx.telegram, ctx.chat.id, item, query, status.message_id);
 }
 
 /** Send a cached archive hit if there is one. Returns true if served from cache. */
@@ -181,7 +182,7 @@ async function postSongResults(ctx: BotContext, query: string): Promise<void> {
   const rows = res.map((r, i) => [
     Markup.button.callback(`${i + 1}. ${r.title.slice(0, 45)}${fmtDur(r.duration)}`, `sc:${i}`),
   ]);
-  pending.set(`${ctx.chat.id}:${status.message_id}`, res);
+  pending.set(`${ctx.chat.id}:${status.message_id}`, { query, items: res });
   await ctx.telegram
     .editMessageText(ctx.chat.id, status.message_id, undefined, '🎵 اختر أغنية للتنزيل:', Markup.inlineKeyboard(rows))
     .catch(() => undefined);

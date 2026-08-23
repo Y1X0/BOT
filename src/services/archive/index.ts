@@ -35,17 +35,25 @@ export async function indexAudio(input: {
   duration?: number;
   source?: 'channel' | 'cache' | 'import';
   kind?: AudioKind;
+  query?: string; // the search phrase that found this track (for future lookups)
 }): Promise<{ indexed: boolean }> {
   const title = (input.title || '').trim() || 'غير معروف';
   const normTitle = normalizeTitle(title);
   if (!normTitle) return { indexed: false };
   const duration = Math.max(0, Math.floor(input.duration ?? 0));
+  const queryKey = input.query ? normalizeTitle(input.query) || null : null;
   try {
     const dup = await prisma.audioArchive.findFirst({
       where: { normTitle, duration: { gte: duration - 2, lte: duration + 2 } },
-      select: { id: true },
+      select: { id: true, queryKey: true },
     });
-    if (dup) return { indexed: false };
+    if (dup) {
+      // Already stored — but attach the search phrase if it has none yet, so the
+      // next search for that phrase hits the archive instead of re-downloading.
+      if (queryKey && !dup.queryKey)
+        await prisma.audioArchive.update({ where: { id: dup.id }, data: { queryKey } }).catch(() => undefined);
+      return { indexed: false };
+    }
     await prisma.audioArchive.create({
       data: {
         fileId: input.fileId,
@@ -54,6 +62,7 @@ export async function indexAudio(input: {
         duration,
         normTitle,
         latinKey: latinFold(normTitle),
+        queryKey,
         source: input.source ?? 'channel',
         kind: input.kind ?? 'audio',
       },
@@ -80,6 +89,7 @@ export async function archiveSearch(query: string): Promise<ArchiveHit | null> {
       ? {
           OR: [
             { normTitle: { contains: needle } },
+            { queryKey: { contains: needle } },
             ...(hasLatin ? [{ latinKey: { contains: needle } }] : [{ latinKey: { contains: latinFold(needle) } }]),
           ],
         }
@@ -96,6 +106,7 @@ export async function archiveSearch(query: string): Promise<ArchiveHit | null> {
     const s = Math.max(
       similarity(q, c.normTitle),
       c.latinKey ? similarity(q, c.latinKey) : 0,
+      c.queryKey ? similarity(q, c.queryKey) : 0,
     );
     if (s > bestScore) {
       bestScore = s;
