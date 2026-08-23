@@ -3,6 +3,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { prisma } from '../../core/database';
 import { requireRole, isBotOwner } from '../../utils/permissions';
+import { setBoolean, type ToggleableSetting } from '../../services/settings.service';
 import { muteUser } from '../../utils/moderation-actions';
 import { createLogger } from '../../core/logger';
 import { makeRaidState, recordJoin, type RaidState } from './raid';
@@ -166,5 +167,53 @@ export const protectionPlugin: Plugin = {
       log.info({ count: res.count, on }, 'guardall applied');
       await ctx.reply(`🛡 تم ${on ? 'تفعيل' : 'إيقاف'} وضع الحارس على ${res.count} قروب.`);
     });
+
+    // --- Quick Arabic protection toggles (admin+): «منع سب» يفعّل، «فتح سب» يوقف.
+    // Works for: سب/سبام/تكرار/روابط/توجيه/كلمات/غارات — and «الكل» = وضع الحارس. ---
+    bot.hears(QUICK_RE, async (ctx, next) => {
+      if (!ctx.chat || (ctx.chat.type !== 'group' && ctx.chat.type !== 'supergroup')) return next();
+      const verb = ctx.match[1];
+      const word = ctx.match[2];
+      const target = QUICK_TARGETS[word];
+      const isAll = ALL_WORDS.has(word);
+      if (!target && !isAll) return next(); // a known verb but not a protection word
+      if (!ctx.state.isStaff) return next(); // silently ignore for non-staff
+      const enable = BLOCK_VERBS.has(verb);
+
+      if (isAll) {
+        await prisma.chatSettings
+          .update({ where: { chatId: BigInt(ctx.chat.id) }, data: enable ? GUARD_ON : GUARD_OFF })
+          .catch(() => undefined);
+        await ctx.reply(enable ? '🛡 تم تفعيل <b>كل الحمايات</b> (وضع الحارس).' : '⚠️ تم إيقاف الحمايات الإضافية.');
+        return;
+      }
+      await setBoolean(ctx.chat.id, target!.key, enable).catch(() => undefined);
+      await ctx.reply(`${enable ? '🛡 تم تفعيل' : '⚠️ تم إيقاف'} <b>${target!.name}</b>.`);
+    });
   },
+};
+
+// Quick-toggle vocabulary. منع/تفعيل/شغل → ON, فتح/ايقاف/وقف → OFF.
+const BLOCK_VERBS = new Set(['منع', 'امنع', 'تفعيل', 'فعل', 'فعّل', 'شغل', 'تشغيل']);
+const ALLOW_VERBS = new Set(['فتح', 'افتح', 'ايقاف', 'إيقاف', 'وقف', 'اوقف', 'اطفي', 'اطفئ', 'اطفاء', 'الغاء', 'إلغاء', 'سماح', 'اسمح']);
+const QUICK_RE = new RegExp(`^(${[...BLOCK_VERBS, ...ALLOW_VERBS].join('|')})\\s+(\\S+)$`);
+const ALL_WORDS = new Set(['الكل', 'كلشي', 'كلشيء', 'الحمايات', 'الحمايه', 'الحماية', 'حمايه', 'حماية']);
+const QUICK_TARGETS: Record<string, { key: ToggleableSetting; name: string }> = {
+  سب: { key: 'badwordsEnabled', name: 'منع السب' },
+  السب: { key: 'badwordsEnabled', name: 'منع السب' },
+  شتم: { key: 'badwordsEnabled', name: 'منع السب' },
+  الشتم: { key: 'badwordsEnabled', name: 'منع السب' },
+  سبام: { key: 'antispamEnabled', name: 'مكافحة السبام' },
+  السبام: { key: 'antispamEnabled', name: 'مكافحة السبام' },
+  تكرار: { key: 'floodEnabled', name: 'منع التكرار' },
+  التكرار: { key: 'floodEnabled', name: 'منع التكرار' },
+  روابط: { key: 'antiLinkEnabled', name: 'منع الروابط' },
+  الروابط: { key: 'antiLinkEnabled', name: 'منع الروابط' },
+  رابط: { key: 'antiLinkEnabled', name: 'منع الروابط' },
+  توجيه: { key: 'antiForwardEnabled', name: 'منع التوجيه' },
+  التوجيه: { key: 'antiForwardEnabled', name: 'منع التوجيه' },
+  كلمات: { key: 'filtersEnabled', name: 'فلتر الكلمات' },
+  الكلمات: { key: 'filtersEnabled', name: 'فلتر الكلمات' },
+  غارات: { key: 'antiRaidEnabled', name: 'مكافحة الغارات' },
+  الغارات: { key: 'antiRaidEnabled', name: 'مكافحة الغارات' },
 };
