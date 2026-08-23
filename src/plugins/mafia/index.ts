@@ -5,9 +5,13 @@ import type { Plugin } from '../../core/plugin';
 import { requireRole } from '../../utils/permissions';
 import { createLogger } from '../../core/logger';
 import { escapeHtml } from '../../locales';
+import { mention } from '../../utils/format';
 
 /** Escape a player name for use inside an HTML message. */
 const esc = (s: string | undefined): string => escapeHtml(String(s ?? ''));
+/** Clickable mention for a player. */
+const pm = (p: { id: number; name: string } | undefined): string =>
+  p ? mention({ id: p.id, first_name: p.name }).toString() : '؟';
 
 const log = createLogger('plugin:mafia');
 
@@ -137,7 +141,7 @@ export const mafiaPlugin: Plugin = {
       await ctx.answerCbQuery('انضممت ✅').catch(() => undefined);
       await ctx
         .editMessageText(
-          `🔫 <b>لعبة المافيا!</b>  المنضمّون (${g.players.size}):\n${[...g.players.values()].map((p) => `• <b>${esc(p.name)}</b>`).join('\n')}`,
+          `🔫 <b>لعبة المافيا!</b>  المنضمّون (${g.players.size}):\n${[...g.players.values()].map((p) => `• <b>${pm(p)}</b>`).join('\n')}`,
           Markup.inlineKeyboard([
             [Markup.button.callback('✋ انضمام', 'maf:join')],
             [Markup.button.callback('▶️ ابدأ', 'maf:begin')],
@@ -202,7 +206,7 @@ export const mafiaPlugin: Plugin = {
             .catch(() => undefined);
         g.night.check = targetId;
         await ctx.answerCbQuery('تم ✅').catch(() => undefined);
-        await ctx.reply(`🔍 <b>${esc(target.name)}</b>: ${target.role === 'mafia' ? 'مافيا 🔫' : 'بريء ✅'}`).catch(() => undefined);
+        await ctx.reply(`🔍 <b>${pm(target)}</b>: ${target.role === 'mafia' ? 'مافيا 🔫' : 'بريء ✅'}`).catch(() => undefined);
       }
       await maybeResolveNight(ctx.telegram, g);
     });
@@ -329,7 +333,7 @@ async function resolveNight(telegram: BotContext['telegram'], g: Game): Promise<
     const victim = g.players.get(g.night.kill);
     if (victim?.alive) {
       victim.alive = false;
-      deadName = `<b>${esc(victim.name)}</b> (${ROLE_AR[victim.role]})`;
+      deadName = `<b>${pm(victim)}</b> (${ROLE_AR[victim.role]})`;
     }
   }
   await telegram
@@ -389,7 +393,7 @@ async function beginDefense(telegram: BotContext['telegram'], g: Game, accusedId
   await telegram
     .sendMessage(
       g.chatId,
-      `🗣 <b>${esc(acc?.name)}</b> هو الأكثر اشتباهاً (${voteCount} أصوات).\n<b>${esc(acc?.name)}</b>، عندك ${DEFENSE_MS / 1000} ثانية تبرّر نفسك!\nثم صوّتوا: نطرده؟`,
+      `🗣 <b>${pm(acc)}</b> هو الأكثر اشتباهاً (${voteCount} أصوات).\n<b>${pm(acc)}</b>، عندك ${DEFENSE_MS / 1000} ثانية تبرّر نفسك!\nثم صوّتوا: نطرده؟`,
       Markup.inlineKeyboard([
         [Markup.button.callback('⚖️ اطرده', 'maf:final:1'), Markup.button.callback('🕊 بريء', 'maf:final:0')],
       ]),
@@ -410,11 +414,11 @@ async function resolveDefense(telegram: BotContext['telegram'], g: Game): Promis
   if (acc?.alive && yes > no) {
     acc.alive = false;
     await telegram
-      .sendMessage(g.chatId, `⚖️ <b>${yes}</b> مع الطرد مقابل <b>${no}</b>.\nتم طرد <b>${esc(acc.name)}</b>! دوره كان ${ROLE_AR[acc.role]}.`)
+      .sendMessage(g.chatId, `⚖️ <b>${yes}</b> مع الطرد مقابل <b>${no}</b>.\nتم طرد <b>${pm(acc)}</b>! دوره كان ${ROLE_AR[acc.role]}.`)
       .catch(() => undefined);
   } else {
     await telegram
-      .sendMessage(g.chatId, `🕊 <b>${yes}</b> مع الطرد مقابل <b>${no}</b>.\nنجا <b>${esc(acc?.name ?? 'المتهم')}</b> من الطرد.`)
+      .sendMessage(g.chatId, `🕊 <b>${yes}</b> مع الطرد مقابل <b>${no}</b>.\nنجا <b>${pm(acc)}</b> من الطرد.`)
       .catch(() => undefined);
   }
   const winner = checkWin(g);
@@ -432,7 +436,7 @@ function checkWin(g: Game): 'mafia' | 'citizens' | null {
 
 async function endGame(telegram: BotContext['telegram'], g: Game, winner: 'mafia' | 'citizens'): Promise<void> {
   g.phase = 'ended';
-  const reveal = [...g.players.values()].map((p) => `• <b>${esc(p.name)}</b>: ${ROLE_AR[p.role]}`).join('\n');
+  const reveal = [...g.players.values()].map((p) => `• <b>${pm(p)}</b>: ${ROLE_AR[p.role]}`).join('\n');
   await telegram
     .sendMessage(
       g.chatId,
