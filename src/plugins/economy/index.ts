@@ -16,6 +16,9 @@ import {
 } from '../../services/economy.service';
 import { spinSlots } from '../../services/economy-logic';
 import { displayName, resolveTarget } from '../../utils/format';
+import { escapeHtml } from '../../locales';
+
+const esc = (s: string | undefined | null): string => escapeHtml(String(s ?? ''));
 
 export const economyPlugin: Plugin = {
   name: 'economy',
@@ -120,7 +123,7 @@ export const economyPlugin: Plugin = {
     bot.command('bank', async (ctx) => {
       if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
       const s = await getAccountSummary(ctx.chat.id, ctx.from.id);
-      await ctx.reply(`🏦 ${displayName(ctx.from)}\n💵 المحفظة: ${s.balance} 💰\n🔒 البنك: ${s.bank} 💰\n(الأموال في البنك آمنة من السرقة)`);
+      await ctx.reply(`🏦 <b>${esc(displayName(ctx.from))}</b>\n💵 المحفظة: <b>${s.balance}</b> 💰\n🔒 البنك: <b>${s.bank}</b> 💰\n<i>(الأموال في البنك آمنة من السرقة)</i>`);
     });
 
     // 🏦 Deposit / withdraw (support "all"/"الكل").
@@ -131,7 +134,7 @@ export const economyPlugin: Plugin = {
       if (amount === null) return void ctx.reply('🏦 استخدم: /deposit 100  أو  /deposit الكل');
       const r = await deposit(ctx.chat.id, ctx.from.id, amount);
       if (!r.ok) return void ctx.reply('❌ رصيد المحفظة لا يكفي.');
-      await ctx.reply(`🏦 أودعت ${amount} 💰\n💵 المحفظة: ${r.balance} | 🔒 البنك: ${r.bank}`);
+      await ctx.reply(`🏦 <b>أودعت ${amount}</b> 💰\n💵 المحفظة: ${r.balance} | 🔒 البنك: ${r.bank}`);
     });
 
     bot.command('withdraw', async (ctx) => {
@@ -141,7 +144,7 @@ export const economyPlugin: Plugin = {
       if (amount === null) return void ctx.reply('🏦 استخدم: /withdraw 100  أو  /withdraw الكل');
       const r = await withdraw(ctx.chat.id, ctx.from.id, amount);
       if (!r.ok) return void ctx.reply('❌ رصيد البنك لا يكفي.');
-      await ctx.reply(`🏦 سحبت ${amount} 💰\n💵 المحفظة: ${r.balance} | 🔒 البنك: ${r.bank}`);
+      await ctx.reply(`🏦 <b>سحبت ${amount}</b> 💰\n💵 المحفظة: ${r.balance} | 🔒 البنك: ${r.bank}`);
     });
 
     // 🥷 Rob another member (reply to them).
@@ -154,8 +157,8 @@ export const economyPlugin: Plugin = {
         case 'self': return void ctx.reply('🤦 لا يمكنك سرقة نفسك.');
         case 'cooldown': return void ctx.reply(`⏳ انتظر ${r.hoursLeft} ساعة قبل محاولة سرقة أخرى.`);
         case 'empty': return void ctx.reply('💸 محفظة الضحية شبه فارغة — لا شيء لتسرقه.');
-        case 'success': return void ctx.reply(`🥷 نجحت السرقة! أخذت ${r.amount} 💰 من ${displayName(target)} 😈`);
-        case 'caught': return void ctx.reply(`🚨 تم ضبطك! دفعت غرامة ${r.amount} 💰 لـ ${displayName(target)} 😅`);
+        case 'success': return void ctx.reply(`🥷 <b>نجحت السرقة!</b> أخذت <b>${r.amount}</b> 💰 من <b>${esc(displayName(target))}</b> 😈`);
+        case 'caught': return void ctx.reply(`🚨 <b>تم ضبطك!</b> دفعت غرامة <b>${r.amount}</b> 💰 لـ <b>${esc(displayName(target))}</b> 😅`);
       }
     });
 
@@ -172,7 +175,7 @@ export const economyPlugin: Plugin = {
       await addCoins(ctx.chat.id, ctx.from.id, net);
       const newBal = await getBalance(ctx.chat.id, ctx.from.id);
       const verdict = mult >= 5 ? '💎 جاكبوت!' : mult > 1 ? '🎉 ربح!' : mult === 1.5 ? '✨ زوج!' : '💨 خسارة';
-      await ctx.reply(`🎰 [ ${reels.join(' | ')} ]\n${verdict}\n${net >= 0 ? `ربحت ${net}` : `خسرت ${-net}`} 💰\nرصيدك: ${newBal} 💰`);
+      await ctx.reply(`🎰 [ ${reels.join(' | ')} ]\n<b>${esc(verdict)}</b>\n${net >= 0 ? `ربحت <b>${net}</b>` : `خسرت <b>${-net}</b>`} 💰\nرصيدك: ${newBal} 💰`);
     });
 
     // 💼 Work — earn coins on a 1-hour cooldown.
@@ -180,7 +183,7 @@ export const economyPlugin: Plugin = {
       if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
       const r = await claimWork(ctx.chat.id, ctx.from.id);
       if (!r.ok) return void ctx.reply(`⏳ تعبت! ارتاح ${fmtWait(r.minutesLeft!)} قبل ما تشتغل مرة ثانية.`);
-      await ctx.reply(`💼 ${r.job}\nكسبت ${r.amount} 💰\nرصيدك: ${r.balance} 💰`);
+      await ctx.reply(`💼 <b>${esc(r.job)}</b>\nكسبت <b>${r.amount}</b> 💰\nرصيدك: ${r.balance} 💰`);
     });
 
     // 🦹 Crime — high risk / high reward on a 3-hour cooldown.
@@ -189,9 +192,9 @@ export const economyPlugin: Plugin = {
       const r = await attemptCrime(ctx.chat.id, ctx.from.id);
       if (r.outcome === 'cooldown') return void ctx.reply(`⏳ الوضع حامي! اختبِ ${fmtWait(r.minutesLeft!)} قبل الجريمة القادمة.`);
       if (r.outcome === 'success') {
-        await ctx.reply(`🦹 ${r.story}\n✅ نجحت! غنمت ${r.amount} 💰\nرصيدك: ${r.balance} 💰`);
+        await ctx.reply(`🦹 <b>${esc(r.story)}</b>\n✅ نجحت! غنمت <b>${r.amount}</b> 💰\nرصيدك: ${r.balance} 💰`);
       } else {
-        await ctx.reply(`🚨 ${r.story}\n❌ فشلت! دفعت غرامة ${r.amount} 💰\nرصيدك: ${r.balance} 💰`);
+        await ctx.reply(`🚨 <b>${esc(r.story)}</b>\n❌ فشلت! دفعت غرامة <b>${r.amount}</b> 💰\nرصيدك: ${r.balance} 💰`);
       }
     });
   },
