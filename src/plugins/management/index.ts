@@ -180,29 +180,35 @@ export const managementPlugin: Plugin = {
         /* couldn't read own membership */
       }
 
+      const RULE = '➖➖➖➖➖➖➖➖';
       const lines = [
-        '🩺 فحص البوت',
+        '🩺 <b>فحص البوت</b>',
+        RULE,
         '',
-        '👮 الصلاحيات:',
-        `${yn(admin)} البوت مشرف (أدمن)`,
-        `${yn(canDelete)} حذف الرسائل — لازم لـ منع السب/الفلتر/التنظيف`,
-        `${yn(canRestrict)} حظر/تقييد الأعضاء — لازم لـ الكتم/الحظر/الحارس`,
+        '👮 <b>الصلاحيات</b>',
+        `${yn(admin)} مشرف بالجروب`,
+        `${yn(canDelete)} حذف الرسائل`,
+        `${yn(canRestrict)} حظر / تقييد الأعضاء`,
         `${yn(canPin)} تثبيت الرسائل`,
         '',
-        '🛡 الحمايات المفعّلة:',
-        `${yn(!!s?.antispamEnabled)} مكافحة السبام   ${yn(!!s?.floodEnabled)} التكرار`,
-        `${yn(!!(s as { badwordsEnabled?: boolean })?.badwordsEnabled)} منع السب   ${yn(!!s?.antiLinkEnabled)} منع الروابط`,
-        `${yn(!!s?.antiRaidEnabled)} مكافحة الغارات   ${yn(!!s?.filtersEnabled)} فلتر الكلمات`,
+        '🛡 <b>الحمايات</b>',
+        `${yn(!!s?.antispamEnabled)} مكافحة السبام`,
+        `${yn(!!s?.floodEnabled)} منع التكرار`,
+        `${yn(!!(s as { badwordsEnabled?: boolean })?.badwordsEnabled)} منع السب`,
+        `${yn(!!s?.antiLinkEnabled)} منع الروابط`,
+        `${yn(!!s?.antiRaidEnabled)} مكافحة الغارات`,
+        `${yn(!!s?.filtersEnabled)} فلتر الكلمات`,
       ];
 
       const tips: string[] = [];
-      if (!admin) tips.push('• خلّي البوت **مشرف** حتى تشتغل أوامر الإدارة والحمايات.');
-      if (admin && !canDelete) tips.push('• فعّل صلاحية **حذف الرسائل** للبوت.');
-      if (admin && !canRestrict) tips.push('• فعّل صلاحية **حظر الأعضاء** للبوت.');
-      tips.push('• لو الأوامر النصية (@all، «صراحة») ما تشتغل: أطفئ **Group Privacy** من BotFather، أو خلّي البوت أدمن.');
-      lines.push('', '💡 نصائح:', ...tips);
+      if (!admin) tips.push('• خلّي البوت <b>مشرف</b> حتى تشتغل الإدارة والحمايات.');
+      if (admin && !canDelete) tips.push('• فعّل صلاحية <b>حذف الرسائل</b>.');
+      if (admin && !canRestrict) tips.push('• فعّل صلاحية <b>حظر الأعضاء</b>.');
+      tips.push('• لو الأوامر النصية ما تشتغل: أطفئ <b>Group Privacy</b> من BotFather.');
+      lines.push('', RULE, '💡 <b>نصائح</b>', ...tips);
 
-      await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' }).catch(() => ctx.reply(lines.join('\n')));
+      // No parse_mode: the outgoing interceptor renders the <b> tags as entities.
+      await ctx.reply(lines.join('\n')).catch(() => undefined);
     });
 
     // --- Auto-delete service messages (join/leave) ---
