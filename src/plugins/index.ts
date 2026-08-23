@@ -1,5 +1,6 @@
 import type { Plugin } from '../core/plugin';
 import { aliasesPlugin } from './aliases';
+import { msgEditPlugin } from './msgedit';
 import { usagePlugin } from './usage';
 import { musicArchivePlugin } from './musicarchive';
 import { createGeneralPlugin } from './general';
@@ -76,6 +77,9 @@ export const allPlugins: Plugin[] = [];
 const generalPlugin = createGeneralPlugin(() => allPlugins);
 
 allPlugins.push(
+  // Edit wizard runs before aliases so, while an owner is mid-edit, their typed
+  // content is captured verbatim (not rewritten to a command). Passive otherwise.
+  msgEditPlugin,
   aliasesPlugin, // MUST be first: rewrites Arabic words → /commands
   pdfPlugin, // wizard: captures text/photos/docs while active (before games/stickers)
   generalPlugin,

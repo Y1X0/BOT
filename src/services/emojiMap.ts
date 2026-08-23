@@ -1,5 +1,6 @@
 import type { Telegram } from 'telegraf';
 import { getGlobal, setGlobal } from './global.service';
+import { getOverride, refreshOverrides } from './message-overrides.service';
 import { createLogger } from '../core/logger';
 
 const log = createLogger('emojiMap');
@@ -109,6 +110,24 @@ function htmlToEntities(input: string): { text: string; entities: Ent[] } | null
   return { text: out, entities: entities.filter((e) => e.type !== 'text_link' || e.url) };
 }
 
+// Owner-configured message override: if the outgoing text matches a saved
+// original (compared tag-stripped + whitespace-collapsed), swap in the owner's
+// replacement text + entities and drop any parse_mode. Runs FIRST so styling and
+// the emoji upgrade then apply to the replacement.
+function applyOverride(method: string, payload: Payload): boolean {
+  const field = TEXT_METHODS.has(method) ? 'text' : CAPTION_METHODS.has(method) ? 'caption' : null;
+  if (!field) return false;
+  const text = payload[field];
+  if (typeof text !== 'string' || !text) return false;
+  const ov = getOverride(text);
+  if (!ov) return false;
+  payload[field] = ov.text;
+  const entField = field === 'text' ? 'entities' : 'caption_entities';
+  payload[entField] = Array.isArray(ov.entities) ? ov.entities.slice() : [];
+  delete payload.parse_mode;
+  return true;
+}
+
 // Turn our <b>… styling into entities in place (no parse_mode). Runs before the
 // premium-emoji transform, which then adds custom_emoji entities on the clean text.
 function applyStyleEntities(method: string, payload: Payload): boolean {
@@ -204,8 +223,9 @@ export function installEmojiSubstitution(telegram: Telegram): void {
     };
     let changed = false;
     try {
-      const styled = applyStyleEntities(method, payload);
-      changed = transform(method, payload) || styled;
+      const overridden = applyOverride(method, payload);
+      const styled = overridden ? false : applyStyleEntities(method, payload);
+      changed = transform(method, payload) || styled || overridden;
     } catch {
       changed = false;
     }
@@ -221,6 +241,9 @@ export function installEmojiSubstitution(telegram: Telegram): void {
   proto.callApi = wrapped;
   (proto as { __emojiWrapped?: boolean }).__emojiWrapped = true;
 
-  // Propagate map changes (and cross-instance updates) without a restart.
-  setInterval(() => void refreshEmojiMap(), 60_000).unref();
+  // Propagate map + override changes (and cross-instance updates) without a restart.
+  setInterval(() => {
+    void refreshEmojiMap();
+    void refreshOverrides();
+  }, 60_000).unref();
 }
