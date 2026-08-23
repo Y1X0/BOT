@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCanvas, loadImage, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
 import { createLogger } from '../../core/logger';
-import type { IdCardImageData, CardTheme } from './image';
+import type { IdCardImageData, CardTheme, OwnerCardData } from './image';
 
 const log = createLogger('idcard:canvas');
 
@@ -602,4 +602,272 @@ export async function renderCardMp4(d: IdCardImageData, t: CardTheme): Promise<{
     stdin.on('error', () => undefined); // ignore EPIPE if ffmpeg died
     pump();
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OWNER CARD — a distinct, grander design for the group's creator. Reuses the
+// same fonts, frame, corner ornaments, medallion avatar and name-fit helpers as
+// the id card, but with its own gold-on-black luxury layout and a prominent
+// crown, so it reads as clearly above an ordinary member card.
+// ─────────────────────────────────────────────────────────────────────────────
+const OW = 640;
+const OH = 620;
+// Fixed gold palette for the owner card (independent of the id-card themes).
+const GOLD = '#e8c86a';
+const GOLD_HI = '#f6e3a6';
+
+async function loadOwnerAvatar(uri?: string): Promise<Avatar | null> {
+  if (!uri) return null;
+  return loadImage(uri).catch(() => null);
+}
+
+function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | null): void {
+  const cx = OW / 2;
+
+  // Opaque backdrop.
+  ctx.fillStyle = '#0d0a12';
+  ctx.fillRect(0, 0, OW, OH);
+
+  // Background: darkened avatar cover if present, else deep gradient.
+  if (avatar) {
+    const scale = Math.max(OW / avatar.width, OH / avatar.height) * 1.15;
+    const dw = avatar.width * scale;
+    const dh = avatar.height * scale;
+    ctx.save();
+    ctx.filter = 'blur(2px)';
+    ctx.drawImage(avatar, (OW - dw) / 2, (OH - dh) / 2, dw, dh);
+    ctx.restore();
+  }
+  const bg = ctx.createLinearGradient(0, 0, OW, OH);
+  bg.addColorStop(0, avatar ? 'rgba(24,16,42,.88)' : 'rgba(24,16,42,.97)');
+  bg.addColorStop(0.55, avatar ? 'rgba(12,9,20,.9)' : 'rgba(12,9,20,.98)');
+  bg.addColorStop(1, avatar ? 'rgba(6,5,10,.95)' : 'rgba(6,5,10,.99)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, OW, OH);
+
+  // Gold halo behind the crown/avatar.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const halo = ctx.createRadialGradient(cx, 165, 20, cx, 165, 320);
+  halo.addColorStop(0, hexRgba(GOLD, 0.18));
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, OW, 400);
+  ctx.restore();
+
+  // Double gold frame + corner flourishes.
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = hexRgba(GOLD, 0.65);
+  roundRect(ctx, 1.5, 1.5, OW - 3, OH - 3, 33);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = hexRgba(GOLD, 0.3);
+  roundRect(ctx, 12, 12, OW - 24, OH - 24, 26);
+  ctx.stroke();
+  cornerOrnament(ctx, 26, 26, 1, 1, hexRgba(GOLD, 0.8));
+  cornerOrnament(ctx, OW - 26, 26, -1, 1, hexRgba(GOLD, 0.8));
+  cornerOrnament(ctx, 26, OH - 26, 1, -1, hexRgba(GOLD, 0.8));
+  cornerOrnament(ctx, OW - 26, OH - 26, -1, -1, hexRgba(GOLD, 0.8));
+
+  // Crown header.
+  ctx.textAlign = 'center';
+  ctx.font = EMOJI(40);
+  ctx.fillText('👑', cx, 68);
+  // Elegant English eyebrow.
+  ctx.fillStyle = hexRgba(GOLD, 0.92);
+  ctx.font = LUX(700, 13);
+  drawTracked(ctx, 'GROUP OWNER', cx, 96, 6);
+
+  // Medallion avatar.
+  const ar = 86;
+  const acy = 200;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, acy, ar, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  if (avatar) {
+    ctx.drawImage(avatar, cx - ar, acy - ar, ar * 2, ar * 2);
+  } else {
+    const g = ctx.createLinearGradient(cx - ar, acy - ar, cx + ar, acy + ar);
+    g.addColorStop(0, '#2a2350');
+    g.addColorStop(1, '#15131f');
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - ar, acy - ar, ar * 2, ar * 2);
+    ctx.fillStyle = GOLD;
+    ctx.font = FONT(700, 74);
+    ctx.textAlign = 'center';
+    ctx.fillText(d.initial || '?', cx, acy + 26);
+  }
+  ctx.restore();
+  // Inner gold ring.
+  ctx.beginPath();
+  ctx.arc(cx, acy, ar, 0, Math.PI * 2);
+  ctx.lineWidth = 4;
+  const ring = ctx.createLinearGradient(cx - ar, acy - ar, cx + ar, acy + ar);
+  ring.addColorStop(0, GOLD_HI);
+  ring.addColorStop(0.5, GOLD);
+  ring.addColorStop(1, GOLD_HI);
+  ctx.strokeStyle = ring;
+  ctx.stroke();
+  // Outer decorative ring + gold ticks.
+  ctx.beginPath();
+  ctx.arc(cx, acy, ar + 9, 0, Math.PI * 2);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = hexRgba(GOLD, 0.45);
+  ctx.stroke();
+  ctx.fillStyle = GOLD;
+  for (let k = 0; k < 8; k++) {
+    const ang = (Math.PI / 4) * k;
+    const tx = cx + Math.cos(ang) * (ar + 9);
+    const ty = acy + Math.sin(ang) * (ar + 9);
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-2.6, -2.6, 5.2, 5.2);
+    ctx.restore();
+  }
+  // Crown badge over the avatar's lower edge.
+  const badgeY = acy + ar + 2;
+  ctx.beginPath();
+  ctx.arc(cx, badgeY, 20, 0, Math.PI * 2);
+  const bg2 = ctx.createLinearGradient(cx - 20, badgeY - 20, cx + 20, badgeY + 20);
+  bg2.addColorStop(0, GOLD_HI);
+  bg2.addColorStop(1, GOLD);
+  ctx.fillStyle = bg2;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#0d0a12';
+  ctx.stroke();
+  ctx.font = EMOJI(20);
+  ctx.textAlign = 'center';
+  ctx.fillText('👑', cx, badgeY + 7);
+
+  // Name — gold gradient, fit to one/two lines.
+  const maxNameW = OW - 60;
+  const fit = fitName(ctx, d.name, maxNameW);
+  ctx.textAlign = 'center';
+  ctx.direction = 'rtl';
+  ctx.font = FONT(700, fit.size);
+  const lineGap = fit.size + 6;
+  let ny = fit.lines.length === 2 ? 316 : 328;
+  ctx.save();
+  ctx.shadowColor = hexRgba(GOLD, 0.6);
+  ctx.shadowBlur = 14;
+  for (const line of fit.lines) {
+    const w = Math.min(ctx.measureText(line).width, maxNameW);
+    const ng = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
+    ng.addColorStop(0, '#ffffff');
+    ng.addColorStop(0.5, GOLD);
+    ng.addColorStop(1, '#ffffff');
+    ctx.fillStyle = ng;
+    ctx.fillText(line, cx, ny);
+    ny += lineGap;
+  }
+  ctx.restore();
+
+  // Username.
+  const userY = fit.lines.length === 2 ? ny + 2 : 356;
+  ctx.direction = 'ltr';
+  ctx.fillStyle = '#c4cbe0';
+  ctx.font = FONT(400, 17);
+  ctx.fillText(d.username, cx, userY);
+
+  // "مالك المجموعة" pill.
+  const pillY = userY + 14;
+  ctx.font = FONT(700, 18);
+  ctx.direction = 'rtl';
+  const label = '👑 مالك المجموعة';
+  const pillW = ctx.measureText(label).width + 46;
+  const pillX = cx - pillW / 2;
+  const rg = ctx.createLinearGradient(pillX, 0, pillX + pillW, 0);
+  rg.addColorStop(0, GOLD);
+  rg.addColorStop(1, GOLD_HI);
+  ctx.fillStyle = rg;
+  roundRect(ctx, pillX, pillY, pillW, 36, 18);
+  ctx.fill();
+  ctx.fillStyle = '#141018';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, cx, pillY + 24);
+
+  // Ornamental divider.
+  const divY = pillY + 62;
+  ornamentalDivider(ctx, cx, divY, OW / 2 - 44, hexRgba(GOLD, 0.72));
+
+  // Two stat tiles: members count + creation/join date.
+  const tile = (x: number, y: number, w: number, h: number, icon: string, lbl: string, value: string) => {
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    roundRect(ctx, x, y, w, h, 15);
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = hexRgba(GOLD, 0.18);
+    roundRect(ctx, x, y, w, h, 15);
+    ctx.stroke();
+    ctx.font = EMOJI(24);
+    ctx.textAlign = 'center';
+    ctx.direction = 'ltr';
+    ctx.fillStyle = GOLD;
+    ctx.fillText(icon, x + w - 26, y + h / 2 + 9);
+    const tx = x + w - 52;
+    ctx.textAlign = 'right';
+    ctx.direction = 'rtl';
+    ctx.fillStyle = '#aab0c6';
+    ctx.font = FONT(400, 12.5);
+    ctx.fillText(lbl, tx, y + 25);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = FONT(700, 17);
+    const val = value.length > 20 ? value.slice(0, 19) + '…' : value;
+    ctx.fillText(val, tx, y + 48);
+  };
+
+  const pad = 30;
+  const gap = 12;
+  const tw = (OW - pad * 2 - gap) / 2;
+  const th = 66;
+  let y = divY + 22;
+  tile(pad + tw + gap, y, tw, th, '👥', 'عدد الأعضاء', d.members);
+  tile(pad, y, tw, th, '📅', d.dateLabel, d.date);
+  y += th + gap;
+
+  // ID bar.
+  ctx.fillStyle = hexRgba(GOLD, 0.1);
+  roundRect(ctx, pad, y, OW - pad * 2, 48, 14);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = hexRgba(GOLD, 0.32);
+  roundRect(ctx, pad, y, OW - pad * 2, 48, 14);
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.direction = 'rtl';
+  ctx.fillStyle = GOLD;
+  ctx.font = EMOJI(15);
+  ctx.fillText('🆔 الآيدي', cx + 74, y + 30);
+  ctx.direction = 'ltr';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = FONT(700, 18);
+  ctx.fillText(d.id, cx - 42, y + 30);
+
+  // Footer — luxury Roman caps.
+  ctx.fillStyle = hexRgba(GOLD, 0.92);
+  ctx.font = LUX(700, 15);
+  drawTracked(ctx, 'OWNER', cx, OH - 26, 5);
+  const footHalf = ctx.measureText('OWNER').width / 2 + 50;
+  ctx.strokeStyle = hexRgba(GOLD, 0.5);
+  ctx.lineWidth = 1;
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + dir * (footHalf - 26), OH - 31);
+    ctx.lineTo(cx + dir * footHalf, OH - 31);
+    ctx.stroke();
+  }
+}
+
+/** Render the owner card to a JPEG (fast, CPU-only, no browser). */
+export async function renderOwnerCardPng(d: OwnerCardData): Promise<Buffer> {
+  ensureFonts();
+  const canvas = createCanvas(OW, OH);
+  const ctx = canvas.getContext('2d');
+  const avatar = await loadOwnerAvatar(d.avatarDataUri);
+  drawOwnerCard(ctx, d, avatar);
+  return canvas.encode('jpeg', 84);
 }

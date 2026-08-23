@@ -1,4 +1,4 @@
-import { renderCardPng, renderCardMp4, getLastMp4Error } from './canvas';
+import { renderCardPng, renderCardMp4, renderOwnerCardPng, getLastMp4Error } from './canvas';
 
 // Last video-render failure reason, surfaced by the /idcardtest diagnostic.
 export function getLastVideoError(): string {
@@ -19,6 +19,18 @@ export interface IdCardImageData {
   joined: string;
   avatarDataUri?: string; // base64 profile photo, if available
   initial: string; // fallback avatar letter
+}
+
+/** Data for the group-owner card (a grander variant of the id card). */
+export interface OwnerCardData {
+  name: string;
+  username: string; // @handle or a placeholder
+  id: string;
+  members: string; // member count, formatted
+  date: string; // creation or join date
+  dateLabel: string; // e.g. 'تاريخ الإنشاء' / 'تاريخ الانضمام'
+  avatarDataUri?: string;
+  initial: string;
 }
 
 /** A color theme for the card. */
@@ -83,4 +95,9 @@ export async function renderIdCardImage(d: IdCardImageData, themeId?: string): P
 export async function renderIdCardVideo(d: IdCardImageData, themeId?: string): Promise<{ buffer: Buffer; ext: string } | null> {
   const theme = CARD_THEMES.find((x) => x.id === themeId) ?? CARD_THEMES[0];
   return renderCardMp4(d, theme);
+}
+
+/** Render the group-owner card (gold-on-black luxury) to a JPEG. */
+export async function renderOwnerCardImage(d: OwnerCardData): Promise<Buffer> {
+  return renderOwnerCardPng(d);
 }

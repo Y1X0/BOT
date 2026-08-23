@@ -5,6 +5,7 @@ import { musicArchivePlugin } from './musicarchive';
 import { createGeneralPlugin } from './general';
 import { menuPlugin } from './menu';
 import { infoPlugin } from './info';
+import { ownerPlugin } from './owner';
 import { adminPlugin } from './admin';
 import { moderationPlugin } from './moderation';
 import { protectionPlugin } from './protection';
@@ -80,6 +81,7 @@ allPlugins.push(
   generalPlugin,
   menuPlugin,
   infoPlugin,
+  ownerPlugin,
   adminPlugin,
   moderationPlugin,
   botRolesPlugin, // custom in-bot ranks (admin/moderator/vip)

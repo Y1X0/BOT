@@ -30,6 +30,7 @@ const ALIASES: Alias[] = [
   { command: 'day', triggers: ['اليوم', 'كم اليوم', 'شو اليوم', 'وش اليوم'] },
   { command: 'weather', triggers: ['الطقس', 'طقس', 'الجو', 'حاله الطقس'] },
   { command: 'id', triggers: ['ايدي', 'id', 'معلوماتي', 'معلوماتك', 'الايدي', 'ايديي'] },
+  { command: 'owner', triggers: ['المالك', 'مالك القروب', 'مالك الجروب', 'مالك المجموعه', 'owner'] },
   { command: 'bio', triggers: ['بايو', 'البايو', 'نبذه', 'bio'] },
   { command: 'rules', triggers: ['القوانين', 'قوانين', 'الشروط'] },
   { command: 'help', triggers: ['مساعده', 'المساعده'] },
