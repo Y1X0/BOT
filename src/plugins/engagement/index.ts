@@ -9,9 +9,20 @@ import { announceAchievements } from '../../utils/progression';
 import { displayName } from '../../utils/format';
 import { renderRankCard } from '../../services/card/rank';
 import { fetchAvatar } from '../../services/card/avatar';
+import { resolveUserRole } from '../../utils/permissions';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:engagement');
+
+/** Arabic role label shown on the rank card, opposite LEVEL. */
+const ROLE_LABEL: Record<string, string> = {
+  founder: '👑 مالك أساسي',
+  owner: '⭐ مالك',
+  manager: '🔰 مدير',
+  admin: '🛡 أدمن',
+  vip: '💎 مميّز',
+  member: '😊 عضو',
+};
 
 const XP_PER_MESSAGE = 5;
 
@@ -67,7 +78,10 @@ export const engagementPlugin: Plugin = {
       // Premium rank card; fall back to text on any failure.
       try {
         const name = displayName(ctx.from);
-        const avatar = await fetchAvatar(ctx.telegram, ctx.from.id);
+        const [avatar, role] = await Promise.all([
+          fetchAvatar(ctx.telegram, ctx.from.id),
+          resolveUserRole(ctx, ctx.from.id).catch(() => 'member' as const),
+        ]);
         const img = await renderRankCard({
           name,
           level,
@@ -76,6 +90,7 @@ export const engagementPlugin: Plugin = {
           xpNext: xpForLevel(level),
           messages,
           avatar,
+          rank: ROLE_LABEL[role] ?? ROLE_LABEL.member,
           initial: (name.trim()[0] || '?').toUpperCase(),
           handle: ctx.botInfo?.username ? `@${ctx.botInfo.username}` : undefined,
         });

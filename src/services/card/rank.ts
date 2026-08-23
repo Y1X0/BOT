@@ -117,13 +117,6 @@ export async function renderRankCard(d: RankCardData): Promise<Buffer> {
   ctx.fillText(name, xR, 118);
   ctx.restore();
 
-  // Rank label (optional).
-  if (d.rank) {
-    ctx.font = FONT(400, 16);
-    ctx.fillStyle = '#c7ccdd';
-    ctx.fillText(d.rank, xR, 148);
-  }
-
   // Big LEVEL number.
   ctx.textAlign = 'left';
   ctx.direction = 'ltr';
@@ -139,6 +132,19 @@ export async function renderRankCard(d: RankCardData): Promise<Buffer> {
   ctx.shadowBlur = 14;
   ctx.fillText(String(d.level), lx + lvW + 6, 206);
   ctx.restore();
+
+  // Member role — opposite LEVEL, right-aligned, same size & gold.
+  if (d.rank) {
+    ctx.textAlign = 'right';
+    ctx.direction = 'rtl';
+    ctx.font = FONT(700, 22);
+    ctx.save();
+    ctx.shadowColor = hexRgba(t.a, 0.5);
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = t.a2;
+    ctx.fillText(d.rank, xR, 202);
+    ctx.restore();
+  }
 
   // XP progress bar.
   const span = Math.max(1, d.xpNext - d.xpFloor);
