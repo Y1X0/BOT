@@ -15,7 +15,7 @@ import {
   attemptCrime,
 } from '../../services/economy.service';
 import { spinSlots } from '../../services/economy-logic';
-import { displayName, resolveTarget } from '../../utils/format';
+import { mention, resolveTarget } from '../../utils/format';
 import { escapeHtml } from '../../locales';
 
 const esc = (s: string | undefined | null): string => escapeHtml(String(s ?? ''));
@@ -43,7 +43,7 @@ export const economyPlugin: Plugin = {
       if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
       const t = ctx.state.t!;
       const balance = await getBalance(ctx.chat.id, ctx.from.id);
-      await ctx.reply(t('economy.balance', { name: displayName(ctx.from), balance }));
+      await ctx.reply(t('economy.balance', { name: mention(ctx.from), balance }));
     });
 
     bot.command('daily', async (ctx) => {
@@ -89,7 +89,7 @@ export const economyPlugin: Plugin = {
         await ctx.reply(t('economy.give_insufficient'));
         return;
       }
-      await ctx.reply(t('economy.give_ok', { amount, name: displayName(target) }));
+      await ctx.reply(t('economy.give_ok', { amount, name: mention(target) }));
     });
 
     // 🎡 Wheel of fortune — gamble coins on a random multiplier.
@@ -123,7 +123,7 @@ export const economyPlugin: Plugin = {
     bot.command('bank', async (ctx) => {
       if (!enabled(ctx) || !ctx.chat || !ctx.from) return;
       const s = await getAccountSummary(ctx.chat.id, ctx.from.id);
-      await ctx.reply(`🏦 <b>${esc(displayName(ctx.from))}</b>\n💵 المحفظة: <b>${s.balance}</b> 💰\n🔒 البنك: <b>${s.bank}</b> 💰\n<i>(الأموال في البنك آمنة من السرقة)</i>`);
+      await ctx.reply(`🏦 <b>${mention(ctx.from)}</b>\n💵 المحفظة: <b>${s.balance}</b> 💰\n🔒 البنك: <b>${s.bank}</b> 💰\n<i>(الأموال في البنك آمنة من السرقة)</i>`);
     });
 
     // 🏦 Deposit / withdraw (support "all"/"الكل").
@@ -157,8 +157,8 @@ export const economyPlugin: Plugin = {
         case 'self': return void ctx.reply('🤦 لا يمكنك سرقة نفسك.');
         case 'cooldown': return void ctx.reply(`⏳ انتظر ${r.hoursLeft} ساعة قبل محاولة سرقة أخرى.`);
         case 'empty': return void ctx.reply('💸 محفظة الضحية شبه فارغة — لا شيء لتسرقه.');
-        case 'success': return void ctx.reply(`🥷 <b>نجحت السرقة!</b> أخذت <b>${r.amount}</b> 💰 من <b>${esc(displayName(target))}</b> 😈`);
-        case 'caught': return void ctx.reply(`🚨 <b>تم ضبطك!</b> دفعت غرامة <b>${r.amount}</b> 💰 لـ <b>${esc(displayName(target))}</b> 😅`);
+        case 'success': return void ctx.reply(`🥷 <b>نجحت السرقة!</b> أخذت <b>${r.amount}</b> 💰 من ${mention(target)} 😈`);
+        case 'caught': return void ctx.reply(`🚨 <b>تم ضبطك!</b> دفعت غرامة <b>${r.amount}</b> 💰 لـ ${mention(target)} 😅`);
       }
     });
 

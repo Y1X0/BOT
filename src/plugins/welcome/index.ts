@@ -3,7 +3,7 @@ import { Input, Markup } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { getSettings } from '../../services/settings.service';
-import { displayName } from '../../utils/format';
+import { displayName, mention } from '../../utils/format';
 import { muteUser, unmuteUser, kickUser } from '../../utils/moderation-actions';
 import { createLogger } from '../../core/logger';
 import { renderWelcomeCard } from '../../services/card/welcome';
@@ -50,7 +50,7 @@ export const welcomePlugin: Plugin = {
       const fname = displayName(member);
       const text = settings.farewellMessage
         ? interpolate(settings.farewellMessage, member, ctx.chat)
-        : t('farewell.default', { name: escapeHtml(fname) });
+        : t('farewell.default', { name: mention(member) });
       const extra = settings.farewellMessage ? {} : { parse_mode: 'HTML' as const };
       try {
         const avatar = await fetchAvatar(ctx.telegram, member.id);
@@ -86,7 +86,7 @@ export const welcomePlugin: Plugin = {
       await unmuteUser(ctx, expectedUserId);
       const t = ctx.state.t!;
       await ctx.answerCbQuery('✅').catch(() => undefined);
-      await ctx.editMessageText(t('welcome.captcha_passed', { name: escapeHtml(displayName(ctx.from)) }), {
+      await ctx.editMessageText(t('welcome.captcha_passed', { name: mention(ctx.from) }), {
         parse_mode: 'HTML',
       }).catch(() => undefined);
     });
@@ -98,13 +98,13 @@ async function startCaptcha(
   userId: number,
   name: string,
   timeoutSec: number,
-  t: (k: string, v?: Record<string, string | number>) => string,
+  t: (k: string, v?: Record<string, import('../../locales').Var>) => string,
 ): Promise<void> {
   // Restrict the new member until they verify.
   await muteUser(ctx, userId);
 
   const sent = await ctx
-    .reply(t('welcome.captcha', { name: escapeHtml(name), seconds: timeoutSec }), {
+    .reply(t('welcome.captcha', { name: mention({ id: userId, first_name: name }), seconds: timeoutSec }), {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([Markup.button.callback(t('welcome.captcha_button'), `captcha:${userId}`)]),
     })
@@ -131,14 +131,14 @@ async function sendWelcome(
   settings: { welcomeMessage: string | null; welcomeImageUrl: string | null },
   member: { id: number; first_name?: string; username?: string },
   name: string,
-  t: (k: string, v?: Record<string, string | number>) => string,
+  t: (k: string, v?: Record<string, import('../../locales').Var>) => string,
 ): Promise<void> {
   const groupTitle = ctx.chat?.type === 'private' ? '' : (ctx.chat as { title?: string })?.title ?? '';
   // Our default is styled with <b> HTML; a custom message is sent verbatim (no
   // parse_mode) so it can't be broken by stray markup.
   const text = settings.welcomeMessage
     ? interpolate(settings.welcomeMessage, member, ctx.chat)
-    : t('welcome.default', { name: escapeHtml(name), title: escapeHtml(groupTitle) });
+    : t('welcome.default', { name: mention(member), title: escapeHtml(groupTitle) });
   const extra = settings.welcomeMessage ? {} : { parse_mode: 'HTML' as const };
 
   // Premium welcome card (avatar + member number). Fall back to the custom
