@@ -3,10 +3,10 @@ import { Input } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { recordActivity, getMember, topByXp, xpForLevel } from '../../services/member.service';
+import { recordActivity, getMember, topByXp, xpForLevel, messageRank } from '../../services/member.service';
 import { incMissionMessages } from '../../services/missions.service';
 import { announceAchievements } from '../../utils/progression';
-import { displayName } from '../../utils/format';
+import { displayName, mention } from '../../utils/format';
 import { renderRankCard } from '../../services/card/rank';
 import { fetchAvatar } from '../../services/card/avatar';
 import { resolveUserRole } from '../../utils/permissions';
@@ -36,6 +36,7 @@ export const engagementPlugin: Plugin = {
   description: 'XP / leveling from group activity',
   commands: [
     { command: 'rank', description: '📊 مستواك ونقاط الخبرة' },
+    { command: 'interaction', description: '💬 تفاعلك وترتيبك بين المتفاعلين' },
     { command: 'levels', description: '🏅 قائمة أعلى المستويات' },
   ],
 
@@ -100,6 +101,23 @@ export const engagementPlugin: Plugin = {
         log.warn({ err }, 'rank card failed; falling back');
       }
       await ctx.reply(t('xp.rank', { name: displayName(ctx.from), level, xp, messages }));
+    });
+
+    // «تفاعلي» → your interaction message count + your rank among members.
+    bot.command('interaction', async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private' || !ctx.from) return;
+      const { messages, rank, total } = await messageRank(ctx.chat.id, ctx.from.id).catch(() => ({
+        messages: 0,
+        rank: 0,
+        total: 0,
+      }));
+      const lines = [
+        `✦ 📊 <b>تفاعل</b> ${mention(ctx.from)} ✦`,
+        '➖➖➖➖➖➖➖',
+        `• رسائلك بالتفاعل ↢ <b>${messages}</b>`,
+        `• ترتيبك بالمتفاعلين ↢ <b>${rank}</b>${total ? ` من <b>${total}</b>` : ''}`,
+      ];
+      await ctx.reply(lines.join('\n')).catch(() => undefined);
     });
 
     bot.command('levels', async (ctx) => {

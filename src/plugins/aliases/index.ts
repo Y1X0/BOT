@@ -46,6 +46,7 @@ const ALIASES: Alias[] = [
   { command: 'dare', triggers: ['تحدي', 'تحديني'] },
   { command: 'wyr', triggers: ['لو خيروك'] },
   { command: 'rank', triggers: ['نقاطي', 'مستواي', 'رتبتي', 'خبرتي'] },
+  { command: 'interaction', triggers: ['تفاعلي', 'تفاعلاتي', 'تفاعلك'] },
   { command: 'levels', triggers: ['المستويات', 'توب المستويات'] },
   { command: 'balance', triggers: ['رصيدي', 'رصيد', 'فلوسي'] },
   { command: 'daily', triggers: ['يومي', 'مكافاتي', 'المكافاه', 'مكافاه'] },

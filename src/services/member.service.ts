@@ -135,6 +135,21 @@ export async function memberCount(chatId: number | bigint): Promise<number> {
   return prisma.member.count({ where: { chatId: BigInt(chatId) } });
 }
 
+/** A member's message count, their 1-based rank among the chat's members (by
+ *  message count), and how many members there are. */
+export async function messageRank(
+  chatId: number | bigint,
+  userId: number | bigint,
+): Promise<{ messages: number; rank: number; total: number }> {
+  const me = await getMember(chatId, userId).catch(() => null);
+  const messages = me?.messageCount ?? 0;
+  const [ahead, total] = await Promise.all([
+    prisma.member.count({ where: { chatId: BigInt(chatId), messageCount: { gt: messages } } }),
+    prisma.member.count({ where: { chatId: BigInt(chatId) } }),
+  ]);
+  return { messages, rank: ahead + 1, total };
+}
+
 export async function totalMessages(chatId: number | bigint): Promise<number> {
   const agg = await prisma.member.aggregate({
     where: { chatId: BigInt(chatId) },
