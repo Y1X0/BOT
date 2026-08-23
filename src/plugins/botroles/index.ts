@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole, invalidateRole, resolveUserRole, canActOn, isBotOwner, type Role } from '../../utils/permissions';
+import { requireRole, invalidateRole, resolveUserRole, canActOn, hasRole, type Role } from '../../utils/permissions';
 import { resolveTarget, displayName } from '../../utils/format';
 import { setChatRole, removeChatRole, listChatRoles, getChatRole, type AssignableRole } from '../../services/roles.service';
 import { prisma } from '../../core/database';
@@ -11,30 +11,31 @@ const isGroup = (ctx: BotContext) => ctx.chat && (ctx.chat.type === 'group' || c
 
 /** Human badge for each rank, used in confirmations and the /roles list. */
 const BADGE: Record<string, string> = {
-  owner: '👑 مالك',
-  supervisor: '🛡 مشرف',
+  founder: '👑 مالك أساسي',
+  owner: '⭐ مالك',
   manager: '🔰 مدير',
-  admin: '⭐ أدمن',
+  admin: '🛡 أدمن',
   vip: '💎 مميز',
   member: '👤 عضو',
 };
 
 // Assignable ranks, strongest first, for the /roles list ordering.
-const RANK_ORDER: Record<string, number> = { supervisor: 0, manager: 1, admin: 2, vip: 3 };
+const RANK_ORDER: Record<string, number> = { owner: 0, manager: 1, admin: 2, vip: 3 };
 
 /**
- * Custom bot ranks (رتب البوت) — a single hierarchy independent of Telegram's
- * own admin, though a Telegram admin counts as 🛡 مشرف and the creator as 👑 مالك.
+ * In-bot ranks (رتب البوت). The hierarchy, high→low:
+ *   👑 مالك أساسي (founder = creator + OWNER_IDS) > ⭐ مالك (owner) >
+ *   🔰 مدير (manager) > 🛡 أدمن (admin, = a Telegram admin too) > 💎 مميز (vip) > عضو.
  * Rules: you can only grant a rank BELOW yours, and only to someone currently
  * below you; nobody can outrank or act on an equal-or-higher member.
  */
 export const botRolesPlugin: Plugin = {
   name: 'botroles',
-  description: 'Unified in-bot ranks (supervisor/manager/admin/vip) assignable by reply',
+  description: 'In-bot ranks (owner/manager/admin/vip) assignable by reply',
   commands: [
-    { command: 'rmod', description: '🛡 رفع مشرف (بالرد)', staffOnly: true },
+    { command: 'rowner', description: '⭐ رفع مالك (بالرد)', staffOnly: true },
     { command: 'rmanager', description: '🔰 رفع مدير (بالرد)', staffOnly: true },
-    { command: 'radmin', description: '⭐ رفع أدمن (بالرد)', staffOnly: true },
+    { command: 'radmin', description: '🛡 رفع أدمن (بالرد)', staffOnly: true },
     { command: 'rvip', description: '💎 رفع مميّز (بالرد)', staffOnly: true },
     { command: 'unrank', description: '🗑 تنزيل الرتبة (بالرد)', staffOnly: true },
     { command: 'roles', description: '📋 مين المشرفين والرتب بالجروب' },
@@ -64,8 +65,8 @@ export const botRolesPlugin: Plugin = {
       await ctx.reply(`✅ صار ${name} الآن ${BADGE[role]} بهالجروب.\nالرتبة محفوظة بالبوت وبتعطيه صلاحياته حتى لو مش أدمن بتيليجرام.`);
     };
 
-    bot.command('rmod', requireRole('owner'), assign('supervisor')); // only the owner promotes a مشرف
-    bot.command('rmanager', requireRole('supervisor'), assign('manager'));
+    bot.command('rowner', requireRole('founder'), assign('owner')); // only the founder promotes an owner
+    bot.command('rmanager', requireRole('owner'), assign('manager'));
     bot.command('radmin', requireRole('manager'), assign('admin'));
     bot.command('rvip', requireRole('manager'), assign('vip'));
 
@@ -98,8 +99,8 @@ export const botRolesPlugin: Plugin = {
         const admins = await ctx.telegram.getChatAdministrators(ctx.chat.id);
         for (const a of admins) {
           if (a.user.is_bot) continue;
-          if (a.status === 'creator') creatorLine = `👑 المالك: ${displayName(a.user)}`;
-          else tgAdmins.push(`⭐ ${displayName(a.user)}`);
+          if (a.status === 'creator') creatorLine = `👑 المالك الأساسي: ${displayName(a.user)}`;
+          else tgAdmins.push(`🛡 ${displayName(a.user)}`);
         }
       } catch {
         /* member-list may be unavailable — show whatever we can */
@@ -118,7 +119,7 @@ export const botRolesPlugin: Plugin = {
       parts.push(
         botLines.length
           ? `\n🔰 رتب البوت (${botLines.length}):\n${botLines.join('\n')}`
-          : '\n🔰 رتب البوت: ما في. للتعيين ردّ على العضو واكتب «رفع مشرف/مدير/ادمن/مميز».',
+          : '\n🔰 رتب البوت: ما في. للتعيين ردّ على العضو واكتب «رفع مالك/مدير/ادمن/مميز».',
       );
       await ctx.reply(parts.join('\n'));
     });
@@ -127,8 +128,9 @@ export const botRolesPlugin: Plugin = {
     // ranks are being lost. Reply to someone to inspect them; else the sender.
     bot.command('rolesdiag', async (ctx) => {
       if (!isGroup(ctx) || !ctx.chat) return;
-      if (!ctx.from || !isBotOwner(ctx.from.id)) return;
+      if (!hasRole(ctx.state.role ?? 'member', 'founder')) return;
       const target = resolveTarget(ctx) ?? ctx.from;
+      if (!target) return;
 
       // Raw Telegram status.
       let tgStatus = 'غير معروف';

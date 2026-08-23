@@ -3,7 +3,7 @@ import { hasRole, isBotOwner, canActOn, rankOf, ROLES } from '../src/utils/permi
 
 describe('permissions — unified 6-tier hierarchy', () => {
   it('has exactly the six roles, ordered high→low', () => {
-    expect([...ROLES]).toEqual(['owner', 'supervisor', 'manager', 'admin', 'vip', 'member']);
+    expect([...ROLES]).toEqual(['founder', 'owner', 'manager', 'admin', 'vip', 'member']);
   });
 
   it('ranks are strictly descending down the list', () => {
@@ -12,8 +12,8 @@ describe('permissions — unified 6-tier hierarchy', () => {
     }
   });
 
-  it('owner outranks everyone', () => {
-    for (const r of ROLES) if (r !== 'owner') expect(hasRole('owner', r)).toBe(true);
+  it('founder outranks everyone', () => {
+    for (const r of ROLES) if (r !== 'founder') expect(hasRole('founder', r)).toBe(true);
   });
 
   it('a role satisfies its own level and everything below', () => {
@@ -27,12 +27,24 @@ describe('permissions — unified 6-tier hierarchy', () => {
     expect(hasRole('member', 'vip')).toBe(false);
     expect(hasRole('member', 'admin')).toBe(false);
   });
+
+  it('founder/owner sit above manager (the new two-tier top)', () => {
+    expect(hasRole('founder', 'owner')).toBe(true);
+    expect(hasRole('owner', 'manager')).toBe(true);
+    expect(hasRole('owner', 'founder')).toBe(false); // owner is NOT the founder
+    expect(hasRole('manager', 'owner')).toBe(false);
+  });
+
+  it('a Telegram admin (→ admin rank) can moderate but not manage ranks', () => {
+    expect(hasRole('admin', 'admin')).toBe(true); // daily moderation gate
+    expect(hasRole('admin', 'manager')).toBe(false); // settings/rank gate
+  });
 });
 
 describe('canActOn — nobody acts on equal or higher rank', () => {
   it('acts only strictly downward', () => {
-    expect(canActOn('owner', 'supervisor')).toBe(true);
-    expect(canActOn('supervisor', 'manager')).toBe(true);
+    expect(canActOn('founder', 'owner')).toBe(true);
+    expect(canActOn('owner', 'manager')).toBe(true);
     expect(canActOn('manager', 'admin')).toBe(true);
     expect(canActOn('admin', 'vip')).toBe(true);
     expect(canActOn('admin', 'member')).toBe(true);
@@ -41,13 +53,26 @@ describe('canActOn — nobody acts on equal or higher rank', () => {
   it('refuses equal rank', () => {
     expect(canActOn('admin', 'admin')).toBe(false);
     expect(canActOn('manager', 'manager')).toBe(false);
-    expect(canActOn('owner', 'owner')).toBe(false);
+    expect(canActOn('founder', 'founder')).toBe(false);
   });
 
   it('refuses acting upward', () => {
     expect(canActOn('admin', 'manager')).toBe(false);
     expect(canActOn('vip', 'admin')).toBe(false);
     expect(canActOn('manager', 'owner')).toBe(false);
+  });
+});
+
+describe('punishment shield — only plain members can be punished', () => {
+  // mute/kick/ban/restrict/tmute/tban refuse when rankOf(target) >= rankOf('vip').
+  const shielded = (r: Parameters<typeof rankOf>[0]) => rankOf(r) >= rankOf('vip');
+  it('protects every rank-holder from punishment', () => {
+    for (const r of ['vip', 'admin', 'manager', 'owner', 'founder'] as const) {
+      expect(shielded(r)).toBe(true);
+    }
+  });
+  it('leaves plain members punishable', () => {
+    expect(shielded('member')).toBe(false);
   });
 });
 

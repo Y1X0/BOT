@@ -632,7 +632,7 @@ export const musicPlugin: Plugin = {
     // ايموجي عام — set the card emojis for the WHOLE bot. Reply to a message that
     // contains the emoji (the reliable way for premium ones). Owner only; a
     // per-group /vccard still overrides this. No reply → reset to defaults.
-    bot.command('vccardall', requireRole('owner'), async (ctx) => {
+    bot.command('vccardall', requireRole('founder'), async (ctx) => {
       const replied = (ctx.message as { reply_to_message?: RepliedMsg }).reply_to_message;
       if (!replied) {
         await setGlobalVcCardEmoji(null);
@@ -650,7 +650,7 @@ export const musicPlugin: Plugin = {
     // مميز — upgrade a normal emoji to premium across ALL bot messages. Send (or
     // reply to a message with) the premium emoji; its plain fallback glyph is
     // mapped to it everywhere. Owner only. "مميز مسح" clears the whole map.
-    bot.command('premiumemoji', requireRole('owner'), async (ctx) => {
+    bot.command('premiumemoji', requireRole('founder'), async (ctx) => {
       const replied = (ctx.message as { reply_to_message?: RepliedMsg }).reply_to_message;
       const text = replied ? repliedText(replied) : ctx.message.text;
       const ents = replied ? repliedEntities(replied) : (ctx.message as { entities?: Entity[] }).entities;

@@ -23,16 +23,40 @@ export async function migrateRolesV2(): Promise<void> {
   }
 }
 
-/** Custom bot ranks assignable via commands (never 'owner'/'member' — those are inherent). */
-export const ASSIGNABLE_ROLES = ['supervisor', 'manager', 'admin', 'vip'] as const;
+/**
+ * One-time migration to the founder/owner model (supervisor removed):
+ *   supervisor → manager,  then delete any row whose role isn't assignable now.
+ * Idempotent enough to retry: converting an already-gone 'supervisor' is a no-op,
+ * and the delete only removes junk values.
+ */
+export async function migrateRolesV3(): Promise<void> {
+  if (await getGlobal('rolesMigratedV3')) return;
+  try {
+    const s = await prisma.chatRole.updateMany({ where: { role: 'supervisor' }, data: { role: 'manager' } });
+    const d = await prisma.chatRole.deleteMany({ where: { role: { notIn: [...ASSIGNABLE_ROLES] } } });
+    await setGlobal('rolesMigratedV3', '1');
+    log.info({ supervisorToManager: s.count, deletedInvalid: d.count }, 'roles migrated to v3');
+  } catch (err) {
+    log.error({ err }, 'roles v3 migration failed — will retry next start');
+  }
+}
+
+/** Custom bot ranks assignable via commands (never 'founder'/'member' — those are inherent). */
+export const ASSIGNABLE_ROLES = ['owner', 'manager', 'admin', 'vip'] as const;
 export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
-/** The bot-internal rank a user holds in a chat, or null if none assigned. */
+/** Valid stored role values — a stored rank outside this set is treated as none. */
+const VALID_STORED = new Set<string>(ASSIGNABLE_ROLES);
+
+/** The bot-internal rank a user holds in a chat, or null if none assigned.
+ *  A stored value outside the current model (e.g. a legacy 'supervisor' not yet
+ *  migrated) is treated as null so it never leaks into permission checks. */
 export async function getChatRole(chatId: number | bigint, userId: number | bigint): Promise<Role | null> {
   const row = await prisma.chatRole
     .findUnique({ where: { chatId_userId: { chatId: BigInt(chatId), userId: BigInt(userId) } } })
     .catch(() => null);
-  return (row?.role as Role) ?? null;
+  if (!row || !VALID_STORED.has(row.role)) return null;
+  return row.role as Role;
 }
 
 export async function setChatRole(

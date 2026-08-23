@@ -28,7 +28,8 @@ describe('Arabic command aliases', () => {
     // "رفع <رتبة>" belongs to the unified bot-rank system now.
     expect(matchAlias('رفع ادمن')).toBe('/radmin');
     expect(matchAlias('رفع مدير')).toBe('/rmanager');
-    expect(matchAlias('رفع مشرف')).toBe('/rmod');
+    expect(matchAlias('رفع مالك')).toBe('/rowner');
+    expect(matchAlias('رفع مشرف')).toBe('/radmin'); // legacy phrase → أدمن
     expect(matchAlias('رفع مميز')).toBe('/rvip');
     expect(matchAlias('تنزيل')).toBe('/unrank');
     expect(matchAlias('كتم')).toBe('/mute');

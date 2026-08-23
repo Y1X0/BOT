@@ -2,10 +2,10 @@
 
 /** Group-status label from the member's role and activity (fun tiers). */
 export function statLabel(role: string, messageCount: number): string {
-  if (role === 'owner') return 'المالك 👑';
-  if (role === 'supervisor') return 'مشرف 🛡';
+  if (role === 'founder') return 'المالك الأساسي 👑';
+  if (role === 'owner') return 'المالك ⭐';
   if (role === 'manager') return 'مدير 🔰';
-  if (role === 'admin') return 'أدمن ⭐';
+  if (role === 'admin') return 'أدمن 🛡';
   if (role === 'vip') return 'عضو مميّز 💎';
   if (messageCount >= 5000) return 'أسطورة الجروب 🐉';
   if (messageCount >= 2000) return 'عضو محترف 💪';

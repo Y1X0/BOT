@@ -100,11 +100,11 @@ const ALIASES: Alias[] = [
   // now belong to the bot-rank system below).
   { command: 'promote', triggers: ['ترقيه', 'ترقية', 'رفع تيليجرام'] },
   { command: 'demote', triggers: ['تنزيل تيليجرام', 'تنزيل ترقية'] },
-  // Unified bot ranks — "رفع <رتبة>" (by reply). The rank word decides.
+  // In-bot ranks — "رفع <رتبة>" (by reply). The rank word decides.
   { command: 'rvip', triggers: ['رفع مميز', 'رتبة مميز', 'رتبه مميز'] },
-  { command: 'radmin', triggers: ['رفع ادمن', 'رفع ادمن بوت', 'رتبة ادمن', 'رتبه ادمن'] },
+  { command: 'radmin', triggers: ['رفع ادمن', 'رفع ادمن بوت', 'رتبة ادمن', 'رتبه ادمن', 'رفع مشرف', 'رفع مشرف بوت', 'رتبة مشرف', 'رتبه مشرف'] },
   { command: 'rmanager', triggers: ['رفع مدير', 'رتبة مدير', 'رتبه مدير', 'مدير بوت'] },
-  { command: 'rmod', triggers: ['رفع مشرف', 'رفع مشرف بوت', 'رتبة مشرف', 'رتبه مشرف'] },
+  { command: 'rowner', triggers: ['رفع مالك', 'رتبة مالك', 'رتبه مالك', 'مالك بوت'] },
   { command: 'unrank', triggers: ['تنزيل', 'تنزيل رتبه', 'شيل رتبه', 'شيل الرتبه', 'حذف رتبه', 'سحب رتبه', 'ازالة رتبه'] },
   { command: 'roles', triggers: ['الرتب', 'رتب البوت', 'قائمه الرتب', 'رتب الاداره', 'مشرفين البوت'] },
   { command: 'setreply', triggers: ['رد مميز', 'احفظ رد مميز', 'حفظ رد مميز', 'رد بايموجي'] },
@@ -281,7 +281,7 @@ const REPLY_ONLY_COMMANDS = new Set([
   '/kick',
   '/radmin',
   '/rmanager',
-  '/rmod',
+  '/rowner',
   '/rvip',
   '/unrank',
   '/setreply',

@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole, resolveUserRole, canActOn, type Role } from '../../utils/permissions';
+import { requireRole, resolveUserRole, canActOn, rankOf, type Role } from '../../utils/permissions';
 import {
   addWarning,
   countWarnings,
@@ -115,7 +115,7 @@ export const moderationPlugin: Plugin = {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply('⏳ ردّ على العضو واكتب المدة. مثال: /tmute 30m');
-      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
+      { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
       const until = Math.floor(Date.now() / 1000) + secs;
@@ -130,7 +130,7 @@ export const moderationPlugin: Plugin = {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply('⏳ ردّ على العضو واكتب المدة. مثال: /tban 2h');
-      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
+      { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
       const until = Math.floor(Date.now() / 1000) + secs;
@@ -206,7 +206,7 @@ export const moderationPlugin: Plugin = {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply('🔗 ردّ على العضو الذي تريد تقييده.');
-      if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
+      { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       const until = secs ? Math.floor(Date.now() / 1000) + secs : undefined;
       const ok = await ctx.telegram
@@ -282,16 +282,11 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
     const target = resolveTarget(ctx);
     if (!target) return void ctx.reply(t('mod.need_reply'));
 
-    // Rank guard — tell the actor EXACTLY why they can't act (the target's real
-    // rank), instead of a vague "can't target an admin".
-    if (kind !== 'unban' && kind !== 'unmute') {
-      const actor: Role = ctx.state.role ?? 'member';
-      const targetRole = await resolveUserRole(ctx, target.id);
-      if (!canActOn(actor, targetRole)) {
-        return void ctx.reply(
-          `⛔️ ما بتقدر تطبّق هذا على ${targetName(target)} — رتبته (${roleBadge(targetRole)}) مساوية أو أعلى من رتبتك (${roleBadge(actor)}).`,
-        );
-      }
+    // Punishment shield — mute/kick/ban only ever hit plain members; any
+    // rank-holder is immune (un-actions unmute/unban are exempt from the shield).
+    if (kind === 'mute' || kind === 'kick' || kind === 'ban') {
+      const blocked = await punishBlocked(ctx, target);
+      if (blocked) return void ctx.reply(blocked);
     }
 
     let ok = false;
@@ -321,10 +316,10 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
 
 /** Rank badges for clear rejection messages. */
 const ROLE_BADGE: Record<string, string> = {
-  owner: '👑 مالك',
-  supervisor: '🛡 مشرف',
+  founder: '👑 مالك أساسي',
+  owner: '⭐ مالك',
   manager: '🔰 مدير',
-  admin: '⭐ أدمن',
+  admin: '🛡 أدمن',
   vip: '💎 مميز',
   member: '👤 عضو',
 };
@@ -333,12 +328,29 @@ const targetName = (u: { first_name?: string; username?: string }): string =>
   u.first_name || (u.username ? `@${u.username}` : 'الشخص');
 
 /** True if the sender may NOT act on the target: nobody can moderate someone of
- *  equal or higher rank (a Telegram admin counts as 🛡 مشرف, the creator as مالك). */
+ *  equal or higher rank (a Telegram admin counts as 🛡 أدمن, the creator as مالك أساسي). */
 async function isProtected(ctx: BotContext, userId: number): Promise<boolean> {
   if (!ctx.chat) return false;
   const actor: Role = ctx.state.role ?? 'member';
   const targetRole = await resolveUserRole(ctx, userId);
   return !canActOn(actor, targetRole);
+}
+
+/**
+ * Punishment shield: mute/kick/ban/restrict/tmute/tban can only target plain
+ * members. Anyone holding a rank (💎 مميّز and above) is immune — to discipline
+ * a rank-holder you must lower their rank first. Returns a rejection message, or
+ * null if the target may be punished.
+ */
+async function punishBlocked(
+  ctx: BotContext,
+  target: { id: number; first_name?: string; username?: string },
+): Promise<string | null> {
+  const targetRole = await resolveUserRole(ctx, target.id);
+  if (rankOf(targetRole) >= rankOf('vip')) {
+    return `🛡 ${targetName(target)} محمي برتبته (${roleBadge(targetRole)}) — أصحاب الرتب ما بينكتموا/بينطردوا/بينحظروا. نزّل رتبته الأول لو لازم.`;
+  }
+  return null;
 }
 
 /**

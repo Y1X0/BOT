@@ -3,16 +3,20 @@ import { env } from '../config/env';
 import { getChatRole } from '../services/roles.service';
 
 /** Role hierarchy, ordered from most to least privileged.
- *  owner 👑 > supervisor 🛡 > manager 🔰 > admin ⭐ > vip 💎 > member 👤 */
-export const ROLES = ['owner', 'supervisor', 'manager', 'admin', 'vip', 'member'] as const;
+ *  founder 👑 > owner ⭐ > manager 🔰 > admin 🛡 > vip 💎 > member 👤
+ *  - founder: the group creator + any id in OWNER_IDS (the absolute top).
+ *  - owner/manager/admin/vip: in-bot ranks granted via commands.
+ *  - admin: also what a Telegram administrator resolves to.
+ *  - member: everyone else. */
+export const ROLES = ['founder', 'owner', 'manager', 'admin', 'vip', 'member'] as const;
 export type Role = (typeof ROLES)[number];
 
 const RANK: Record<Role, number> = {
-  owner: 6,
-  supervisor: 5,
-  manager: 4,
-  admin: 3,
-  vip: 2,
+  founder: 5,
+  owner: 4,
+  manager: 3,
+  admin: 2,
+  vip: 1,
   member: 0,
 };
 
@@ -87,21 +91,21 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
   const chat = ctx.chat;
   if (!userId || !chat) return 'member';
 
-  if (isBotOwner(userId)) return 'owner';
+  if (isBotOwner(userId)) return 'founder';
 
   if (chat.type === 'private') return 'member';
 
   // Someone can post hidden, "as a channel". Two of those are admin-only and we
-  // trust them as manager-level so they can still moderate:
+  // trust them as admin-level so they can still moderate:
   //   • as the group itself (anonymous admin): sender_chat === this chat.
   //   • as the group's LINKED channel: sender_chat === linked_chat_id.
   // Any OTHER channel hides the real user entirely (Telegram gives no user id),
   // so it cannot be verified and stays a member.
   const senderChat = ctx.senderChat;
   if (senderChat) {
-    if (senderChat.id === chat.id) return 'supervisor';
+    if (senderChat.id === chat.id) return 'admin';
     const linkedId = await getLinkedChatId(ctx, chat.id);
-    if (linkedId && senderChat.id === linkedId) return 'supervisor';
+    if (linkedId && senderChat.id === linkedId) return 'admin';
   }
 
   const key = roleKey(chat.id, userId);
@@ -115,20 +119,20 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
     const member = await ctx.telegram.getChatMember(chat.id, userId);
     resolved = true;
     if (member.status === 'creator') isCreator = true;
-    // A real Telegram admin is trusted with supervisor-level bot powers: they can
-    // moderate everyone below them and promote managers/admins/vips. Only the
-    // group's creator (owner) sits above them.
-    else if (member.status === 'administrator') tgRole = 'supervisor';
+    // A Telegram admin resolves to the in-bot 🛡 admin rank (daily moderation).
+    // The group's creator is the 👑 founder above everyone.
+    else if (member.status === 'administrator') tgRole = 'admin';
   } catch {
     // getChatMember can fail right after the bot is added to a group. The admin
     // list is a more reliable source (one call covers everyone), so fall back to
     // it before giving up — otherwise a real admin is wrongly seen as a member.
+    // Unified with the primary path: an administrator → 'admin'.
     try {
       const admins = await ctx.telegram.getChatAdministrators(chat.id);
       const me = admins.find((a) => a.user?.id === Number(userId));
       resolved = true;
       if (me?.status === 'creator') isCreator = true;
-      else if (me) tgRole = 'manager';
+      else if (me) tgRole = 'admin';
     } catch {
       // Still unknown — treat as member for THIS message but don't cache it, so
       // the next message retries instead of being stuck denied for the full TTL.
@@ -140,7 +144,7 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
   // custom bot rank stored for this chat.
   let role: Role = tgRole;
   if (isCreator) {
-    role = 'owner';
+    role = 'founder';
   } else {
     const custom = await getChatRole(chat.id, userId).catch(() => null);
     if (custom && RANK[custom] > RANK[tgRole]) role = custom;
@@ -166,13 +170,13 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
 export async function resolveUserRole(ctx: BotContext, userId: number | bigint): Promise<Role> {
   const chat = ctx.chat;
   if (!chat || chat.type === 'private') return 'member';
-  if (isBotOwner(userId)) return 'owner';
+  if (isBotOwner(userId)) return 'founder';
 
   let tgRole: Role = 'member';
   try {
     const member = await ctx.telegram.getChatMember(chat.id, Number(userId));
-    if (member.status === 'creator') return 'owner';
-    if (member.status === 'administrator') tgRole = 'supervisor';
+    if (member.status === 'creator') return 'founder';
+    if (member.status === 'administrator') tgRole = 'admin';
   } catch {
     /* transient — fall through */
   }

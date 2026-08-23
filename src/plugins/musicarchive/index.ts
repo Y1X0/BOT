@@ -90,7 +90,7 @@ export const musicArchivePlugin: Plugin = {
       if (res?.indexed) log.info({ chatId }, 'archived channel audio');
     });
 
-    bot.command('archivecount', requireRole('owner'), async (ctx) => {
+    bot.command('archivecount', requireRole('founder'), async (ctx) => {
       const n = await archiveCount();
       await ctx.reply(`🗂 الأرشيف الصوتي: ${n} أغنية.`);
     });
@@ -98,7 +98,7 @@ export const musicArchivePlugin: Plugin = {
     // One-shot diagnostic: what version is live, is the archive channel set, can
     // the bot post there, how many songs are stored. Resolves "did the deploy
     // land / why isn't a song archived" without guessing.
-    bot.command('archivediag', requireRole('owner'), async (ctx) => {
+    bot.command('archivediag', requireRole('founder'), async (ctx) => {
       const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'غير معروف').slice(0, 8);
       const storage = env.MUSIC_STORAGE_CHANNEL_ID;
       const count = await archiveCount();
@@ -123,7 +123,7 @@ export const musicArchivePlugin: Plugin = {
 
     // Browse or search the archive: "/archivelist" → latest 20; "/archivelist نانسي"
     // → fuzzy matches. Lets the owner verify a song is stored.
-    bot.command('archivelist', requireRole('owner'), async (ctx) => {
+    bot.command('archivelist', requireRole('founder'), async (ctx) => {
       const q = ctx.message.text.split(' ').slice(1).join(' ').trim();
       const [list, total] = await Promise.all([archiveList(q || undefined, 20), archiveCount()]);
       if (!list.length) {
@@ -141,7 +141,7 @@ export const musicArchivePlugin: Plugin = {
     // streamer does the slow, ban-safe copying into the storage channel; the
     // bot's channel_post handler above then indexes each copied track. Progress
     // is relayed back through POST /import/progress.
-    bot.command('import', requireRole('owner'), async (ctx) => {
+    bot.command('import', requireRole('founder'), async (ctx) => {
       if (!STREAMER_URL)
         return void ctx.reply('🎧 خدمة البث مش مفعّلة (STREAMER_URL). الاستيراد يحتاجها.');
       if (!env.MUSIC_STORAGE_CHANNEL_ID)
@@ -170,7 +170,7 @@ export const musicArchivePlugin: Plugin = {
       }
     });
 
-    bot.command('importstop', requireRole('owner'), async (ctx) => {
+    bot.command('importstop', requireRole('founder'), async (ctx) => {
       if (!STREAMER_URL) return void ctx.reply('🎧 خدمة البث مش مفعّلة.');
       const r = await callStreamer('/importstop', {});
       await ctx.reply(r?.ok ? '🛑 طلبت إيقاف الاستيراد.' : '⚠️ تعذّر إيقاف الاستيراد.');

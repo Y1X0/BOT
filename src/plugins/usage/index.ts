@@ -12,7 +12,7 @@ export const usagePlugin: Plugin = {
   commands: [{ command: 'cmdstats', description: '📊 أكثر الأوامر استخداماً (مالك)', staffOnly: true }],
 
   register(bot: Telegraf<BotContext>) {
-    bot.command('cmdstats', requireRole('owner'), async (ctx) => {
+    bot.command('cmdstats', requireRole('founder'), async (ctx) => {
       await flushUsage().catch(() => undefined); // persist the current in-memory buffer first
       const top = await getTopCommands(30);
       if (!top.length) return void ctx.reply('📊 ما في بيانات استخدام بعد. استنى لما الناس تستخدم الأوامر.');
