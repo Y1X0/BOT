@@ -59,7 +59,8 @@ export const botRolesPlugin: Plugin = {
       const name = displayName(target);
       await setChatRole(ctx.chat.id, target.id, role, name, ctx.from?.id ?? null);
       invalidateRole(ctx.chat.id, target.id);
-      await ctx.reply(`✅ صار ${name} الآن ${BADGE[role]} بهالجروب.\nالرتبة محفوظة بالبوت وبتعطيه صلاحياته حتى لو مش أدمن بتيليجرام.`);
+      const men = mention({ id: target.id, first_name: name }).toString();
+      await ctx.reply(`✦ 🎖 تم رفع ${men} إلى <b>${BADGE[role]}</b> ✦`);
     };
 
     bot.command('rowner', requireRole('founder'), assign('owner')); // only the founder promotes an owner
@@ -78,10 +79,11 @@ export const botRolesPlugin: Plugin = {
       }
       const removed = await removeChatRole(ctx.chat.id, target.id);
       invalidateRole(ctx.chat.id, target.id);
+      const men = mention({ id: target.id, first_name: displayName(target) }).toString();
       await ctx.reply(
         removed
-          ? `🗑 تم تنزيل رتبة ${displayName(target)} بهالجروب.`
-          : `ℹ️ ${displayName(target)} ما عنده رتبة بوت أصلاً.`,
+          ? `✦ 🗑 تم تنزيل ${men} من رتبته ✦`
+          : `ℹ️ ${men} ما عنده رتبة بوت أصلاً.`,
       );
     });
 
