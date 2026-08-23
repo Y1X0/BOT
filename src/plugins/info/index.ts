@@ -14,12 +14,21 @@ import { getGlobalIdCard, setGlobalIdCard } from '../../services/global.service'
 import { renderIdCardImage, renderIdCardVideo, getLastVideoError, resolveCardTheme, CARD_THEMES } from '../../services/idcard/image';
 import { fontDiagnostics } from '../../services/idcard/canvas';
 import { getCard, setCard, clearCard, getAvatar, setAvatar } from '../../services/idcard/cache';
-import { hasRole, requireRole, isBotOwner, type Role } from '../../utils/permissions';
-import { rankForLevel } from '../ranks/logic';
+import { hasRole, requireRole, isBotOwner, resolveUserRole, type Role } from '../../utils/permissions';
 import { statLabel, interactionLabel, renderIdCard, DEFAULT_ID_CARD, ID_PLACEHOLDERS, type Entity } from './card';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:info');
+
+/** Rank-pill label per group role (shown on the id card under the username). */
+const ROLE_PILL: Record<string, string> = {
+  founder: '👑 مالك أساسي',
+  owner: '⭐ مالك',
+  manager: '🔰 مدير',
+  admin: '🛡 أدمن',
+  vip: '💎 مميّز',
+  member: '😊 عضو',
+};
 
 export const infoPlugin: Plugin = {
   name: 'info',
@@ -458,12 +467,16 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
     }),
   ]);
 
-  let role = target.is_bot ? 'member' : member?.role ?? 'member';
-  // A custom bot rank overrides the stored member role when it's stronger.
-  if (custom && hasRole(custom, role as Role)) role = custom;
+  // The person's REAL group role: Telegram admin/creator + any in-bot rank
+  // (resolveUserRole), taking whichever is strongest with a legacy stored role.
+  let role: Role = target.is_bot ? 'member' : (member?.role as Role | undefined) ?? 'member';
+  if (custom && hasRole(custom, role)) role = custom;
+  if (!target.is_bot) {
+    const resolved = await resolveUserRole(ctx, target.id).catch(() => role);
+    if (hasRole(resolved, role)) role = resolved;
+  }
   const messageCount = member?.messageCount ?? 0;
   const level = member?.level ?? 0;
-  const rankInfo = rankForLevel(level);
   const stats = target.is_bot ? 'بوت 🤖' : statLabel(role, messageCount);
   const interaction = target.is_bot ? 'بوت 🤖' : interactionLabel(messageCount);
   const joined = member?.joinedAt ? new Date(member.joinedAt).toLocaleDateString('ar') : '—';
@@ -480,7 +493,8 @@ async function sendUserInfo(ctx: BotContext, target: TargetUser): Promise<void> 
     level: String(level),
     xp: String(member?.xp ?? 0),
     messages: String(messageCount),
-    rank: `${rankInfo.emoji} ${rankInfo.name}`,
+    // The rank pill = the member's actual group role (عضو/أدمن/مدير/مالك…).
+    rank: target.is_bot ? '🤖 بوت' : ROLE_PILL[role] ?? ROLE_PILL.member,
     joined,
   };
 
