@@ -7,6 +7,7 @@ import { createLogger } from '../../core/logger';
 import { youtubeQueue } from '../../services/youtube/queue';
 import { scSearch, scDownload, type ScItem } from '../../services/soundcloud';
 import { archiveSearch, indexAudio } from '../../services/archive';
+import { env } from '../../config/env';
 
 const log = createLogger('plugin:soundcloud');
 const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024; // ~50MB bot upload cap
@@ -80,7 +81,15 @@ function enqueueDownloadAndSend(
         // Dynamic cache: remember this file_id so the next request for the same
         // song is served instantly, no re-download.
         const fid = (sent as { audio?: { file_id?: string; duration?: number } }).audio;
-        if (fid?.file_id) void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache' });
+        if (fid?.file_id) {
+          void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache' });
+          // Also drop a copy into the archive channel so it's stored there too
+          // (reuses the file_id — no re-upload). The channel indexer dedups it.
+          if (env.MUSIC_STORAGE_CHANNEL_ID)
+            void telegram
+              .sendAudio(env.MUSIC_STORAGE_CHANNEL_ID, fid.file_id, { title: dl.title, caption: `🎵 ${dl.title}` })
+              .catch(() => undefined);
+        }
         if (cleanupMsgId != null) await telegram.deleteMessage(chatId, cleanupMsgId).catch(() => undefined);
       } catch (err) {
         log.error({ err }, 'soundcloud send failed');
