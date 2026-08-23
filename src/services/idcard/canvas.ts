@@ -624,18 +624,33 @@ async function loadOwnerAvatar(uri?: string): Promise<Avatar | null> {
 function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | null, phase: number): void {
   const cx = OW / 2;
 
+  // Animation clock. `anim` gates every moving element; `ph` (0..1) drives them
+  // and every element loops seamlessly (sin/cos of ph·TAU, or a full-circle
+  // rotation) so the short MP4 repeats without a visible jump.
+  const TAU = Math.PI * 2;
+  const anim = phase >= 0;
+  const ph = anim ? phase : 0;
+  // A 0→1→0 easing over the loop (0 at both ends, 1 at the middle) for zoom
+  // pulses that start and finish exactly matched.
+  const pulse = 0.5 - 0.5 * Math.cos(ph * TAU);
+
   // Opaque backdrop.
   ctx.fillStyle = '#0d0a12';
   ctx.fillRect(0, 0, OW, OH);
 
-  // Background: darkened avatar cover if present, else deep gradient.
+  // Background: darkened avatar cover if present, else deep gradient. When
+  // animating, the photo slowly zooms and drifts (a cinematic Ken-Burns move);
+  // extra overscan (×1.24) hides the panned edges.
   if (avatar) {
-    const scale = Math.max(OW / avatar.width, OH / avatar.height) * 1.15;
+    const zoom = 1.24 * (1 + (anim ? 0.1 * pulse : 0));
+    const scale = Math.max(OW / avatar.width, OH / avatar.height) * zoom;
     const dw = avatar.width * scale;
     const dh = avatar.height * scale;
+    const panX = anim ? Math.sin(ph * TAU) * 22 : 0;
+    const panY = anim ? (Math.cos(ph * TAU) - 1) * 14 : 0;
     ctx.save();
     ctx.filter = 'blur(2px)';
-    ctx.drawImage(avatar, (OW - dw) / 2, (OH - dh) / 2, dw, dh);
+    ctx.drawImage(avatar, (OW - dw) / 2 + panX, (OH - dh) / 2 + panY, dw, dh);
     ctx.restore();
   }
   const bg = ctx.createLinearGradient(0, 0, OW, OH);
@@ -645,18 +660,11 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, OW, OH);
 
-  // Animation clock. `anim` gates every moving element; `ph` (0..1) drives them
-  // and every element loops seamlessly (sin/cos of ph·TAU, or a full-circle
-  // rotation) so the short MP4 repeats without a visible jump.
-  const TAU = Math.PI * 2;
-  const anim = phase >= 0;
-  const ph = anim ? phase : 0;
-
   // Gold halo behind the crown/avatar — breathes brighter and back.
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   const halo = ctx.createRadialGradient(cx, 165, 20, cx, 165, 320);
-  const haloA = 0.18 + (anim ? Math.sin(ph * TAU) * 0.1 : 0);
+  const haloA = 0.2 + (anim ? Math.sin(ph * TAU) * 0.15 : 0);
   halo.addColorStop(0, hexRgba(GOLD, Math.max(0.06, haloA)));
   halo.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = halo;
@@ -682,10 +690,10 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   ctx.font = EMOJI(40);
   ctx.save();
   if (anim) {
-    ctx.shadowColor = hexRgba(GOLD, 0.6 + Math.sin(ph * TAU) * 0.35);
-    ctx.shadowBlur = 14 + Math.sin(ph * TAU) * 8;
+    ctx.shadowColor = hexRgba(GOLD, 0.65 + Math.sin(ph * TAU) * 0.35);
+    ctx.shadowBlur = 16 + Math.sin(ph * TAU) * 12;
   }
-  ctx.fillText('👑', cx, 68 + (anim ? Math.sin(ph * TAU) * 3 : 0));
+  ctx.fillText('👑', cx, 68 + (anim ? Math.sin(ph * TAU) * 5 : 0));
   ctx.restore();
   // Elegant English eyebrow.
   ctx.fillStyle = hexRgba(GOLD, 0.92);
@@ -701,7 +709,13 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   ctx.closePath();
   ctx.clip();
   if (avatar) {
-    ctx.drawImage(avatar, cx - ar, acy - ar, ar * 2, ar * 2);
+    // Breathing zoom + tiny drift on the face (offset phase from the background
+    // so the two don't pulse in lockstep). The clip keeps it a perfect circle.
+    const mz = 1 + (anim ? 0.09 * (0.5 - 0.5 * Math.cos(ph * TAU + Math.PI)) : 0);
+    const sz = ar * 2 * mz;
+    const mdx = anim ? Math.sin(ph * TAU) * 5 : 0;
+    const mdy = anim ? Math.cos(ph * TAU) * 4 : 0;
+    ctx.drawImage(avatar, cx - sz / 2 + mdx, acy - sz / 2 + mdy, sz, sz);
   } else {
     const g = ctx.createLinearGradient(cx - ar, acy - ar, cx + ar, acy + ar);
     g.addColorStop(0, '#2a2350');
@@ -743,19 +757,21 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
     ctx.fillRect(-2.6, -2.6, 5.2, 5.2);
     ctx.restore();
   }
-  // A bright comet sweeps once around the medallion per loop.
+  // Two bright comets sweep around the medallion per loop (opposite sides),
+  // with a long glowing tail.
   if (anim) {
-    const a0 = ph * TAU;
     ctx.save();
     ctx.shadowColor = GOLD;
-    ctx.shadowBlur = 12;
-    for (let s = 0; s < 8; s++) {
-      const a = a0 - s * 0.09;
-      ctx.beginPath();
-      ctx.arc(cx, acy, ar + 9, a, a + 0.06);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = hexRgba(GOLD_HI, 0.9 - s * 0.11);
-      ctx.stroke();
+    ctx.shadowBlur = 16;
+    for (const base of [ph * TAU, ph * TAU + Math.PI]) {
+      for (let s = 0; s < 13; s++) {
+        const a = base - s * 0.08;
+        ctx.beginPath();
+        ctx.arc(cx, acy, ar + 9, a, a + 0.06);
+        ctx.lineWidth = 3.4;
+        ctx.strokeStyle = hexRgba(GOLD_HI, 0.95 - s * 0.07);
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -787,7 +803,7 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   ctx.shadowColor = hexRgba(GOLD, 0.6);
   ctx.shadowBlur = 14;
   // A bright gold band glides left↔right across the name (a live shimmer).
-  const shimmer = anim ? 0.5 + Math.sin(ph * TAU) * 0.33 : 0.5;
+  const shimmer = anim ? 0.5 + Math.sin(ph * TAU) * 0.42 : 0.5;
   for (const line of fit.lines) {
     const w = Math.min(ctx.measureText(line).width, maxNameW);
     const ng = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
@@ -900,12 +916,14 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   if (anim) {
     const spark = (x: number, y: number, base: number, off: number) => {
       const tw2 = 0.5 + 0.5 * Math.sin((ph + off) * TAU); // 0..1
-      const s = base * (0.35 + tw2 * 0.65);
-      const a = 0.25 + tw2 * 0.75;
+      const s = base * (0.3 + tw2 * 0.9);
+      const a = 0.3 + tw2 * 0.7;
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
+      ctx.shadowColor = hexRgba(GOLD, a);
+      ctx.shadowBlur = 6 * tw2;
       ctx.strokeStyle = hexRgba(GOLD_HI, a);
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = 1.7;
       ctx.beginPath();
       ctx.moveTo(x - s, y); ctx.lineTo(x + s, y);
       ctx.moveTo(x, y - s); ctx.lineTo(x, y + s);
@@ -915,10 +933,11 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
       ctx.restore();
     };
     const pts: [number, number, number, number][] = [
-      [cx - 74, 56, 7, 0.0], [cx + 74, 60, 6, 0.5], [cx - 96, 150, 5, 0.2],
-      [cx + 96, 150, 6, 0.7], [cx - 118, 250, 5, 0.35], [cx + 118, 248, 7, 0.85],
-      [cx - 60, 300, 4, 0.15], [cx + 66, 302, 5, 0.6], [60, 470, 5, 0.45],
-      [OW - 60, 470, 6, 0.9], [70, 560, 4, 0.25], [OW - 70, 560, 5, 0.65],
+      [cx - 74, 56, 9, 0.0], [cx + 74, 60, 8, 0.5], [cx - 96, 150, 7, 0.2],
+      [cx + 96, 150, 8, 0.7], [cx - 118, 250, 7, 0.35], [cx + 118, 248, 9, 0.85],
+      [cx - 60, 300, 6, 0.15], [cx + 66, 302, 6, 0.6], [60, 470, 7, 0.45],
+      [OW - 60, 470, 8, 0.9], [70, 560, 6, 0.25], [OW - 70, 560, 7, 0.65],
+      [cx - 150, 340, 6, 0.1], [cx + 150, 340, 7, 0.55], [40, 300, 5, 0.4], [OW - 40, 300, 6, 0.8],
     ];
     for (const [x, y, b, o] of pts) spark(x, y, b, o);
   }
