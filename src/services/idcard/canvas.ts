@@ -645,11 +645,19 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, OW, OH);
 
-  // Gold halo behind the crown/avatar.
+  // Animation clock. `anim` gates every moving element; `ph` (0..1) drives them
+  // and every element loops seamlessly (sin/cos of ph·TAU, or a full-circle
+  // rotation) so the short MP4 repeats without a visible jump.
+  const TAU = Math.PI * 2;
+  const anim = phase >= 0;
+  const ph = anim ? phase : 0;
+
+  // Gold halo behind the crown/avatar — breathes brighter and back.
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   const halo = ctx.createRadialGradient(cx, 165, 20, cx, 165, 320);
-  halo.addColorStop(0, hexRgba(GOLD, 0.18));
+  const haloA = 0.18 + (anim ? Math.sin(ph * TAU) * 0.1 : 0);
+  halo.addColorStop(0, hexRgba(GOLD, Math.max(0.06, haloA)));
   halo.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = halo;
   ctx.fillRect(0, 0, OW, 400);
@@ -669,10 +677,16 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   cornerOrnament(ctx, 26, OH - 26, 1, -1, hexRgba(GOLD, 0.8));
   cornerOrnament(ctx, OW - 26, OH - 26, -1, -1, hexRgba(GOLD, 0.8));
 
-  // Crown header.
+  // Crown header — gently bobs up/down with a soft gold glow pulse.
   ctx.textAlign = 'center';
   ctx.font = EMOJI(40);
-  ctx.fillText('👑', cx, 68);
+  ctx.save();
+  if (anim) {
+    ctx.shadowColor = hexRgba(GOLD, 0.6 + Math.sin(ph * TAU) * 0.35);
+    ctx.shadowBlur = 14 + Math.sin(ph * TAU) * 8;
+  }
+  ctx.fillText('👑', cx, 68 + (anim ? Math.sin(ph * TAU) * 3 : 0));
+  ctx.restore();
   // Elegant English eyebrow.
   ctx.fillStyle = hexRgba(GOLD, 0.92);
   ctx.font = LUX(700, 13);
@@ -710,21 +724,39 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   ring.addColorStop(1, GOLD_HI);
   ctx.strokeStyle = ring;
   ctx.stroke();
-  // Outer decorative ring + gold ticks.
+  // Outer decorative ring + gold ticks (the ticks slowly rotate — a full
+  // tick-spacing over the loop, so it reads as continuous spin yet loops).
   ctx.beginPath();
   ctx.arc(cx, acy, ar + 9, 0, Math.PI * 2);
   ctx.lineWidth = 1;
   ctx.strokeStyle = hexRgba(GOLD, 0.45);
   ctx.stroke();
   ctx.fillStyle = GOLD;
+  const tickRot = anim ? ph * (Math.PI / 4) : 0;
   for (let k = 0; k < 8; k++) {
-    const ang = (Math.PI / 4) * k;
+    const ang = (Math.PI / 4) * k + tickRot;
     const tx = cx + Math.cos(ang) * (ar + 9);
     const ty = acy + Math.sin(ang) * (ar + 9);
     ctx.save();
     ctx.translate(tx, ty);
     ctx.rotate(Math.PI / 4);
     ctx.fillRect(-2.6, -2.6, 5.2, 5.2);
+    ctx.restore();
+  }
+  // A bright comet sweeps once around the medallion per loop.
+  if (anim) {
+    const a0 = ph * TAU;
+    ctx.save();
+    ctx.shadowColor = GOLD;
+    ctx.shadowBlur = 12;
+    for (let s = 0; s < 8; s++) {
+      const a = a0 - s * 0.09;
+      ctx.beginPath();
+      ctx.arc(cx, acy, ar + 9, a, a + 0.06);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = hexRgba(GOLD_HI, 0.9 - s * 0.11);
+      ctx.stroke();
+    }
     ctx.restore();
   }
   // Crown badge over the avatar's lower edge.
@@ -754,11 +786,13 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
   ctx.save();
   ctx.shadowColor = hexRgba(GOLD, 0.6);
   ctx.shadowBlur = 14;
+  // A bright gold band glides left↔right across the name (a live shimmer).
+  const shimmer = anim ? 0.5 + Math.sin(ph * TAU) * 0.33 : 0.5;
   for (const line of fit.lines) {
     const w = Math.min(ctx.measureText(line).width, maxNameW);
     const ng = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
     ng.addColorStop(0, '#ffffff');
-    ng.addColorStop(0.5, GOLD);
+    ng.addColorStop(Math.min(0.97, Math.max(0.03, shimmer)), GOLD_HI);
     ng.addColorStop(1, '#ffffff');
     ctx.fillStyle = ng;
     ctx.fillText(line, cx, ny);
@@ -861,6 +895,34 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
     ctx.stroke();
   }
 
+  // Twinkling gold sparkles at fixed points — each scales/fades on its own
+  // phase offset, so the field shimmers like light catching gilt.
+  if (anim) {
+    const spark = (x: number, y: number, base: number, off: number) => {
+      const tw2 = 0.5 + 0.5 * Math.sin((ph + off) * TAU); // 0..1
+      const s = base * (0.35 + tw2 * 0.65);
+      const a = 0.25 + tw2 * 0.75;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = hexRgba(GOLD_HI, a);
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x - s, y); ctx.lineTo(x + s, y);
+      ctx.moveTo(x, y - s); ctx.lineTo(x, y + s);
+      ctx.moveTo(x - s * 0.5, y - s * 0.5); ctx.lineTo(x + s * 0.5, y + s * 0.5);
+      ctx.moveTo(x - s * 0.5, y + s * 0.5); ctx.lineTo(x + s * 0.5, y - s * 0.5);
+      ctx.stroke();
+      ctx.restore();
+    };
+    const pts: [number, number, number, number][] = [
+      [cx - 74, 56, 7, 0.0], [cx + 74, 60, 6, 0.5], [cx - 96, 150, 5, 0.2],
+      [cx + 96, 150, 6, 0.7], [cx - 118, 250, 5, 0.35], [cx + 118, 248, 7, 0.85],
+      [cx - 60, 300, 4, 0.15], [cx + 66, 302, 5, 0.6], [60, 470, 5, 0.45],
+      [OW - 60, 470, 6, 0.9], [70, 560, 4, 0.25], [OW - 70, 560, 5, 0.65],
+    ];
+    for (const [x, y, b, o] of pts) spark(x, y, b, o);
+  }
+
   // Animated diagonal gold shine sweep (video frames only; phase < 0 = static).
   if (phase >= 0) {
     ctx.save();
@@ -912,11 +974,15 @@ export async function renderOwnerCardMp4(d: OwnerCardData): Promise<{ buffer: Bu
   const avatar = await loadOwnerAvatar(d.avatarDataUri);
   const canvas = createCanvas(OW, OH);
   const ctx = canvas.getContext('2d');
+  // A slower, smoother 2s loop (rotation + twinkle read better than the 1s
+  // id-card shine).
+  const OFPS = 25;
+  const OFRAMES = 50;
 
   return new Promise((resolve) => {
     const args = [
       '-y', '-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', `${OW}x${OH}`,
-      '-framerate', String(MP4_FPS), '-i', '-',
+      '-framerate', String(OFPS), '-i', '-',
       '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p',
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', out,
     ];
@@ -952,8 +1018,8 @@ export async function renderOwnerCardMp4(d: OwnerCardData): Promise<{ buffer: Bu
 
     let i = 0;
     const pump = (): void => {
-      while (i < MP4_FRAMES) {
-        drawOwnerCard(ctx, d, avatar, i / MP4_FRAMES);
+      while (i < OFRAMES) {
+        drawOwnerCard(ctx, d, avatar, i / OFRAMES);
         i++;
         const img = ctx.getImageData(0, 0, OW, OH);
         const frame = Buffer.from(img.data.buffer as ArrayBuffer, img.data.byteOffset, img.data.byteLength);
