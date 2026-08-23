@@ -2,9 +2,10 @@ import type { Telegraf } from 'telegraf';
 import { Input, Markup } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { renderOwnerCardImage, renderOwnerCardVideo } from '../../services/idcard/image';
+import { renderOwnerCardImage, renderOwnerCardVideo, getLastVideoError } from '../../services/idcard/image';
 import { getAvatar, setAvatar } from '../../services/idcard/cache';
 import { getMember } from '../../services/member.service';
+import { isBotOwner } from '../../utils/permissions';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:owner');
@@ -45,6 +46,41 @@ export const ownerPlugin: Plugin = {
         return;
       }
       await showOwnerCard(ctx);
+    });
+
+    // Owner diagnostic: clears the cache, renders the video fresh, and reports
+    // whether ffmpeg produced it (and the last error if not) + running commit.
+    bot.command('ownerdiag', async (ctx) => {
+      if (!ctx.from || !isBotOwner(ctx.from.id)) return;
+      if (ctx.chat) cardCache.delete(ctx.chat.id);
+      const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'غير معروف').slice(0, 8);
+      const sample = {
+        name: ctx.from?.first_name || 'Owner',
+        username: ctx.from?.username ? `@${ctx.from.username}` : '—',
+        id: String(ctx.from?.id ?? 0),
+        members: '1',
+        date: '—',
+        dateLabel: 'تاريخ الانضمام',
+        initial: (ctx.from?.first_name?.trim()[0] || '?').toUpperCase(),
+      };
+      const t0 = Date.now();
+      const vid = await renderOwnerCardVideo(sample).catch((e) => {
+        log.warn({ e }, 'ownerdiag video threw');
+        return null;
+      });
+      const ms = Date.now() - t0;
+      const lines = [
+        '🩺 <b>تشخيص بطاقة المالك</b>',
+        `• الإصدار (commit): <code>${sha}</code>`,
+        `• توليد الفيديو: <b>${vid ? 'يعمل ✅' : 'فشل ❌'}</b>`,
+        vid ? `• الحجم: <b>${(vid.buffer.length / 1024).toFixed(0)}KB</b> خلال ${ms}ms` : `• آخر خطأ ffmpeg: <code>${escapeHtml(getLastVideoError() || 'غير معروف')}</code>`,
+      ];
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' }).catch(() => undefined);
+      if (vid) {
+        await ctx
+          .replyWithAnimation({ source: vid.buffer, filename: `owner.${vid.ext}` }, { caption: '🎬 عيّنة الفيديو' })
+          .catch((e) => ctx.reply(`تعذّر إرسال الفيديو: ${e instanceof Error ? e.message : e}`).catch(() => undefined));
+      }
     });
   },
 };
