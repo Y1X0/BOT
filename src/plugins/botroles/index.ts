@@ -35,7 +35,7 @@ export const botRolesPlugin: Plugin = {
     { command: 'radmin', description: '⭐ رفع أدمن (بالرد)', staffOnly: true },
     { command: 'rvip', description: '💎 رفع مميّز (بالرد)', staffOnly: true },
     { command: 'unrank', description: '🗑 تنزيل الرتبة (بالرد)', staffOnly: true },
-    { command: 'roles', description: '📋 قائمة الرتب' },
+    { command: 'roles', description: '📋 مين المشرفين والرتب بالجروب' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -85,15 +85,40 @@ export const botRolesPlugin: Plugin = {
       );
     });
 
+    // Full picture in one place: Telegram admins + custom bot ranks.
     bot.command('roles', async (ctx) => {
       if (!isGroup(ctx) || !ctx.chat) return;
-      const roles = await listChatRoles(ctx.chat.id);
-      if (!roles.length) {
-        return void ctx.reply('📋 ما في رتب بوت معيّنة بهالجروب.\nللتعيين: ردّ على العضو واكتب «رفع مشرف» أو «رفع مدير» أو «رفع ادمن» أو «رفع مميز».');
+
+      // 1) Telegram-side: creator + administrators (skip bots).
+      let creatorLine = '';
+      const tgAdmins: string[] = [];
+      try {
+        const admins = await ctx.telegram.getChatAdministrators(ctx.chat.id);
+        for (const a of admins) {
+          if (a.user.is_bot) continue;
+          if (a.status === 'creator') creatorLine = `👑 المالك: ${displayName(a.user)}`;
+          else tgAdmins.push(`⭐ ${displayName(a.user)}`);
+        }
+      } catch {
+        /* member-list may be unavailable — show whatever we can */
       }
+
+      // 2) Bot-side: custom ranks assigned through the bot.
+      const roles = await listChatRoles(ctx.chat.id);
       roles.sort((a, b) => (RANK_ORDER[a.role] ?? 9) - (RANK_ORDER[b.role] ?? 9));
-      const lines = roles.map((r) => `${BADGE[r.role] ?? r.role} — ${r.name ?? r.userId}`).join('\n');
-      await ctx.reply(`📋 رتب البوت في هالجروب:\n\n${lines}`);
+      const botLines = roles.map((r) => `${BADGE[r.role] ?? r.role} — ${r.name ?? r.userId}`);
+
+      const parts: string[] = ['📋 إدارة الجروب:'];
+      if (creatorLine) parts.push(`\n${creatorLine}`);
+      parts.push(
+        tgAdmins.length ? `\n🛡 مشرفو تيليجرام (${tgAdmins.length}):\n${tgAdmins.join('\n')}` : '\n🛡 ما في مشرفين ظاهرين بتيليجرام.',
+      );
+      parts.push(
+        botLines.length
+          ? `\n🔰 رتب البوت (${botLines.length}):\n${botLines.join('\n')}`
+          : '\n🔰 رتب البوت: ما في. للتعيين ردّ على العضو واكتب «رفع مشرف/مدير/ادمن/مميز».',
+      );
+      await ctx.reply(parts.join('\n'));
     });
   },
 };
