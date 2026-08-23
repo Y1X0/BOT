@@ -1,11 +1,17 @@
 import type { Telegraf } from 'telegraf';
+import { Input } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { recordActivity, getMember, topByXp } from '../../services/member.service';
+import { recordActivity, getMember, topByXp, xpForLevel } from '../../services/member.service';
 import { incMissionMessages } from '../../services/missions.service';
 import { announceAchievements } from '../../utils/progression';
 import { displayName } from '../../utils/format';
+import { renderRankCard } from '../../services/card/rank';
+import { fetchAvatar } from '../../services/card/avatar';
+import { createLogger } from '../../core/logger';
+
+const log = createLogger('plugin:engagement');
 
 const XP_PER_MESSAGE = 5;
 
@@ -55,14 +61,30 @@ export const engagementPlugin: Plugin = {
       if (!ctx.chat || ctx.chat.type === 'private' || !ctx.from) return;
       const t = ctx.state.t!;
       const member = await getMember(ctx.chat.id, ctx.from.id);
-      await ctx.reply(
-        t('xp.rank', {
-          name: displayName(ctx.from),
-          level: member?.level ?? 0,
-          xp: member?.xp ?? 0,
-          messages: member?.messageCount ?? 0,
-        }),
-      );
+      const level = member?.level ?? 0;
+      const xp = member?.xp ?? 0;
+      const messages = member?.messageCount ?? 0;
+      // Premium rank card; fall back to text on any failure.
+      try {
+        const name = displayName(ctx.from);
+        const avatar = await fetchAvatar(ctx.telegram, ctx.from.id);
+        const img = await renderRankCard({
+          name,
+          level,
+          xp,
+          xpFloor: level >= 1 ? xpForLevel(level - 1) : 0,
+          xpNext: xpForLevel(level),
+          messages,
+          avatar,
+          initial: (name.trim()[0] || '?').toUpperCase(),
+          handle: ctx.botInfo?.username ? `@${ctx.botInfo.username}` : undefined,
+        });
+        await ctx.replyWithPhoto(Input.fromBuffer(img, 'rank.jpg'));
+        return;
+      } catch (err) {
+        log.warn({ err }, 'rank card failed; falling back');
+      }
+      await ctx.reply(t('xp.rank', { name: displayName(ctx.from), level, xp, messages }));
     });
 
     bot.command('levels', async (ctx) => {
