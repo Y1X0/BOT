@@ -1,4 +1,4 @@
-import { renderCardPng, renderCardMp4, renderOwnerCardPng, getLastMp4Error } from './canvas';
+import { renderCardPng, renderCardMp4, renderOwnerCardPng, renderOwnerCardMp4, getLastMp4Error } from './canvas';
 
 // Last video-render failure reason, surfaced by the /idcardtest diagnostic.
 export function getLastVideoError(): string {
@@ -100,4 +100,9 @@ export async function renderIdCardVideo(d: IdCardImageData, themeId?: string): P
 /** Render the group-owner card (gold-on-black luxury) to a JPEG. */
 export async function renderOwnerCardImage(d: OwnerCardData): Promise<Buffer> {
   return renderOwnerCardPng(d);
+}
+
+/** Render the ANIMATED group-owner card (gold shine sweep) as a looping MP4. */
+export async function renderOwnerCardVideo(d: OwnerCardData): Promise<{ buffer: Buffer; ext: string } | null> {
+  return renderOwnerCardMp4(d);
 }

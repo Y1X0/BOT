@@ -2,7 +2,7 @@ import type { Telegraf } from 'telegraf';
 import { Input, Markup } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { renderOwnerCardImage } from '../../services/idcard/image';
+import { renderOwnerCardImage, renderOwnerCardVideo } from '../../services/idcard/image';
 import { getAvatar, setAvatar } from '../../services/idcard/cache';
 import { getMember } from '../../services/member.service';
 import { createLogger } from '../../core/logger';
@@ -13,6 +13,7 @@ const log = createLogger('plugin:owner');
  *  costly, and the owner rarely changes). */
 interface OwnerCacheEntry {
   fileId: string;
+  kind: 'photo' | 'animation';
   name: string;
   url: string;
   at: number;
@@ -55,10 +56,14 @@ async function showOwnerCard(ctx: BotContext): Promise<void> {
   const cached = cardCache.get(chatId);
   if (cached && Date.now() - cached.at <= CACHE_TTL_MS) {
     const kb = Markup.inlineKeyboard([Markup.button.url(cached.name, cached.url)]);
-    const resent = await ctx
-      .replyWithPhoto(cached.fileId, { caption: `👑 مالك الجروب`, ...kb })
-      // Button URL refused → resend the cached image without it.
-      .catch(() => ctx.replyWithPhoto(cached.fileId, { caption: `👑 مالك الجروب` }).catch(() => null));
+    const cap = '👑 مالك الجروب';
+    const send = (extra: object): Promise<unknown> =>
+      cached.kind === 'animation'
+        ? ctx.replyWithAnimation(cached.fileId, extra)
+        : ctx.replyWithPhoto(cached.fileId, extra);
+    const resent = await send({ caption: cap, ...kb })
+      // Button URL refused → resend the cached media without it.
+      .catch(() => send({ caption: cap }).catch(() => null));
     if (resent) return;
     cardCache.delete(chatId); // stale file_id → re-render
   }
@@ -129,27 +134,39 @@ async function showOwnerCard(ctx: BotContext): Promise<void> {
   }
 
   const keyboard = Markup.inlineKeyboard([Markup.button.url(fullName, url)]);
+  const cap = '👑 مالك الجروب';
+  const cardData = {
+    name: fullName,
+    username,
+    id: String(user.id),
+    members: fmtNum(count),
+    date,
+    dateLabel,
+    avatarDataUri,
+    initial: (fullName.trim()[0] || '?').toUpperCase(),
+  };
 
+  // Preferred look: an ANIMATED video card (gold shine sweep). Falls back to the
+  // still image if ffmpeg/render fails.
   try {
-    const png = await renderOwnerCardImage({
-      name: fullName,
-      username,
-      id: String(user.id),
-      members: fmtNum(count),
-      date,
-      dateLabel,
-      avatarDataUri,
-      initial: (fullName.trim()[0] || '?').toUpperCase(),
-    });
-    const media = Input.fromBuffer(png, 'owner.jpg');
-    // Send with the owner button; if Telegram rejects the button URL (a
-    // tg://user link can be refused), resend the same card without it so the
-    // card still appears.
+    const vid = await renderOwnerCardVideo(cardData).catch(() => null);
+    if (vid) {
+      // Send with the owner button; a rejected button URL (tg://user can be
+      // refused) → resend the same media without it so the card still appears.
+      const sent = await ctx
+        .replyWithAnimation({ source: vid.buffer, filename: `owner.${vid.ext}` }, { caption: cap, ...keyboard })
+        .catch(() => ctx.replyWithAnimation({ source: vid.buffer, filename: `owner.${vid.ext}` }, { caption: cap }));
+      const animId = (sent as { animation?: { file_id?: string } }).animation?.file_id;
+      if (animId) cardCache.set(chatId, { fileId: animId, kind: 'animation', name: fullName, url, at: Date.now() });
+      return;
+    }
+
+    const png = await renderOwnerCardImage(cardData);
     const sent = await ctx
-      .replyWithPhoto(media, { caption: '👑 مالك الجروب', ...keyboard })
-      .catch(() => ctx.replyWithPhoto(Input.fromBuffer(png, 'owner.jpg'), { caption: '👑 مالك الجروب' }));
+      .replyWithPhoto(Input.fromBuffer(png, 'owner.jpg'), { caption: cap, ...keyboard })
+      .catch(() => ctx.replyWithPhoto(Input.fromBuffer(png, 'owner.jpg'), { caption: cap }));
     const fid = (sent as { photo?: { file_id: string }[] }).photo?.pop()?.file_id;
-    if (fid) cardCache.set(chatId, { fileId: fid, name: fullName, url, at: Date.now() });
+    if (fid) cardCache.set(chatId, { fileId: fid, kind: 'photo', name: fullName, url, at: Date.now() });
     return;
   } catch (err) {
     log.warn({ err }, 'owner card render failed; falling back to text');

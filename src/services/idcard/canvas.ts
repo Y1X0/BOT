@@ -621,7 +621,7 @@ async function loadOwnerAvatar(uri?: string): Promise<Avatar | null> {
   return loadImage(uri).catch(() => null);
 }
 
-function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | null): void {
+function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | null, phase: number): void {
   const cx = OW / 2;
 
   // Opaque backdrop.
@@ -860,6 +860,28 @@ function drawOwnerCard(ctx: SKRSContext2D, d: OwnerCardData, avatar: Avatar | nu
     ctx.lineTo(cx + dir * footHalf, OH - 31);
     ctx.stroke();
   }
+
+  // Animated diagonal gold shine sweep (video frames only; phase < 0 = static).
+  if (phase >= 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const bandW = 190;
+    const skew = 120;
+    const x = -bandW - skew + phase * (OW + bandW + skew * 2);
+    const g = ctx.createLinearGradient(x, 0, x + bandW, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.5, hexRgba(GOLD, 0.18));
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + bandW, 0);
+    ctx.lineTo(x + bandW - skew, OH);
+    ctx.lineTo(x - skew, OH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 /** Render the owner card to a JPEG (fast, CPU-only, no browser). */
@@ -868,6 +890,81 @@ export async function renderOwnerCardPng(d: OwnerCardData): Promise<Buffer> {
   const canvas = createCanvas(OW, OH);
   const ctx = canvas.getContext('2d');
   const avatar = await loadOwnerAvatar(d.avatarDataUri);
-  drawOwnerCard(ctx, d, avatar);
+  drawOwnerCard(ctx, d, avatar, -1);
   return canvas.encode('jpeg', 84);
+}
+
+/**
+ * Render the ANIMATED owner card (gold shine sweep) as a short looping MP4 —
+ * same design as the static card, moving. CPU-only via canvas → ffmpeg (raw
+ * RGBA frames), no browser. Returns null on any failure (caller falls back to
+ * the still image). Mirrors renderCardMp4.
+ */
+export async function renderOwnerCardMp4(d: OwnerCardData): Promise<{ buffer: Buffer; ext: string } | null> {
+  ensureFonts();
+  lastMp4Error = '';
+  const dir = await mkdtemp(join(tmpdir(), 'ownercard-')).catch(() => null);
+  if (!dir) {
+    lastMp4Error = 'tmpdir failed';
+    return null;
+  }
+  const out = join(dir, 'card.mp4');
+  const avatar = await loadOwnerAvatar(d.avatarDataUri);
+  const canvas = createCanvas(OW, OH);
+  const ctx = canvas.getContext('2d');
+
+  return new Promise((resolve) => {
+    const args = [
+      '-y', '-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', `${OW}x${OH}`,
+      '-framerate', String(MP4_FPS), '-i', '-',
+      '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', out,
+    ];
+    const p = spawn('ffmpeg', args, { stdio: ['pipe', 'ignore', 'pipe'] });
+    const stdin = p.stdin;
+    if (!stdin) {
+      lastMp4Error = 'no ffmpeg stdin';
+      void rm(dir, { recursive: true, force: true });
+      return resolve(null);
+    }
+    let stderr = '';
+    p.stderr?.on('data', (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-400);
+    });
+    const timer = setTimeout(() => p.kill('SIGKILL'), 30_000);
+    p.on('error', (e) => {
+      clearTimeout(timer);
+      lastMp4Error = (e as { code?: string }).code === 'ENOENT' ? 'ffmpeg not installed' : e.message;
+      void rm(dir, { recursive: true, force: true });
+      resolve(null);
+    });
+    p.on('close', async (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        lastMp4Error = stderr.split('\n').filter(Boolean).pop()?.slice(0, 160) || `ffmpeg exit ${code}`;
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        return resolve(null);
+      }
+      const buffer = await readFile(out).catch(() => null);
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      resolve(buffer ? { buffer, ext: 'mp4' } : null);
+    });
+
+    let i = 0;
+    const pump = (): void => {
+      while (i < MP4_FRAMES) {
+        drawOwnerCard(ctx, d, avatar, i / MP4_FRAMES);
+        i++;
+        const img = ctx.getImageData(0, 0, OW, OH);
+        const frame = Buffer.from(img.data.buffer as ArrayBuffer, img.data.byteOffset, img.data.byteLength);
+        if (!stdin.write(frame)) {
+          stdin.once('drain', pump);
+          return;
+        }
+      }
+      stdin.end();
+    };
+    stdin.on('error', () => undefined);
+    pump();
+  });
 }
