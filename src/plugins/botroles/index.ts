@@ -2,7 +2,7 @@ import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { requireRole, invalidateRole, resolveUserRole, canActOn, hasRole, type Role } from '../../utils/permissions';
-import { resolveTarget, displayName } from '../../utils/format';
+import { resolveTarget, displayName, mention } from '../../utils/format';
 import { setChatRole, removeChatRole, listChatRoles, getChatRole, type AssignableRole } from '../../services/roles.service';
 import { prisma } from '../../core/database';
 import { env } from '../../config/env';
@@ -18,9 +18,6 @@ const BADGE: Record<string, string> = {
   vip: '💎 مميز',
   member: '👤 عضو',
 };
-
-// Assignable ranks, strongest first, for the /roles list ordering.
-const RANK_ORDER: Record<string, number> = { owner: 0, manager: 1, admin: 2, vip: 3 };
 
 /**
  * In-bot ranks (رتب البوت). The hierarchy, high→low:
@@ -88,40 +85,88 @@ export const botRolesPlugin: Plugin = {
       );
     });
 
-    // Full picture in one place: Telegram admins + custom bot ranks.
+    // Full picture in one place: Telegram admins + in-bot ranks, as an elegant
+    // board with a clickable mention for every rank-holder. Someone who is BOTH
+    // a Telegram admin AND holds a bot rank intentionally appears in both.
     bot.command('roles', async (ctx) => {
       if (!isGroup(ctx) || !ctx.chat) return;
 
+      const RULE = '➖➖➖➖➖➖➖➖➖➖';
+      const men = (id: number | string, name?: string | null): string =>
+        mention({ id: Number(id), first_name: name || 'عضو' }).toString();
+
       // 1) Telegram-side: creator + administrators (skip bots).
-      let creatorLine = '';
+      let founder = '';
       const tgAdmins: string[] = [];
       try {
         const admins = await ctx.telegram.getChatAdministrators(ctx.chat.id);
         for (const a of admins) {
           if (a.user.is_bot) continue;
-          if (a.status === 'creator') creatorLine = `👑 المالك الأساسي: ${displayName(a.user)}`;
-          else tgAdmins.push(`🛡 ${displayName(a.user)}`);
+          if (a.status === 'creator') founder = men(a.user.id, a.user.first_name);
+          else tgAdmins.push(men(a.user.id, a.user.first_name));
         }
       } catch {
         /* member-list may be unavailable — show whatever we can */
       }
 
-      // 2) Bot-side: custom ranks assigned through the bot.
+      // 2) Bot-side: in-bot ranks, grouped by tier (strongest first).
       const roles = await listChatRoles(ctx.chat.id);
-      roles.sort((a, b) => (RANK_ORDER[a.role] ?? 9) - (RANK_ORDER[b.role] ?? 9));
-      const botLines = roles.map((r) => `${BADGE[r.role] ?? r.role} — ${r.name ?? r.userId}`);
+      const byTier = new Map<string, string[]>();
+      for (const r of roles) {
+        if (!byTier.has(r.role)) byTier.set(r.role, []);
+        byTier.get(r.role)!.push(men(r.userId, r.name));
+      }
 
-      const parts: string[] = ['📋 إدارة الجروب:'];
-      if (creatorLine) parts.push(`\n${creatorLine}`);
-      parts.push(
-        tgAdmins.length ? `\n🛡 مشرفو تيليجرام (${tgAdmins.length}):\n${tgAdmins.join('\n')}` : '\n🛡 ما في مشرفين ظاهرين بتيليجرام.',
-      );
-      parts.push(
-        botLines.length
-          ? `\n🔰 رتب البوت (${botLines.length}):\n${botLines.join('\n')}`
-          : '\n🔰 رتب البوت: ما في. للتعيين ردّ على العضو واكتب «رفع مالك/مدير/ادمن/مميز».',
-      );
-      await ctx.reply(parts.join('\n'));
+      const L: string[] = [];
+      L.push('👑✦ <b>هَيْبَة الإدارة</b> ✦👑');
+      L.push(RULE);
+
+      // Founder.
+      if (founder) {
+        L.push('');
+        L.push('👑 <b>المالك الأساسي</b>');
+        L.push(`   ◈ ${founder}`);
+      }
+
+      // Telegram admins.
+      if (tgAdmins.length) {
+        L.push('');
+        L.push(`🛡 <b>أدمن تيليجرام</b> — <b>${tgAdmins.length}</b>`);
+        for (const m of tgAdmins) L.push(`   ◈ ${m}`);
+      }
+
+      // In-bot ranks.
+      L.push('');
+      L.push('⚜️ <b>رُتَب البوت</b> ⚜️');
+      L.push(RULE);
+      const TIERS: { role: string; label: string }[] = [
+        { role: 'owner', label: '⭐ <b>مالك</b>' },
+        { role: 'manager', label: '🔰 <b>مدير</b>' },
+        { role: 'admin', label: '🛡 <b>أدمن</b>' },
+        { role: 'vip', label: '💎 <b>مميّز</b>' },
+      ];
+      let botCount = 0;
+      for (const { role, label } of TIERS) {
+        const list = byTier.get(role);
+        if (!list?.length) continue;
+        botCount += list.length;
+        L.push('');
+        L.push(`${label} — <b>${list.length}</b>`);
+        for (const m of list) L.push(`   ◈ ${m}`);
+      }
+      if (!botCount) {
+        L.push('');
+        L.push('لا يوجد بعد — للتعيين ردّ على العضو واكتب «رفع مالك / مدير / ادمن / مميز».');
+      }
+
+      // Footer.
+      L.push('');
+      L.push(RULE);
+      L.push(`📊 الإجمالي: <b>${tgAdmins.length + botCount + (founder ? 1 : 0)}</b> صاحب رتبة`);
+
+      // No parse_mode: the outgoing interceptor turns the <b>/<a> tags into real
+      // entities (mentions work without a username via tg://user links).
+      await ctx.reply(L.join('\n')).catch(() => undefined);
     });
 
     // Diagnostic (owner-only): why an admin/rank isn't recognized, and whether
