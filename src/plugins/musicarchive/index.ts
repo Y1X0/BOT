@@ -51,6 +51,7 @@ export const musicArchivePlugin: Plugin = {
   commands: [
     { command: 'archivecount', description: '🗂 عدد الأغاني بالأرشيف (مالك)', staffOnly: true },
     { command: 'archivelist', description: '🔍 تصفّح/ابحث بالأرشيف: /archivelist [اسم] (مالك)', staffOnly: true },
+    { command: 'archivediag', description: '🔧 تشخيص الأرشيف والإصدار (مالك)', staffOnly: true },
     { command: 'import', description: '📥 استيراد أغاني من قناة للأرشيف (مالك)', staffOnly: true },
     { command: 'importstop', description: '🛑 إيقاف الاستيراد (مالك)', staffOnly: true },
   ],
@@ -92,6 +93,30 @@ export const musicArchivePlugin: Plugin = {
     bot.command('archivecount', requireRole('owner'), async (ctx) => {
       const n = await archiveCount();
       await ctx.reply(`🗂 الأرشيف الصوتي: ${n} أغنية.`);
+    });
+
+    // One-shot diagnostic: what version is live, is the archive channel set, can
+    // the bot post there, how many songs are stored. Resolves "did the deploy
+    // land / why isn't a song archived" without guessing.
+    bot.command('archivediag', requireRole('owner'), async (ctx) => {
+      const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'غير معروف').slice(0, 8);
+      const storage = env.MUSIC_STORAGE_CHANNEL_ID;
+      const count = await archiveCount();
+      let postTest = '—';
+      if (storage) {
+        postTest = await ctx.telegram
+          .sendMessage(storage, '🔧 اختبار نشر — تجاهل هذه الرسالة')
+          .then(() => 'ينشر ✅')
+          .catch((e) => `فشل ❌ (${String((e as Error)?.message || e).slice(0, 70)})`);
+      }
+      await ctx.reply(
+        '🔧 تشخيص الأرشيف:\n' +
+          `• الإصدار (commit): ${sha}\n` +
+          `• قناة الأرشيف: ${storage || 'غير مضبوطة ❌'}\n` +
+          `• النشر بالقناة: ${postTest}\n` +
+          `• عدد الأغاني: ${count}\n` +
+          `• فهرسة كل القنوات: ${env.ARCHIVE_ALL_CHANNELS ? 'مفعّل ✅' : 'معطّل'}`,
+      );
     });
 
     // Browse or search the archive: "/archivelist" → latest 20; "/archivelist نانسي"
