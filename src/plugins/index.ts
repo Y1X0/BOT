@@ -1,6 +1,7 @@
 import type { Plugin } from '../core/plugin';
 import { aliasesPlugin } from './aliases';
 import { msgEditPlugin } from './msgedit';
+import { botOnboardPlugin } from './botonboard';
 import { usagePlugin } from './usage';
 import { musicArchivePlugin } from './musicarchive';
 import { createGeneralPlugin } from './general';
@@ -90,6 +91,7 @@ allPlugins.push(
   moderationPlugin,
   botRolesPlugin, // custom in-bot ranks (admin/moderator/vip)
   protectionPlugin, // anti-raid: must run before welcome on new_chat_members
+  botOnboardPlugin, // greets the group when the BOT itself is added/promoted
   welcomePlugin,
   voiceChatPlugin,
   musicPlugin,

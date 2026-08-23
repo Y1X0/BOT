@@ -19,6 +19,7 @@ model Chat {
   title          String?
   type           String    @default("group")
   language       String    @default("ar")
+  botWelcomedAt  DateTime? // last time the bot posted its onboarding welcome (24h dedupe)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

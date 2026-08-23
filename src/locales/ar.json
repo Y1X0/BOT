@@ -103,5 +103,21 @@
   "errors.generic": "⚠️ حدث خطأ غير متوقّع، حاول لاحقاً.",
 
   "help.header": "🤖 <b>أوامر البوت</b>",
-  "start.private": "👋 <b>مرحباً! أنا بوت إدارة وتفاعل للجروبات.</b>\n\nأضِفني إلى جروبك واجعلني مشرفاً لأبدأ العمل.\nاكتب <code>/help</code> لعرض الأوامر."
+  "start.private": "👋 <b>مرحباً! أنا بوت إدارة وتفاعل للجروبات.</b>\n\nأضِفني إلى جروبك واجعلني مشرفاً لأبدأ العمل.\nاكتب <code>/help</code> لعرض الأوامر.",
+
+  "onboard.welcome": "👋 <b>أهلاً! تم تفعيلي في {title}</b>",
+  "onboard.need_admin": "⚠️ <b>رقّيني أدمن</b> عشان أشتغل صح.",
+  "onboard.perms_missing": "🔑 <b>الصلاحيات الناقصة:</b>\n{list}",
+  "onboard.perms_ok": "✅ <b>الصلاحيات كاملة — جاهز للعمل!</b>",
+  "onboard.promoted": "✅ <b>صرت أدمن، جاهز للعمل!</b>",
+  "onboard.perm.delete": "حذف الرسائل",
+  "onboard.perm.restrict": "حظر الأعضاء",
+  "onboard.perm.pin": "تثبيت الرسائل",
+  "onboard.perm.invite": "دعوة المستخدمين",
+  "onboard.btn.commands": "📋 الأوامر",
+  "onboard.btn.settings": "⚙️ الإعدادات",
+  "onboard.btn.support": "🆘 الدعم",
+  "onboard.cmds_hint": "اكتب «الأوامر» أو /menu لعرض كل أوامر البوت.",
+  "onboard.settings_hint": "اكتب «الإعدادات» (للمدير فأعلى) لضبط البوت.",
+  "onboard.support_hint": "للدعم: راجع مالك الجروب أو مطوّر البوت."
 }

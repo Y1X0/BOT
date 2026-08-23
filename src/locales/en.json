@@ -103,5 +103,21 @@
   "errors.generic": "⚠️ An unexpected error occurred, try again later.",
 
   "help.header": "🤖 <b>Bot commands</b>",
-  "start.private": "👋 <b>Hi! I'm a group management &amp; engagement bot.</b>\n\nAdd me to your group and make me an admin to get started.\nType <code>/help</code> for commands."
+  "start.private": "👋 <b>Hi! I'm a group management &amp; engagement bot.</b>\n\nAdd me to your group and make me an admin to get started.\nType <code>/help</code> for commands.",
+
+  "onboard.welcome": "👋 <b>Hi! I'm now active in {title}</b>",
+  "onboard.need_admin": "⚠️ <b>Make me an admin</b> so I can work properly.",
+  "onboard.perms_missing": "🔑 <b>Missing permissions:</b>\n{list}",
+  "onboard.perms_ok": "✅ <b>All permissions granted — ready to go!</b>",
+  "onboard.promoted": "✅ <b>I'm an admin now, ready to work!</b>",
+  "onboard.perm.delete": "Delete messages",
+  "onboard.perm.restrict": "Ban users",
+  "onboard.perm.pin": "Pin messages",
+  "onboard.perm.invite": "Invite users",
+  "onboard.btn.commands": "📋 Commands",
+  "onboard.btn.settings": "⚙️ Settings",
+  "onboard.btn.support": "🆘 Support",
+  "onboard.cmds_hint": "Type «الأوامر» or /menu to see all commands.",
+  "onboard.settings_hint": "Type «الإعدادات» (manager+) to configure the bot.",
+  "onboard.support_hint": "Support: contact the group owner or the bot developer."
 }
