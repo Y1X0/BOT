@@ -200,13 +200,6 @@ export const managementPlugin: Plugin = {
         `${yn(!!s?.filtersEnabled)} فلتر الكلمات`,
       ];
 
-      const tips: string[] = [];
-      if (!admin) tips.push('• خلّي البوت <b>مشرف</b> حتى تشتغل الإدارة والحمايات.');
-      if (admin && !canDelete) tips.push('• فعّل صلاحية <b>حذف الرسائل</b>.');
-      if (admin && !canRestrict) tips.push('• فعّل صلاحية <b>حظر الأعضاء</b>.');
-      tips.push('• لو الأوامر النصية ما تشتغل: أطفئ <b>Group Privacy</b> من BotFather.');
-      lines.push('', RULE, '💡 <b>نصائح</b>', ...tips);
-
       // No parse_mode: the outgoing interceptor renders the <b> tags as entities.
       await ctx.reply(lines.join('\n')).catch(() => undefined);
     });
