@@ -30,6 +30,27 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const ALL_COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
 const allLastUsed = new Map<number, number>();
 
+const STREAMER_URL = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
+const STREAMER_TOKEN = process.env.STREAMER_TOKEN || '';
+
+/** Ask the assistant user account for the group's FULL member list (a bot can't
+ *  list members, but a real account can). Returns null if unavailable. */
+async function fetchMembersViaAssistant(chatId: number): Promise<{ id: number; name: string }[] | null> {
+  if (!STREAMER_URL) return null;
+  try {
+    const res = await fetch(`${STREAMER_URL}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(STREAMER_TOKEN ? { 'X-Token': STREAMER_TOKEN } : {}) },
+      body: JSON.stringify({ chat_id: chatId }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; members?: { id: number; name: string }[] } | null;
+    return data?.ok && Array.isArray(data.members) && data.members.length ? data.members : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Mention EVERY registered member (those the bot has seen) in batches. A bot
  * can't list a group's full membership via the Bot API, so this reaches everyone
@@ -47,18 +68,25 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
     return void ctx.reply(`⏳ تم النداء مؤخراً. ضل <b>${leftMin}</b> دقيقة قبل نداء جديد.`);
   }
 
-  const members = await prisma.member.findMany({
-    where: { chatId: BigInt(chatId) },
-    orderBy: { lastSeenAt: 'desc' },
-    take: 1000, // safety cap; a bot rarely records more active members than this
-  });
-  if (!members.length) return void ctx.reply('لا يوجد أعضاء مسجّلون بعد.');
+  // Prefer the assistant's complete member list; fall back to members the bot
+  // has recorded from activity.
+  const viaAssistant = await fetchMembersViaAssistant(chatId);
+  let people: { id: bigint | number; name: string }[];
+  if (viaAssistant) {
+    people = viaAssistant.map((m) => ({ id: m.id, name: m.name }));
+  } else {
+    const members = await prisma.member.findMany({
+      where: { chatId: BigInt(chatId) },
+      orderBy: { lastSeenAt: 'desc' },
+      take: 1000,
+    });
+    people = members.map((m) => ({ id: m.userId, name: m.firstName ?? 'عضو' }));
+  }
+  if (!people.length) return void ctx.reply('لا يوجد أعضاء لمناداتهم بعد.');
 
   allLastUsed.set(chatId, Date.now()); // start the cooldown now
 
-  const mentions = members.map(
-    (m) => `<a href="tg://user?id=${m.userId}">${escapeHtml(m.firstName ?? 'عضو')}</a>`,
-  );
+  const mentions = people.map((m) => `<a href="tg://user?id=${m.id}">${escapeHtml(m.name)}</a>`);
   const header = note ? `📢 ${escapeHtml(note)}\n\n` : `📢 نداء للجميع (${mentions.length}):\n\n`;
   // 8 mentions per message; pause between batches so Telegram doesn't rate-limit
   // and silently drop the later ones.

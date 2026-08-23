@@ -369,6 +369,31 @@ async def stop(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+@routes.post("/members")
+async def members(request: web.Request) -> web.Response:
+    """Return the group's full member list via the ASSISTANT user account. A Bot
+    API bot can't list members, but a real user account can — used for mention-all.
+    The assistant must be a member of the group."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    chat_id = int((await _body(request)).get("chat_id") or 0)
+    if not chat_id:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+    out = []
+    try:
+        async for m in assistant.get_chat_members(chat_id):
+            u = getattr(m, "user", None)
+            if not u or getattr(u, "is_bot", False) or getattr(u, "is_deleted", False):
+                continue
+            out.append({"id": u.id, "name": (u.first_name or u.username or "عضو")})
+            if len(out) >= 2000:  # safety cap for very large groups
+                break
+    except Exception as e:
+        log.info("get_chat_members failed for %s: %s", chat_id, e)
+        return web.json_response({"ok": False, "error": str(e)[:120]})
+    return web.json_response({"ok": True, "members": out, "count": len(out)})
+
+
 @routes.post("/join")
 async def join(request: web.Request) -> web.Response:
     """Make the assistant join a group via its invite link, so it can then be
