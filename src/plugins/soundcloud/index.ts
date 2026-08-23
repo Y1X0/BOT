@@ -103,10 +103,13 @@ function enqueueDownloadAndSend(
           void indexAudio({ fileId: fid.file_id, title: dl.title, duration: fid.duration ?? 0, source: 'cache' });
           // Also drop a copy into the archive channel so it's stored there too
           // (reuses the file_id — no re-upload). The channel indexer dedups it.
+          // Needs the bot to have "post messages" rights there; log why if not.
           if (env.MUSIC_STORAGE_CHANNEL_ID)
             void telegram
               .sendAudio(env.MUSIC_STORAGE_CHANNEL_ID, fid.file_id, { title: dl.title, caption: `🎵 ${dl.title}` })
-              .catch(() => undefined);
+              .catch((err) =>
+                log.warn({ err, channel: env.MUSIC_STORAGE_CHANNEL_ID }, 'archive-channel copy failed (post rights?)'),
+              );
         }
         if (cleanupMsgId != null) await telegram.deleteMessage(chatId, cleanupMsgId).catch(() => undefined);
       } catch (err) {
