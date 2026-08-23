@@ -43,6 +43,11 @@ function ensureFonts(): void {
     ['@fontsource/noto-sans-math/files/noto-sans-math-latin-400-normal.woff2', 'MathDec'],
     // Arabic Presentation Forms (ﺈ ﺳ ﮧ …) that Cairo lacks — Amiri covers them.
     ['@fontsource/amiri/files/amiri-arabic-400-normal.woff2', 'AmiriAr'],
+    // Cinzel: elegant Roman capitals for the luxury English lines (eyebrow,
+    // footer). Cormorant Garamond: a refined serif for smaller English accents.
+    ['@fontsource/cinzel/files/cinzel-latin-600-normal.woff2', 'Cinzel'],
+    ['@fontsource/cinzel/files/cinzel-latin-700-normal.woff2', 'Cinzel'],
+    ['@fontsource/cormorant-garamond/files/cormorant-garamond-latin-600-normal.woff2', 'Cormorant'],
     // Decorated names also use arrows, geometric shapes, dingbats and enclosed
     // symbols (◤ ↖ ▧ ✦ ❂ …). Noto Sans Symbols (1+2) cover those ranges.
     ['@fontsource/noto-sans-symbols/files/noto-sans-symbols-symbols-400-normal.woff2', 'SymA'],
@@ -94,6 +99,23 @@ const FONT = (weight: number, size: number) =>
 // Emoji-first font for drawing icons/emoji, so the color-emoji face is chosen
 // directly instead of relying on per-glyph fallback landing on it.
 const EMOJI = (size: number) => `${size}px NotoEmoji, CairoAr, CairoLat`;
+// Luxury serif for the English lines (Roman caps).
+const LUX = (weight: number, size: number) => `${weight} ${size}px Cinzel, Cormorant, CairoLat, serif`;
+
+/** Draw centered LTR text with manual letter-spacing (tracking) — gives the
+ *  English caps that elegant, airy luxury look canvas fonts can't set alone. */
+function drawTracked(ctx: SKRSContext2D, text: string, cx: number, y: number, spacing: number): void {
+  ctx.textAlign = 'left';
+  ctx.direction = 'ltr';
+  const chars = [...text];
+  const widths = chars.map((ch) => ctx.measureText(ch).width);
+  const total = widths.reduce((a, b) => a + b, 0) + spacing * Math.max(0, chars.length - 1);
+  let x = cx - total / 2;
+  chars.forEach((ch, i) => {
+    ctx.fillText(ch, x, y);
+    x += widths[i] + spacing;
+  });
+}
 
 /** Runtime font diagnostics (used by the /idfonts admin command). */
 export function fontDiagnostics(): { emojiPath: string; hasNotoEmoji: boolean; families: string[]; coloredPixels: number } {
@@ -177,6 +199,58 @@ function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
   ctx.closePath();
 }
 
+/** An L-shaped gold flourish at a card corner. dx/dy point inward (±1). */
+function cornerOrnament(ctx: SKRSContext2D, x: number, y: number, dx: number, dy: number, color: string): void {
+  const len = 34;
+  const len2 = 16;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + dx * len, y);
+  ctx.lineTo(x, y);
+  ctx.lineTo(x, y + dy * len);
+  ctx.stroke();
+  // inner short accent, offset diagonally
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + dx * len2, y + dy * 7);
+  ctx.lineTo(x + dx * 7, y + dy * 7);
+  ctx.lineTo(x + dx * 7, y + dy * len2);
+  ctx.stroke();
+  // corner diamond
+  ctx.fillStyle = color;
+  ctx.save();
+  ctx.translate(x + dx * 7, y + dy * 7);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillRect(-2.2, -2.2, 4.4, 4.4);
+  ctx.restore();
+}
+
+/** A center diamond flanked by tapering gold lines — a decorative section rule. */
+function ornamentalDivider(ctx: SKRSContext2D, cx: number, y: number, half: number, color: string): void {
+  const g = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.5, color);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.strokeStyle = g;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(cx - half, y);
+  ctx.lineTo(cx - 14, y);
+  ctx.moveTo(cx + 14, y);
+  ctx.lineTo(cx + half, y);
+  ctx.stroke();
+  // center diamonds
+  ctx.fillStyle = color;
+  for (const [ox, s] of [[0, 5], [-9, 2.4], [9, 2.4]] as [number, number][]) {
+    ctx.save();
+    ctx.translate(cx + ox, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-s, -s, s * 2, s * 2);
+    ctx.restore();
+  }
+}
+
 const W = 640;
 const H = 792;
 
@@ -204,19 +278,42 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Gold border.
+  const cx = W / 2;
+
+  // Soft gold halo behind the header/avatar for depth.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const halo = ctx.createRadialGradient(cx, 150, 20, cx, 150, 300);
+  halo.addColorStop(0, hexRgba(t.a, 0.14));
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, W, 380);
+  ctx.restore();
+
+  // Double gold frame: a bold outer border + a fine inner line.
   ctx.lineWidth = 3;
-  ctx.strokeStyle = hexRgba(t.a, 0.55);
+  ctx.strokeStyle = hexRgba(t.a, 0.6);
   roundRect(ctx, 1.5, 1.5, W - 3, H - 3, 33);
   ctx.stroke();
-
-  const cx = W / 2;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = hexRgba(t.a, 0.28);
+  roundRect(ctx, 12, 12, W - 24, H - 24, 26);
+  ctx.stroke();
+  // Gold flourishes at the four corners.
+  cornerOrnament(ctx, 26, 26, 1, 1, hexRgba(t.a, 0.75));
+  cornerOrnament(ctx, W - 26, 26, -1, 1, hexRgba(t.a, 0.75));
+  cornerOrnament(ctx, 26, H - 26, 1, -1, hexRgba(t.a, 0.75));
+  cornerOrnament(ctx, W - 26, H - 26, -1, -1, hexRgba(t.a, 0.75));
 
   // Crown / header decoration.
   ctx.fillStyle = t.a;
-  ctx.font = EMOJI(30);
+  ctx.font = EMOJI(28);
   ctx.textAlign = 'center';
-  ctx.fillText(t.top, cx, 52);
+  ctx.fillText(t.top, cx, 54);
+  // Elegant English eyebrow line under the crown.
+  ctx.fillStyle = hexRgba(t.a, 0.9);
+  ctx.font = LUX(600, 12);
+  drawTracked(ctx, 'OFFICIAL MEMBER CARD', cx, 78, 4);
 
   // Avatar circle.
   const ar = 74;
@@ -245,6 +342,23 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.lineWidth = 4;
   ctx.strokeStyle = t.a;
   ctx.stroke();
+  // Outer decorative ring + four gold ticks for a medallion look.
+  ctx.beginPath();
+  ctx.arc(cx, acy, ar + 8, 0, Math.PI * 2);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = hexRgba(t.a, 0.4);
+  ctx.stroke();
+  ctx.fillStyle = t.a;
+  for (let k = 0; k < 4; k++) {
+    const ang = (Math.PI / 2) * k - Math.PI / 2;
+    const tx = cx + Math.cos(ang) * (ar + 8);
+    const ty = acy + Math.sin(ang) * (ar + 8);
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-3, -3, 6, 6);
+    ctx.restore();
+  }
 
   // Name — fit on one line if it can at a readable size, else wrap to two
   // lines (like the old card did), so the full name always shows.
@@ -255,6 +369,9 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.font = FONT(700, fit.size);
   const lineGap = fit.size + 6;
   let ny = fit.lines.length === 2 ? 280 : 292;
+  ctx.save();
+  ctx.shadowColor = hexRgba(t.a, 0.55);
+  ctx.shadowBlur = 12;
   for (const line of fit.lines) {
     const w = Math.min(ctx.measureText(line).width, maxNameW);
     const ng = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
@@ -265,6 +382,7 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
     ctx.fillText(line, cx, ny);
     ny += lineGap;
   }
+  ctx.restore();
 
   // Username, positioned under the (1- or 2-line) name.
   const userY = fit.lines.length === 2 ? ny + 2 : 320;
@@ -289,13 +407,8 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.textAlign = 'center';
   ctx.fillText(d.rank, cx, pillY + 23);
 
-  // Divider.
-  const dv = ctx.createLinearGradient(28, 0, W - 28, 0);
-  dv.addColorStop(0, 'rgba(0,0,0,0)');
-  dv.addColorStop(0.5, hexRgba(t.a, 0.55));
-  dv.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = dv;
-  ctx.fillRect(28, 392, W - 56, 1.5);
+  // Ornamental divider (diamonds + tapering gold lines).
+  ornamentalDivider(ctx, cx, 393, W / 2 - 40, hexRgba(t.a, 0.7));
 
   // Stat tiles (2 columns, RTL: first item on the right).
   const tile = (x: number, y: number, w: number, h: number, icon: string, label: string, value: string) => {
@@ -362,11 +475,19 @@ function drawCard(ctx: SKRSContext2D, d: IdCardImageData, t: CardTheme, avatar: 
   ctx.font = FONT(700, 18);
   ctx.fillText(d.id, cx - 40, y + 29);
 
-  // Footer.
-  ctx.textAlign = 'center';
-  ctx.fillStyle = hexRgba(t.a, 0.85);
-  ctx.font = FONT(400, 15);
-  ctx.fillText(t.foot, cx, H - 24);
+  // Footer — luxury Roman caps, tracked, flanked by small flourishes.
+  ctx.fillStyle = hexRgba(t.a, 0.92);
+  ctx.font = LUX(700, 15);
+  drawTracked(ctx, t.foot.replace(/\s+/g, ' '), cx, H - 24, 3);
+  const footHalf = ctx.measureText(t.foot).width / 2 + 46;
+  ctx.strokeStyle = hexRgba(t.a, 0.5);
+  ctx.lineWidth = 1;
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + dir * (footHalf - 24), H - 29);
+    ctx.lineTo(cx + dir * footHalf, H - 29);
+    ctx.stroke();
+  }
 
   // Animated diagonal gold shine sweep (video frames only).
   if (phase >= 0) {
