@@ -77,7 +77,7 @@ const ALIASES: Alias[] = [
   { command: 'afk', triggers: ['غائب', 'انا غائب', 'باك بعدين'] },
   { command: 'poll', triggers: ['تصويت', 'استفتاء'] },
   { command: 'decorate', triggers: ['زخرفه', 'زخرف', 'زخرفه كلمه'] },
-  { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه'] },
+  { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه', 'همسة', 'ه'] },
   { command: 'musaraha', triggers: ['مصارحه', 'مصارحة', 'صارحني', 'رسايل مجهوله'] },
   { command: 'yt', triggers: ['yt'] },
   // "يوت"/"يوتيوب" → instant top result (no list). "اغنيه" → pick from a list.
@@ -288,6 +288,7 @@ const REPLY_ONLY_COMMANDS = new Set([
   '/rvip',
   '/unrank',
   '/setreply',
+  '/whisper', // اهمس/همسه/ه — always used as a reply to the target
 ]);
 
 export const aliasesPlugin: Plugin = {
