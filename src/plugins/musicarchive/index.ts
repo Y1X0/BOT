@@ -112,10 +112,12 @@ export const musicArchivePlugin: Plugin = {
       await ctx.reply(
         '🔧 تشخيص الأرشيف:\n' +
           `• الإصدار (commit): ${sha}\n` +
+          `• وضع البوت: ${env.BOT_MODE}\n` +
           `• قناة الأرشيف: ${storage || 'غير مضبوطة ❌'}\n` +
           `• النشر بالقناة: ${postTest}\n` +
           `• عدد الأغاني: ${count}\n` +
-          `• فهرسة كل القنوات: ${env.ARCHIVE_ALL_CHANNELS ? 'مفعّل ✅' : 'معطّل'}`,
+          `• فهرسة كل القنوات: ${env.ARCHIVE_ALL_CHANNELS ? 'مفعّل ✅' : 'معطّل'}\n` +
+          '• التنسيق (bold): <b>يعمل</b> ✅',
       );
     });
 
