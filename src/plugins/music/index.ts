@@ -17,7 +17,7 @@ const STREAMER_URL = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
 const STREAMER_TOKEN = process.env.STREAMER_TOKEN || '';
 
 const NOT_CONFIGURED =
-  '🎧 خدمة الكول مش مفعّلة بعد.\nلازم يشتغل سيرفر البث (music-bot) ويُضبط STREAMER_URL على البوت.';
+  '🎧 <b>خدمة الكول مش مفعّلة بعد.</b>\nلازم يشتغل سيرفر البث (music-bot) ويُضبط <code>STREAMER_URL</code> على البوت.';
 
 // Rotate the "searching" line so it doesn't get stale.
 const SEARCHING = [
@@ -468,7 +468,7 @@ export const musicPlugin: Plugin = {
       const parts = ctx.message.text.split(' ').slice(1).join(' ').trim();
       const replied = (ctx.message as { reply_to_message?: { text?: string; caption?: string } }).reply_to_message;
       const query = parts || replied?.text || replied?.caption || '';
-      if (!query) return void ctx.reply('🎵 اكتب اسم الأغنية:\nتشغيل نانسي عجرم');
+      if (!query) return void ctx.reply('🎵 <b>اكتب اسم الأغنية:</b>\n<code>تشغيل نانسي عجرم</code>');
       const status = await ctx.reply(pickSearching());
       let r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
       if (isNotMember(r)) {
@@ -510,7 +510,7 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const link = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!link || !/^(https?:\/\/)?(t\.me\/|telegram\.me\/)/i.test(link))
-        return void ctx.reply('🔗 ابعت رابط دعوة للجروب:\n/vcjoin https://t.me/+xxxxxxxx\nجيبه من: إعدادات الجروب ← روابط الدعوة.');
+        return void ctx.reply('🔗 <b>ابعت رابط دعوة للجروب:</b>\n<code>/vcjoin https://t.me/+xxxxxxxx</code>\nجيبه من: إعدادات الجروب ← روابط الدعوة.');
       const status = await ctx.reply('⏳ عم يحاول ينضم…');
       const r = await callStreamer('/join', { chat_id: ctx.chat.id, invite_link: link });
       if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
@@ -534,14 +534,14 @@ export const musicPlugin: Plugin = {
         await edit(ctx, status.message_id, '✅ ضفت المساعد وعم افتح الكول…');
         r = await callStreamer('/startvc', { chat_id: ctx.chat.id });
       }
-      await ctx.reply(r?.ok ? '✅ فتحت الكول. اكتب: تشغيل اسم الأغنية' : errorText(r));
+      await ctx.reply(r?.ok ? '✅ <b>فتحت الكول!</b>\nاكتب: <code>تشغيل اسم الأغنية</code>' : errorText(r));
     });
 
     bot.command('vcstop', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/stopvc', { chat_id: ctx.chat.id });
-      await ctx.reply(r?.ok ? '👋 سكّرت الكول.' : errorText(r));
+      await ctx.reply(r?.ok ? '👋 <b>سكّرت الكول.</b>' : errorText(r));
     });
 
     bot.command('vcskip', requireRole('admin'), async (ctx) => {
@@ -549,7 +549,7 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/skip', { chat_id: ctx.chat.id });
       if (!r?.ok) return void ctx.reply(errorText(r));
-      if (r.ended) return void ctx.reply('⏭ خلص الطابور — طلعت من الكول.');
+      if (r.ended) return void ctx.reply('⏭ <b>خلص الطابور</b> — طلعت من الكول.');
       await postCard(ctx, r);
     });
 
@@ -557,14 +557,14 @@ export const musicPlugin: Plugin = {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/pause', { chat_id: ctx.chat.id });
-      await ctx.reply(r?.ok ? '⏸ وقّفت مؤقتاً. اكتب: كمل' : 'ما في شي عم يشتغل.');
+      await ctx.reply(r?.ok ? '⏸ <b>وقّفت مؤقتاً.</b> اكتب: <code>كمل</code>' : '🔇 ما في شي عم يشتغل.');
     });
 
     bot.command('vcresume', requireRole('admin'), async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/resume', { chat_id: ctx.chat.id });
-      await ctx.reply(r?.ok ? '▶️ كمّلت.' : 'ما في شي موقوف.');
+      await ctx.reply(r?.ok ? '▶️ <b>كمّلت.</b>' : '⏹ ما في شي موقوف.');
     });
 
     // فرّغ الطابور (بيضل الي عم يشتغل).
@@ -573,7 +573,7 @@ export const musicPlugin: Plugin = {
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const r = await callStreamer('/clearqueue', { chat_id: ctx.chat.id });
       if (!r?.ok) return void ctx.reply(errorText(r));
-      await ctx.reply(r.removed ? `🧹 فرّغت الطابور (${r.removed} أغنية). الي عم يشتغل بيكمّل.` : '📭 الطابور أصلاً فاضي.');
+      await ctx.reply(r.removed ? `🧹 <b>فرّغت الطابور</b> (${r.removed} أغنية). الي عم يشتغل بيكمّل.` : '📭 الطابور أصلاً فاضي.');
     });
 
     // احذف أغنية من الطابور برقمها: احذف 3
@@ -581,7 +581,7 @@ export const musicPlugin: Plugin = {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
       const index = parseInt(ctx.message.text.split(/\s+/)[1] || '', 10);
-      if (!index || index < 1) return void ctx.reply('🗑 اكتب رقم الأغنية بالطابور:\nاحذف 3\n(شوف الأرقام بأمر: قائمة الكول)');
+      if (!index || index < 1) return void ctx.reply('🗑 <b>اكتب رقم الأغنية بالطابور:</b>\n<code>احذف 3</code>\n(شوف الأرقام بأمر: قائمة الكول)');
       const r = await callStreamer('/remove', { chat_id: ctx.chat.id, index });
       if (!r?.ok) return void ctx.reply(errorText(r));
       await ctx.reply(`🗑 حذفت: <b>${esc(r.title)}</b> (${fmtDuration(r.duration)})`, { parse_mode: 'HTML' });
