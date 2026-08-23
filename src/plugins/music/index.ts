@@ -255,6 +255,19 @@ async function botHandle(telegram: Telegram): Promise<string | undefined> {
   return cachedHandle || undefined;
 }
 
+// Caption under the now-playing image: a decorated "userbot" word + the bot's
+// name as a clickable mention (the interceptor turns the <a> into a real link).
+let cachedSig: string | null = null;
+async function botSignature(telegram: Telegram): Promise<string> {
+  if (cachedSig === null) {
+    const me = await telegram.getMe().catch(() => null);
+    cachedSig = me
+      ? `🎧 𝗨𝗦𝗘𝗥𝗕𝗢𝗧 : <a href="tg://user?id=${me.id}">${esc(me.first_name || me.username || 'Bot')}</a>`
+      : '';
+  }
+  return cachedSig;
+}
+
 // Render the premium "now playing" image card. Returns null on any failure so
 // callers fall back to the text/thumbnail card.
 async function renderNowPlayingImage(
@@ -310,7 +323,8 @@ async function sendNowPlaying(ctx: BotContext, statusId: number, r: StreamerResu
   const img = await renderNowPlayingImage(ctx.telegram, r, reqOf(ctx));
   if (img) {
     try {
-      await ctx.replyWithPhoto(Input.fromBuffer(img, 'nowplaying.jpg'), CONTROLS);
+      const caption = await botSignature(ctx.telegram);
+      await ctx.replyWithPhoto(Input.fromBuffer(img, 'nowplaying.jpg'), { caption, ...CONTROLS });
       await edit(ctx, statusId, '✅ بدأ التشغيل 🎶');
       return;
     } catch (err) {
@@ -350,7 +364,8 @@ export async function sendCardVia(
   const img = await renderNowPlayingImage(telegram, r, requester);
   if (img) {
     try {
-      await telegram.sendPhoto(chatId, Input.fromBuffer(img, 'nowplaying.jpg'), kb);
+      const caption = await botSignature(telegram);
+      await telegram.sendPhoto(chatId, Input.fromBuffer(img, 'nowplaying.jpg'), { caption, ...kb });
       return;
     } catch (err) {
       log.warn({ err }, 'card image send failed; falling back');
