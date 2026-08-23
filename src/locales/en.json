@@ -1,10 +1,10 @@
 {
-  "welcome.default": "🌹 Welcome {name} to {title}!\nEnjoy your stay 🎉",
-  "welcome.captcha": "👋 Welcome {name}!\nTo prove you're human, tap the button within {seconds} seconds.",
+  "welcome.default": "✨ <b>Welcome {name}</b> ✨\n\n🌟 You've joined <b>{title}</b>\n🎶 Enjoy your stay with us",
+  "welcome.captcha": "🛡 <b>Welcome {name}</b>\n\nTo prove you're human, tap the button within <b>{seconds}</b> seconds 👇",
   "welcome.captcha_button": "✅ I'm not a bot",
-  "welcome.captcha_passed": "✅ Verified, welcome {name}!",
+  "welcome.captcha_passed": "🎉 <b>Verified</b> — welcome {name}!",
   "welcome.captcha_failed": "⛔️ Verification not completed in time.",
-  "farewell.default": "👋 {name} left the group. Best of luck.",
+  "farewell.default": "🕊 <b>{name} has left</b>\n\nWishing them all the best 🌿",
 
   "info.time": "🕐 Current time: {time}",
   "info.date": "📅 Date: {date}",

@@ -1,10 +1,10 @@
 {
-  "welcome.default": "🌹 أهلاً وسهلاً {name} في {title}!\nنتمنى لك وقتاً ممتعاً معنا 🎉",
-  "welcome.captcha": "👋 مرحباً {name}!\nللتأكد أنك لست بوت، اضغط الزر خلال {seconds} ثانية.",
-  "welcome.captcha_button": "✅ أنا لست بوت",
-  "welcome.captcha_passed": "✅ تم التحقق، أهلاً بك {name}!",
-  "welcome.captcha_failed": "⛔️ لم يتم التحقق في الوقت المحدد.",
-  "farewell.default": "👋 غادر {name} الجروب. نتمنى له التوفيق.",
+  "welcome.default": "✨ <b>أهلاً وسهلاً {name}</b> ✨\n\n🌟 نوّرت <b>{title}</b>\n🎶 نتمنّى لك وقتاً ممتعاً بيننا",
+  "welcome.captcha": "🛡 <b>مرحباً {name}</b>\n\nللتأكّد أنك لست روبوت، اضغط الزر خلال <b>{seconds}</b> ثانية 👇",
+  "welcome.captcha_button": "✅ أنا لست روبوت",
+  "welcome.captcha_passed": "🎉 <b>تم التحقّق</b> — أهلاً بك {name}!",
+  "welcome.captcha_failed": "⛔️ انتهى الوقت دون تحقّق.",
+  "farewell.default": "🕊 <b>غادرنا {name}</b>\n\nنتمنّى له التوفيق 🌿",
 
   "info.time": "🕐 الوقت الحالي: {time}",
   "info.date": "📅 التاريخ: {date}",

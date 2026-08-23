@@ -50,7 +50,8 @@ export const welcomePlugin: Plugin = {
       const fname = displayName(member);
       const text = settings.farewellMessage
         ? interpolate(settings.farewellMessage, member, ctx.chat)
-        : t('farewell.default', { name: fname });
+        : t('farewell.default', { name: escapeHtml(fname) });
+      const extra = settings.farewellMessage ? {} : { parse_mode: 'HTML' as const };
       try {
         const avatar = await fetchAvatar(ctx.telegram, member.id);
         const img = await renderWelcomeCard({
@@ -61,12 +62,12 @@ export const welcomePlugin: Plugin = {
           handle: ctx.botInfo?.username ? `@${ctx.botInfo.username}` : undefined,
           farewell: true,
         });
-        await ctx.replyWithPhoto(Input.fromBuffer(img, 'farewell.jpg'), { caption: text });
+        await ctx.replyWithPhoto(Input.fromBuffer(img, 'farewell.jpg'), { caption: text, ...extra });
         return;
       } catch (err) {
         log.warn({ err }, 'farewell card failed; falling back');
       }
-      await ctx.reply(text).catch(() => undefined);
+      await ctx.reply(text, extra).catch(() => undefined);
     });
 
     // CAPTCHA button press.
@@ -85,9 +86,9 @@ export const welcomePlugin: Plugin = {
       await unmuteUser(ctx, expectedUserId);
       const t = ctx.state.t!;
       await ctx.answerCbQuery('✅').catch(() => undefined);
-      await ctx.editMessageText(
-        t('welcome.captcha_passed', { name: displayName(ctx.from) }),
-      ).catch(() => undefined);
+      await ctx.editMessageText(t('welcome.captcha_passed', { name: escapeHtml(displayName(ctx.from)) }), {
+        parse_mode: 'HTML',
+      }).catch(() => undefined);
     });
   },
 };
@@ -103,12 +104,10 @@ async function startCaptcha(
   await muteUser(ctx, userId);
 
   const sent = await ctx
-    .reply(
-      t('welcome.captcha', { name, seconds: timeoutSec }),
-      Markup.inlineKeyboard([
-        Markup.button.callback(t('welcome.captcha_button'), `captcha:${userId}`),
-      ]),
-    )
+    .reply(t('welcome.captcha', { name: escapeHtml(name), seconds: timeoutSec }), {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([Markup.button.callback(t('welcome.captcha_button'), `captcha:${userId}`)]),
+    })
     .catch(() => undefined);
 
   const key = `${ctx.chat!.id}:${userId}`;
@@ -134,9 +133,13 @@ async function sendWelcome(
   name: string,
   t: (k: string, v?: Record<string, string | number>) => string,
 ): Promise<void> {
+  const groupTitle = ctx.chat?.type === 'private' ? '' : (ctx.chat as { title?: string })?.title ?? '';
+  // Our default is styled with <b> HTML; a custom message is sent verbatim (no
+  // parse_mode) so it can't be broken by stray markup.
   const text = settings.welcomeMessage
     ? interpolate(settings.welcomeMessage, member, ctx.chat)
-    : t('welcome.default', { name, title: ctx.chat?.type === 'private' ? '' : (ctx.chat as { title?: string })?.title ?? '' });
+    : t('welcome.default', { name: escapeHtml(name), title: escapeHtml(groupTitle) });
+  const extra = settings.welcomeMessage ? {} : { parse_mode: 'HTML' as const };
 
   // Premium welcome card (avatar + member number). Fall back to the custom
   // image or plain text on any failure.
@@ -147,13 +150,13 @@ async function sendWelcome(
     ]);
     const img = await renderWelcomeCard({
       name,
-      group: (ctx.chat as { title?: string })?.title ?? undefined,
+      group: groupTitle || undefined,
       memberNo: count || undefined,
       avatar,
       initial: (name.trim()[0] || '?').toUpperCase(),
       handle: ctx.botInfo?.username ? `@${ctx.botInfo.username}` : undefined,
     });
-    await ctx.replyWithPhoto(Input.fromBuffer(img, 'welcome.jpg'), { caption: text });
+    await ctx.replyWithPhoto(Input.fromBuffer(img, 'welcome.jpg'), { caption: text, ...extra });
     return;
   } catch (err) {
     log.warn({ err }, 'welcome card failed; falling back');
@@ -161,12 +164,15 @@ async function sendWelcome(
 
   if (settings.welcomeImageUrl) {
     await ctx
-      .replyWithPhoto(settings.welcomeImageUrl, { caption: text })
-      .catch(() => ctx.reply(text).catch(() => undefined));
+      .replyWithPhoto(settings.welcomeImageUrl, { caption: text, ...extra })
+      .catch(() => ctx.reply(text, extra).catch(() => undefined));
   } else {
-    await ctx.reply(text).catch(() => undefined);
+    await ctx.reply(text, extra).catch(() => undefined);
   }
 }
+
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Replace {name} {title} placeholders in a custom template. */
 function interpolate(
