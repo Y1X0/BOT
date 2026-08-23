@@ -3,7 +3,7 @@ import { Input } from 'telegraf';
 import { message } from 'telegraf/filters';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { recordActivity, getMember, topByXp, xpForLevel, messageRank } from '../../services/member.service';
+import { recordActivity, getMember, topByXp, topByMessages, xpForLevel, messageRank } from '../../services/member.service';
 import { incMissionMessages } from '../../services/missions.service';
 import { announceAchievements } from '../../utils/progression';
 import { displayName, mention } from '../../utils/format';
@@ -37,6 +37,7 @@ export const engagementPlugin: Plugin = {
   commands: [
     { command: 'rank', description: '📊 مستواك ونقاط الخبرة' },
     { command: 'interaction', description: '💬 تفاعلك وترتيبك بين المتفاعلين' },
+    { command: 'interactors', description: '🔥 أكثر 15 عضو تفاعلاً' },
     { command: 'levels', description: '🏅 قائمة أعلى المستويات' },
   ],
 
@@ -117,6 +118,25 @@ export const engagementPlugin: Plugin = {
         `• رسائلك بالتفاعل ↢ <b>${messages}</b>`,
         `• ترتيبك بالمتفاعلين ↢ <b>${rank}</b>${total ? ` من <b>${total}</b>` : ''}`,
       ];
+      await ctx.reply(lines.join('\n')).catch(() => undefined);
+    });
+
+    // «المتفاعلين» → the top 15 members by messages, with mentions.
+    bot.command('interactors', async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const top = (await topByMessages(ctx.chat.id, 15).catch(() => [])).filter((m) => m.messageCount > 0);
+      if (!top.length) {
+        await ctx.reply('📊 ما في تفاعل مسجّل بعد.').catch(() => undefined);
+        return;
+      }
+      const medal = ['🥇', '🥈', '🥉'];
+      const fmt = (n: number) => n.toLocaleString('en-US');
+      const lines = ['✦ 🔥 <b>المتفاعلين</b> — أكثر ' + top.length + ' ✦', '➖➖➖➖➖➖➖➖'];
+      top.forEach((m, i) => {
+        const rank = i < 3 ? medal[i] : `<b>${i + 1}.</b>`;
+        const men = mention({ id: Number(m.userId), first_name: m.firstName || m.username || 'عضو' }).toString();
+        lines.push(`${rank} ${men} ↢ <b>${fmt(m.messageCount)}</b>`);
+      });
       await ctx.reply(lines.join('\n')).catch(() => undefined);
     });
 
