@@ -1,11 +1,13 @@
 import type { Telegraf } from 'telegraf';
-import { Markup } from 'telegraf';
+import { Input, Markup } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { getSettings } from '../../services/settings.service';
 import { displayName } from '../../utils/format';
 import { muteUser, unmuteUser, kickUser } from '../../utils/moderation-actions';
 import { createLogger } from '../../core/logger';
+import { renderWelcomeCard } from '../../services/card/welcome';
+import { fetchAvatar } from '../../services/card/avatar';
 
 const log = createLogger('plugin:welcome');
 
@@ -45,9 +47,25 @@ export const welcomePlugin: Plugin = {
       const t = ctx.state.t!;
       const member = ctx.message.left_chat_member;
       if (member.is_bot) return;
+      const fname = displayName(member);
       const text = settings.farewellMessage
         ? interpolate(settings.farewellMessage, member, ctx.chat)
-        : t('farewell.default', { name: displayName(member) });
+        : t('farewell.default', { name: fname });
+      try {
+        const avatar = await fetchAvatar(ctx.telegram, member.id);
+        const img = await renderWelcomeCard({
+          name: fname,
+          group: (ctx.chat as { title?: string })?.title ?? undefined,
+          avatar,
+          initial: (fname.trim()[0] || '?').toUpperCase(),
+          handle: ctx.botInfo?.username ? `@${ctx.botInfo.username}` : undefined,
+          farewell: true,
+        });
+        await ctx.replyWithPhoto(Input.fromBuffer(img, 'farewell.jpg'), { caption: text });
+        return;
+      } catch (err) {
+        log.warn({ err }, 'farewell card failed; falling back');
+      }
       await ctx.reply(text).catch(() => undefined);
     });
 
@@ -119,6 +137,27 @@ async function sendWelcome(
   const text = settings.welcomeMessage
     ? interpolate(settings.welcomeMessage, member, ctx.chat)
     : t('welcome.default', { name, title: ctx.chat?.type === 'private' ? '' : (ctx.chat as { title?: string })?.title ?? '' });
+
+  // Premium welcome card (avatar + member number). Fall back to the custom
+  // image or plain text on any failure.
+  try {
+    const [avatar, count] = await Promise.all([
+      fetchAvatar(ctx.telegram, member.id),
+      ctx.telegram.getChatMembersCount(ctx.chat!.id).catch(() => 0),
+    ]);
+    const img = await renderWelcomeCard({
+      name,
+      group: (ctx.chat as { title?: string })?.title ?? undefined,
+      memberNo: count || undefined,
+      avatar,
+      initial: (name.trim()[0] || '?').toUpperCase(),
+      handle: ctx.botInfo?.username ? `@${ctx.botInfo.username}` : undefined,
+    });
+    await ctx.replyWithPhoto(Input.fromBuffer(img, 'welcome.jpg'), { caption: text });
+    return;
+  } catch (err) {
+    log.warn({ err }, 'welcome card failed; falling back');
+  }
 
   if (settings.welcomeImageUrl) {
     await ctx
