@@ -5,7 +5,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { recordActivity } from '../../services/member.service';
 import { awardGameWin } from '../../utils/progression';
-import { displayName, pickRandom } from '../../utils/format';
+import { displayName, pickRandom, mention } from '../../utils/format';
 import { winner as xoWinner, bestMove, type Cell } from '../../services/xo-ai';
 
 // ---------------- Tic-Tac-Toe (XO) ----------------
@@ -22,17 +22,25 @@ const xoGames = new Map<string, XoGame>();
 const CELL: Record<Cell, string> = { ' ': '▫️', X: '❌', O: '⭕️' };
 const BOT_NAME = 'البوت 🤖';
 
-/** Name of the player holding a mark (falls back while a seat is empty). */
-function nameFor(g: XoGame, mark: 'X' | 'O'): string {
-  if (mark === 'X') return g.xName ?? 'بانتظار لاعب';
-  return g.vsBot ? BOT_NAME : g.oName ?? 'بانتظار لاعب';
+/** Clickable mention of the player holding a mark (falls back while a seat is
+ *  empty, or to the bot's name in vs-bot mode). The outgoing interceptor turns
+ *  the <a> tag into a real mention entity. */
+function mentionFor(g: XoGame, mark: 'X' | 'O'): string {
+  if (mark === 'O' && g.vsBot) return `<b>${BOT_NAME}</b>`;
+  const id = mark === 'X' ? g.x : g.o;
+  const name = mark === 'X' ? g.xName : g.oName;
+  if (!id) return '<i>بانتظار لاعب</i>';
+  return mention({ id, first_name: name || 'لاعب' }).toString();
 }
 
-/** Status text: who is playing whom, and whose turn it is (by name). */
+/** Status text: the two players (mentioned), and whose turn it is. */
 function xoStatus(g: XoGame): string {
-  const x = nameFor(g, 'X');
-  const o = nameFor(g, 'O');
-  return `⭕️❌ إكس-أو\n❌ ${x}  ضد  ⭕️ ${o}\n\n▶️ الآن دور ${CELL[g.turn]} ${nameFor(g, g.turn)}`;
+  return (
+    `⭕️❌ <b>إكس-أو</b>\n\n` +
+    `❌ ${mentionFor(g, 'X')}\n` +
+    `⭕️ ${mentionFor(g, 'O')}\n\n` +
+    `▶️ دور ${mentionFor(g, g.turn)} ${CELL[g.turn]}`
+  );
 }
 
 function xoKeyboard(g: XoGame) {
@@ -211,10 +219,10 @@ async function finishIfOver(ctx: BotContext, key: string, g: XoGame): Promise<bo
     else if (win === 'X') await awardGameWin(ctx, 20); // beating a perfect bot is rare
     const verdict = g.vsBot
       ? win === 'X'
-        ? '🎉 فزت على البوت! أسطورة!'
+        ? `🏆 مبرووك ${mentionFor(g, 'X')} فزت على البوت! أسطورة! 🎉`
         : '🤖 البوت فاز! حظ أوفر المرة الجاية.'
-      : `فاز ${CELL[win]} ${nameFor(g, win)}! 🎉`;
-    await ctx.editMessageText(`⭕️❌ ${verdict}\n\n${boardText(g)}`).catch(() => undefined);
+      : `🏆 مبرووك ${mentionFor(g, win)} فاز! 🎉`;
+    await ctx.editMessageText(`${verdict}\n\n${boardText(g)}`).catch(() => undefined);
     return true;
   }
   if (!g.board.includes(' ')) {
