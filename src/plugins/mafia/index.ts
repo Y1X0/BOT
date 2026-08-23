@@ -4,6 +4,10 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { requireRole } from '../../utils/permissions';
 import { createLogger } from '../../core/logger';
+import { escapeHtml } from '../../locales';
+
+/** Escape a player name for use inside an HTML message. */
+const esc = (s: string | undefined): string => escapeHtml(String(s ?? ''));
 
 const log = createLogger('plugin:mafia');
 
@@ -101,7 +105,7 @@ export const mafiaPlugin: Plugin = {
       };
       games.set(ctx.chat.id, g);
       await ctx.reply(
-        '🔫 لعبة المافيا!\nاضغط «انضمام» للمشاركة (لازم تبدأ محادثة خاصة مع البوت أولاً).\nالمضيف يضغط «ابدأ» عند اكتمال اللاعبين.',
+        '🔫 <b>لعبة المافيا!</b>\n\nاضغط «انضمام» للمشاركة (لازم تبدأ محادثة خاصة مع البوت أولاً).\nالمضيف يضغط «ابدأ» عند اكتمال اللاعبين.',
         Markup.inlineKeyboard([
           [Markup.button.callback('✋ انضمام', 'maf:join')],
           [Markup.button.callback('▶️ ابدأ', 'maf:begin')],
@@ -133,7 +137,7 @@ export const mafiaPlugin: Plugin = {
       await ctx.answerCbQuery('انضممت ✅').catch(() => undefined);
       await ctx
         .editMessageText(
-          `🔫 لعبة المافيا! المنضمّون (${g.players.size}):\n${[...g.players.values()].map((p) => `• ${p.name}`).join('\n')}`,
+          `🔫 <b>لعبة المافيا!</b>  المنضمّون (${g.players.size}):\n${[...g.players.values()].map((p) => `• <b>${esc(p.name)}</b>`).join('\n')}`,
           Markup.inlineKeyboard([
             [Markup.button.callback('✋ انضمام', 'maf:join')],
             [Markup.button.callback('▶️ ابدأ', 'maf:begin')],
@@ -198,7 +202,7 @@ export const mafiaPlugin: Plugin = {
             .catch(() => undefined);
         g.night.check = targetId;
         await ctx.answerCbQuery('تم ✅').catch(() => undefined);
-        await ctx.reply(`🔍 ${target.name}: ${target.role === 'mafia' ? 'مافيا 🔫' : 'بريء ✅'}`).catch(() => undefined);
+        await ctx.reply(`🔍 <b>${esc(target.name)}</b>: ${target.role === 'mafia' ? 'مافيا 🔫' : 'بريء ✅'}`).catch(() => undefined);
       }
       await maybeResolveNight(ctx.telegram, g);
     });
@@ -261,14 +265,16 @@ async function assignRoles(telegram: BotContext['telegram'], g: Game): Promise<v
   g.donId = mafiaTeam[0]?.id;
   // DM each their role. Mafia also learn their teammates + who the boss is.
   for (const p of g.players.values()) {
-    let msg = `دورك في المافيا: ${ROLE_AR[p.role]}`;
+    let msg = `🎭 <b>دورك في المافيا:</b> ${ROLE_AR[p.role]}`;
     if (p.role === 'mafia') {
       const boss = g.players.get(g.donId!);
       const isBoss = p.id === g.donId;
-      msg += isBoss ? '\n👑 أنت شيخ المافيا — أنت من يختار الضحية.' : `\n👑 شيخ المافيا: ${boss?.name} (هو من يغتال).`;
+      msg += isBoss
+        ? '\n👑 <b>أنت شيخ المافيا</b> — أنت من يختار الضحية.'
+        : `\n👑 شيخ المافيا: <b>${esc(boss?.name)}</b> (هو من يغتال).`;
       if (mafiaTeam.length > 1) {
-        const partners = mafiaTeam.filter((m) => m.id !== p.id).map((m) => m.name).join('، ');
-        msg += `\n🤝 شركاؤك بالمافيا: ${partners}`;
+        const partners = mafiaTeam.filter((m) => m.id !== p.id).map((m) => esc(m.name)).join('، ');
+        msg += `\n🤝 شركاؤك بالمافيا: <b>${partners}</b>`;
       }
     }
     await telegram.sendMessage(p.id, msg).catch(() => undefined);
@@ -282,7 +288,7 @@ async function beginNight(telegram: BotContext['telegram'], g: Game): Promise<vo
   g.night = {};
   if (g.timer) clearTimeout(g.timer);
   await telegram
-    .sendMessage(g.chatId, `🌙 الليلة ${g.round}: الجميع نام. شيخ المافيا يختار ضحيته...`)
+    .sendMessage(g.chatId, `🌙 <b>الليلة ${g.round}</b>\nالجميع نام… شيخ المافيا يختار ضحيته 🔪`)
     .catch(() => undefined);
 
   const don = ensureDon(g);
@@ -292,7 +298,7 @@ async function beginNight(telegram: BotContext['telegram'], g: Game): Promise<vo
       if (don && p.id === don.id) {
         await telegram.sendMessage(p.id, '🔫 أنت شيخ المافيا — اختر ضحية (اختيار واحد فقط):', targetKeyboard(others, 'kill')).catch(() => undefined);
       } else {
-        await telegram.sendMessage(p.id, `🔫 شيخ المافيا (${don?.name}) هو من يختار هذه الليلة. انتظر دورك.`).catch(() => undefined);
+        await telegram.sendMessage(p.id, `🔫 شيخ المافيا (<b>${esc(don?.name)}</b>) هو من يختار هذه الليلة. انتظر دورك.`).catch(() => undefined);
       }
     } else if (p.role === 'doctor') {
       await telegram.sendMessage(p.id, '💉 اختر من تنقذه (واحد فقط):', targetKeyboard(alive(g), 'save')).catch(() => undefined);
@@ -323,11 +329,11 @@ async function resolveNight(telegram: BotContext['telegram'], g: Game): Promise<
     const victim = g.players.get(g.night.kill);
     if (victim?.alive) {
       victim.alive = false;
-      deadName = `${victim.name} (${ROLE_AR[victim.role]})`;
+      deadName = `<b>${esc(victim.name)}</b> (${ROLE_AR[victim.role]})`;
     }
   }
   await telegram
-    .sendMessage(g.chatId, deadName ? `🌅 الصباح: قُتل ${deadName} الليلة!` : '🌅 الصباح: نجا الجميع الليلة!')
+    .sendMessage(g.chatId, deadName ? `🌅 <b>الصباح</b>\nقُتل ${deadName} الليلة! 🔪` : '🌅 <b>الصباح</b>\nنجا الجميع الليلة! 🕊')
     .catch(() => undefined);
 
   const winner = checkWin(g);
@@ -341,7 +347,7 @@ async function beginDay(telegram: BotContext['telegram'], g: Game): Promise<void
   g.votes = new Map();
   g.voteMsgId = undefined;
   if (g.timer) clearTimeout(g.timer);
-  await telegram.sendMessage(g.chatId, '☀️ النهار: ناقشوا مين المشتبه فيه، ثم صوّتوا 👇').catch(() => undefined);
+  await telegram.sendMessage(g.chatId, '☀️ <b>النهار</b>\nناقشوا مين المشتبه فيه، ثم صوّتوا 👇').catch(() => undefined);
   const sent = await telegram
     .sendMessage(g.chatId, renderVoteBoard(g), targetKeyboard(alive(g), 'vote'))
     .catch(() => undefined);
@@ -364,7 +370,7 @@ async function tallyDay(telegram: BotContext['telegram'], g: Game): Promise<void
   const tie = sorted.length > 1 && sorted[1][1] === top?.[1];
 
   if (!top || tie) {
-    await telegram.sendMessage(g.chatId, '🤷 تعادل أو لا أصوات — لم يُطرد أحد اليوم.').catch(() => undefined);
+    await telegram.sendMessage(g.chatId, '🤷 <b>تعادل أو لا أصوات</b> — لم يُطرد أحد اليوم.').catch(() => undefined);
     const winner = checkWin(g);
     if (winner) return void endGame(telegram, g, winner);
     return void beginNight(telegram, g);
@@ -383,7 +389,7 @@ async function beginDefense(telegram: BotContext['telegram'], g: Game, accusedId
   await telegram
     .sendMessage(
       g.chatId,
-      `🗣 ${acc?.name} هو الأكثر اشتباهاً (${voteCount} أصوات).\n${acc?.name}، عندك ${DEFENSE_MS / 1000} ثانية تبرّر نفسك!\nثم صوّتوا: نطرده؟`,
+      `🗣 <b>${esc(acc?.name)}</b> هو الأكثر اشتباهاً (${voteCount} أصوات).\n<b>${esc(acc?.name)}</b>، عندك ${DEFENSE_MS / 1000} ثانية تبرّر نفسك!\nثم صوّتوا: نطرده؟`,
       Markup.inlineKeyboard([
         [Markup.button.callback('⚖️ اطرده', 'maf:final:1'), Markup.button.callback('🕊 بريء', 'maf:final:0')],
       ]),
@@ -404,11 +410,11 @@ async function resolveDefense(telegram: BotContext['telegram'], g: Game): Promis
   if (acc?.alive && yes > no) {
     acc.alive = false;
     await telegram
-      .sendMessage(g.chatId, `⚖️ ${yes} مع الطرد مقابل ${no}. تم طرد ${acc.name}! دوره كان ${ROLE_AR[acc.role]}.`)
+      .sendMessage(g.chatId, `⚖️ <b>${yes}</b> مع الطرد مقابل <b>${no}</b>.\nتم طرد <b>${esc(acc.name)}</b>! دوره كان ${ROLE_AR[acc.role]}.`)
       .catch(() => undefined);
   } else {
     await telegram
-      .sendMessage(g.chatId, `🕊 ${yes} مع الطرد مقابل ${no}. نجا ${acc?.name ?? 'المتهم'} من الطرد.`)
+      .sendMessage(g.chatId, `🕊 <b>${yes}</b> مع الطرد مقابل <b>${no}</b>.\nنجا <b>${esc(acc?.name ?? 'المتهم')}</b> من الطرد.`)
       .catch(() => undefined);
   }
   const winner = checkWin(g);
@@ -426,11 +432,11 @@ function checkWin(g: Game): 'mafia' | 'citizens' | null {
 
 async function endGame(telegram: BotContext['telegram'], g: Game, winner: 'mafia' | 'citizens'): Promise<void> {
   g.phase = 'ended';
-  const reveal = [...g.players.values()].map((p) => `• ${p.name}: ${ROLE_AR[p.role]}`).join('\n');
+  const reveal = [...g.players.values()].map((p) => `• <b>${esc(p.name)}</b>: ${ROLE_AR[p.role]}`).join('\n');
   await telegram
     .sendMessage(
       g.chatId,
-      `🏁 انتهت اللعبة! الفائز: ${winner === 'mafia' ? '🔫 المافيا' : '👥 المواطنون'}\n\nالأدوار:\n${reveal}`,
+      `🏁 <b>انتهت اللعبة!</b>\nالفائز: <b>${winner === 'mafia' ? '🔫 المافيا' : '👥 المواطنون'}</b>\n\n<b>الأدوار:</b>\n${reveal}`,
     )
     .catch(() => undefined);
   cleanup(g);
