@@ -174,10 +174,26 @@ function transform(method: string, payload: Payload): boolean {
 // so premium substitution applies everywhere, and NEVER breaks a message: if the
 // upgraded send fails, we restore the original payload and send it as-is.
 export function installEmojiSubstitution(telegram: Telegram): void {
-  const original = telegram.callApi.bind(telegram);
-  const wrapped = async (method: string, payload: Payload, ...rest: unknown[]): Promise<unknown> => {
+  // Patch the PROTOTYPE that owns callApi, not this one instance. In webhook mode
+  // Telegraf builds a fresh Telegram instance per request (to attach the webhook
+  // response), so an instance-only patch would miss every command reply. Patching
+  // the prototype covers every current and future instance.
+  let proto: Record<string, unknown> = telegram as unknown as Record<string, unknown>;
+  while (proto && !Object.prototype.hasOwnProperty.call(proto, 'callApi')) {
+    proto = Object.getPrototypeOf(proto) as Record<string, unknown>;
+  }
+  if (!proto) proto = telegram as unknown as Record<string, unknown>;
+  if ((proto as { __emojiWrapped?: boolean }).__emojiWrapped) return; // idempotent
+
+  const original = proto.callApi as (method: string, payload: Payload, ...rest: unknown[]) => Promise<unknown>;
+  const wrapped = async function (
+    this: unknown,
+    method: string,
+    payload: Payload,
+    ...rest: unknown[]
+  ): Promise<unknown> {
     if (!payload || (!TEXT_METHODS.has(method) && !CAPTION_METHODS.has(method))) {
-      return original(method as never, payload as never, ...(rest as []));
+      return original.call(this, method, payload, ...rest);
     }
     const snapshot = {
       text: payload.text,
@@ -194,15 +210,16 @@ export function installEmojiSubstitution(telegram: Telegram): void {
       changed = false;
     }
     try {
-      return await original(method as never, payload as never, ...(rest as []));
+      return await original.call(this, method, payload, ...rest);
     } catch (err) {
       if (!changed) throw err;
       Object.assign(payload, snapshot); // undo the upgrade, send the original
       log.debug({ err, method }, 'emoji substitution rejected; sent original');
-      return original(method as never, payload as never, ...(rest as []));
+      return original.call(this, method, payload, ...rest);
     }
   };
-  (telegram as unknown as { callApi: typeof wrapped }).callApi = wrapped;
+  proto.callApi = wrapped;
+  (proto as { __emojiWrapped?: boolean }).__emojiWrapped = true;
 
   // Propagate map changes (and cross-instance updates) without a restart.
   setInterval(() => void refreshEmojiMap(), 60_000).unref();
