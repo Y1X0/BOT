@@ -1,6 +1,7 @@
-import { Markup, type Telegraf, type Telegram } from 'telegraf';
+import { Input, Markup, type Telegraf, type Telegram } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
+import { renderSongCard } from '../../services/card/song';
 import { requireRole, resolveRole, hasRole } from '../../utils/permissions';
 import { ensureChat, getSettings, setVcCardEmoji } from '../../services/settings.service';
 import { getGlobalVcCardEmoji, setGlobalVcCardEmoji } from '../../services/global.service';
@@ -246,6 +247,36 @@ function nowPlayingCard(r: StreamerResult, requester: Requester, em: CardEmoji):
 
 const reqOf = (ctx: BotContext): Requester => (ctx.from ? { name: ctx.from.first_name || 'مستخدم', user: ctx.from } : null);
 
+// The bot's @handle for the card footer (fetched once, cached).
+let cachedHandle: string | null = null;
+async function botHandle(telegram: Telegram): Promise<string | undefined> {
+  if (cachedHandle === null)
+    cachedHandle = await telegram.getMe().then((m) => (m.username ? `@${m.username}` : '')).catch(() => '');
+  return cachedHandle || undefined;
+}
+
+// Render the premium "now playing" image card. Returns null on any failure so
+// callers fall back to the text/thumbnail card.
+async function renderNowPlayingImage(
+  telegram: Telegram,
+  r: StreamerResult,
+  requester: Requester,
+): Promise<Buffer | null> {
+  try {
+    return await renderSongCard({
+      title: r.title || '—',
+      uploader: r.uploader,
+      duration: fmtDuration(r.duration),
+      requester: requester?.name || 'تلقائي',
+      coverUrl: r.thumb,
+      handle: await botHandle(telegram),
+    });
+  } catch (err) {
+    log.warn({ err }, 'now-playing card render failed');
+    return null;
+  }
+}
+
 // Edit a status message to text+entities, retrying without custom_emoji (premium
 // emoji fail if the bot owner lacks Premium) and finally with no entities — so
 // it always renders and never stays stuck on the "searching…" line.
@@ -275,6 +306,17 @@ async function editEntities(
 // Send the now-playing card: a photo if we have a thumbnail, else edit the
 // status message to text. Retries without custom_emoji if premium is rejected.
 async function sendNowPlaying(ctx: BotContext, statusId: number, r: StreamerResult, em: CardEmoji): Promise<void> {
+  // Premium image card first; fall back to the text/thumbnail card on failure.
+  const img = await renderNowPlayingImage(ctx.telegram, r, reqOf(ctx));
+  if (img) {
+    try {
+      await ctx.replyWithPhoto(Input.fromBuffer(img, 'nowplaying.jpg'), CONTROLS);
+      await edit(ctx, statusId, '✅ بدأ التشغيل 🎶');
+      return;
+    } catch (err) {
+      log.warn({ err }, 'now-playing image send failed; falling back');
+    }
+  }
   const { text, entities } = nowPlayingCard(r, reqOf(ctx), em);
   const plain = entities.filter((e) => e.type !== 'custom_emoji');
   if (r.thumb) {
@@ -303,10 +345,20 @@ export async function sendCardVia(
   r: StreamerResult,
   requester: Requester,
 ): Promise<void> {
+  const kb = { reply_markup: CONTROLS.reply_markup };
+  // Premium image card first; fall back to the text/thumbnail card on failure.
+  const img = await renderNowPlayingImage(telegram, r, requester);
+  if (img) {
+    try {
+      await telegram.sendPhoto(chatId, Input.fromBuffer(img, 'nowplaying.jpg'), kb);
+      return;
+    } catch (err) {
+      log.warn({ err }, 'card image send failed; falling back');
+    }
+  }
   const em = await cardEmoji(chatId);
   const { text, entities } = nowPlayingCard(r, requester, em);
   const plain = entities.filter((e) => e.type !== 'custom_emoji');
-  const kb = { reply_markup: CONTROLS.reply_markup };
   if (r.thumb) {
     for (const ents of [entities, plain]) {
       try {
