@@ -58,6 +58,25 @@ export function invalidateRole(chatId: number | bigint, userId: number | bigint)
   roleCache.delete(roleKey(chatId, userId));
 }
 
+// A chat's linked-channel id changes rarely — cache it so recognizing someone
+// who posts "as the linked channel" costs at most one getChat per 10 minutes.
+const linkedChatCache = new Map<number, { id: number | null; at: number }>();
+const LINKED_TTL_MS = 600_000;
+
+async function getLinkedChatId(ctx: BotContext, chatId: number): Promise<number | null> {
+  const cached = linkedChatCache.get(chatId);
+  if (cached && Date.now() - cached.at < LINKED_TTL_MS) return cached.id;
+  let id: number | null = null;
+  try {
+    const chat = await ctx.telegram.getChat(chatId);
+    id = (chat as { linked_chat_id?: number }).linked_chat_id ?? null;
+  } catch {
+    /* transient — leave null */
+  }
+  linkedChatCache.set(chatId, { id, at: Date.now() });
+  return id;
+}
+
 /**
  * Resolve the sender's role in the current chat.
  * Combines Telegram's native admin status with our own moderator assignments
@@ -72,11 +91,18 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
 
   if (chat.type === 'private') return 'member';
 
-  // Anonymous admins post AS the group itself (sender_chat === this chat) — only
-  // admins can do that, and getChatMember on the GroupAnonymousBot would wrongly
-  // read as 'member'. Treat them as manager-level so they can still moderate.
+  // Someone can post hidden, "as a channel". Two of those are admin-only and we
+  // trust them as manager-level so they can still moderate:
+  //   • as the group itself (anonymous admin): sender_chat === this chat.
+  //   • as the group's LINKED channel: sender_chat === linked_chat_id.
+  // Any OTHER channel hides the real user entirely (Telegram gives no user id),
+  // so it cannot be verified and stays a member.
   const senderChat = ctx.senderChat;
-  if (senderChat && senderChat.id === chat.id) return 'manager';
+  if (senderChat) {
+    if (senderChat.id === chat.id) return 'manager';
+    const linkedId = await getLinkedChatId(ctx, chat.id);
+    if (linkedId && senderChat.id === linkedId) return 'manager';
+  }
 
   const key = roleKey(chat.id, userId);
   const cached = roleCache.get(key);
