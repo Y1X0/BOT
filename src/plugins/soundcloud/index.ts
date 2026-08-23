@@ -12,6 +12,23 @@ import { env } from '../../config/env';
 const log = createLogger('plugin:soundcloud');
 const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024; // ~50MB bot upload cap
 
+// The bot's own @handle, appended to every song it sends (fetched once, cached).
+let botHandle: string | null = null;
+async function botTag(telegram: BotContext['telegram']): Promise<string> {
+  if (botHandle === null) {
+    botHandle = await telegram
+      .getMe()
+      .then((me) => (me.username ? `@${me.username}` : ''))
+      .catch(() => '');
+  }
+  return botHandle;
+}
+/** Song caption with the bot's handle as a signature line. */
+async function songCaption(telegram: BotContext['telegram'], title: string): Promise<string> {
+  const tag = await botTag(telegram);
+  return tag ? `🎵 ${title}\n${tag}` : `🎵 ${title}`;
+}
+
 const pending = new Map<string, ScItem[]>(); // `${chatId}:${msgId}` → results
 
 const fmtDur = (s: number | null) => (s == null ? '' : ` (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`);
@@ -77,7 +94,8 @@ function enqueueDownloadAndSend(
           await telegram.sendMessage(chatId, '⚠️ الملف أكبر من الحد المسموح (50MB).').catch(() => undefined);
           return;
         }
-        const sent = await telegram.sendAudio(chatId, Input.fromLocalFile(dl.filePath), { title: dl.title, caption: `🎵 ${dl.title}` });
+        const caption = await songCaption(telegram, dl.title);
+        const sent = await telegram.sendAudio(chatId, Input.fromLocalFile(dl.filePath), { title: dl.title, caption });
         // Dynamic cache: remember this file_id so the next request for the same
         // song is served instantly, no re-download.
         const fid = (sent as { audio?: { file_id?: string; duration?: number } }).audio;
@@ -130,10 +148,11 @@ async function trySendFromArchive(ctx: BotContext, query: string): Promise<boole
   if (!ctx.chat) return false;
   const hit = await archiveSearch(query);
   if (!hit) return false;
+  const caption = await songCaption(ctx.telegram, hit.title);
   const send =
     hit.kind === 'document'
-      ? ctx.telegram.sendDocument(ctx.chat.id, hit.fileId, { caption: `🎵 ${hit.title}` })
-      : ctx.telegram.sendAudio(ctx.chat.id, hit.fileId, { title: hit.title, caption: `🎵 ${hit.title}` });
+      ? ctx.telegram.sendDocument(ctx.chat.id, hit.fileId, { caption })
+      : ctx.telegram.sendAudio(ctx.chat.id, hit.fileId, { title: hit.title, caption });
   const ok = await send
     .then(() => true)
     .catch(() => false); // stale file_id → let the caller fall back to a live search
