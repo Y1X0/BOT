@@ -1,7 +1,7 @@
 import type { Context } from 'telegraf';
 import type { ChatSettings } from '@prisma/client';
 import type { Role } from '../utils/permissions';
-import type { Locale } from '../locales';
+import type { Locale, Var } from '../locales';
 
 /**
  * Extended Telegraf context. Middlewares progressively enrich `ctx.state`
@@ -20,6 +20,6 @@ export interface BotContext extends Context {
     /** Resolved locale for the chat. */
     locale?: Locale;
     /** Translation helper bound to the resolved locale. */
-    t?: (key: string, vars?: Record<string, string | number>) => string;
+    t?: (key: string, vars?: Record<string, Var>) => string;
   };
 }

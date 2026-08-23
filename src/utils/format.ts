@@ -1,4 +1,5 @@
 import type { BotContext } from '../core/context';
+import { Html } from '../locales';
 
 /** Escape text for Telegram MarkdownV2. */
 export function escapeMd(text: string): string {
@@ -17,6 +18,20 @@ export function displayName(user?: {
   return `User ${user.id ?? ''}`.trim();
 }
 
+const escHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * A clickable mention of a user as an HTML <a> tag. The outgoing interceptor
+ * turns it into a text_link entity (tg://user?id=… works even without a
+ * username), so bot messages tag people instead of printing a plain name. The
+ * name is HTML-escaped; pass the result where HTML/styling is rendered.
+ */
+export function mention(user?: { first_name?: string; username?: string; id?: number }): Html {
+  const name = displayName(user);
+  if (!user?.id) return new Html(escHtml(name));
+  return new Html(`<a href="tg://user?id=${user.id}">${escHtml(name)}</a>`);
+}
+
 /**
  * The identity that sent a message. When a user posts "as a channel" in a
  * group, Telegram omits `from` and provides `sender_chat` instead — this
@@ -28,12 +43,6 @@ export function senderIdentity(ctx: BotContext): { id: number; name: string } | 
   if (sc) return { id: sc.id, name: sc.title ?? (sc.username ? `@${sc.username}` : 'قناة') };
   if (ctx.from) return { id: ctx.from.id, name: displayName(ctx.from) };
   return null;
-}
-
-/** An @mention-style clickable name for MarkdownV2. */
-export function mention(user: { id: number; first_name?: string; username?: string }): string {
-  const name = escapeMd(displayName(user));
-  return `[${name}](tg://user?id=${user.id})`;
 }
 
 /**

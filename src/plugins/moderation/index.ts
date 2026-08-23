@@ -18,7 +18,7 @@ import {
   unbanUser,
   applyWarnAction,
 } from '../../utils/moderation-actions';
-import { displayName, resolveTarget } from '../../utils/format';
+import { mention, resolveTarget } from '../../utils/format';
 import { parseDuration, formatDuration } from '../../utils/duration';
 
 /** Full send permissions — used to lift a /restrict. */
@@ -72,14 +72,14 @@ export const moderationPlugin: Plugin = {
       await logAction(ctx.chat.id, 'warn', ctx.from.id, target.id, reason);
 
       await ctx.reply(
-        t('mod.warned', { name: displayName(target), count, max: settings.maxWarnings, reason }),
+        t('mod.warned', { name: mention(target), count, max: settings.maxWarnings, reason }),
       );
 
       if (count >= settings.maxWarnings) {
         const applied = await applyWarnAction(ctx, target.id, settings.warnAction);
         if (applied !== 'none') {
           await resetWarnings(ctx.chat.id, target.id);
-          await ctx.reply(t(`mod.action_${applied}`, { name: displayName(target) }));
+          await ctx.reply(t(`mod.action_${applied}`, { name: mention(target) }));
           await logAction(ctx.chat.id, `auto_${applied}`, ctx.from.id, target.id, 'warn limit');
         }
       }
@@ -90,16 +90,16 @@ export const moderationPlugin: Plugin = {
       const target = resolveTarget(ctx);
       if (!target) return void ctx.reply(t('mod.need_reply'));
       const count = await removeWarning(ctx.chat.id, target.id);
-      await ctx.reply(t('mod.unwarn_done', { name: displayName(target), count }));
+      await ctx.reply(t('mod.unwarn_done', { name: mention(target), count }));
     });
 
     bot.command('warns', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
       const target = resolveTarget(ctx) ?? ctx.from;
       const count = await countWarnings(ctx.chat.id, target.id);
-      if (count === 0) return void ctx.reply(t('mod.warns_none', { name: displayName(target) }));
+      if (count === 0) return void ctx.reply(t('mod.warns_none', { name: mention(target) }));
       await ctx.reply(
-        t('mod.warns_list', { name: displayName(target), count, max: ctx.state.settings!.maxWarnings }),
+        t('mod.warns_list', { name: mention(target), count, max: ctx.state.settings!.maxWarnings }),
       );
     });
 
@@ -122,7 +122,7 @@ export const moderationPlugin: Plugin = {
       const ok = await muteUser(ctx, target.id, until);
       if (!ok) return void ctx.reply(t('errors.generic'));
       await logAction(ctx.chat.id, 'tmute', ctx.from.id, target.id, `${secs}s`);
-      await ctx.reply(`🔇 تم كتم ${displayName(target)} لمدة ${formatDuration(secs)}.`);
+      await ctx.reply(`🔇 تم كتم ${mention(target)} لمدة ${formatDuration(secs)}.`);
     });
 
     // ⏳ Timed ban: /tban 2h (reply). Telegram auto-unbans when it elapses.
@@ -140,7 +140,7 @@ export const moderationPlugin: Plugin = {
         .catch(() => false);
       if (!ok) return void ctx.reply(t('errors.generic'));
       await logAction(ctx.chat.id, 'tban', ctx.from.id, target.id, `${secs}s`);
-      await ctx.reply(`🚫 تم حظر ${displayName(target)} لمدة ${formatDuration(secs)}.`);
+      await ctx.reply(`🚫 تم حظر ${mention(target)} لمدة ${formatDuration(secs)}.`);
     });
 
     // Promote to Telegram admin (owner/admin only). Optional custom title:
@@ -168,8 +168,8 @@ export const moderationPlugin: Plugin = {
         await logAction(ctx.chat.id, 'promote', ctx.from.id, target.id, title || undefined);
         await ctx.reply(
           title
-            ? `⬆️ تمت ترقية ${displayName(target)} إلى مشرف بلقب «${title}».`
-            : t('mod.promoted', { name: displayName(target) }),
+            ? `⬆️ تمت ترقية ${mention(target)} إلى مشرف بلقب «${title}».`
+            : t('mod.promoted', { name: mention(target) }),
         );
       } catch {
         await ctx.reply('❌ تعذّرت الترقية. تأكد أن البوت مشرف ولديه صلاحية «إضافة مشرفين».');
@@ -194,7 +194,7 @@ export const moderationPlugin: Plugin = {
           is_anonymous: false,
         });
         await logAction(ctx.chat.id, 'demote', ctx.from.id, target.id);
-        await ctx.reply(`⬇️ تم تنزيل ${displayName(target)} من الإشراف.`);
+        await ctx.reply(`⬇️ تم تنزيل ${mention(target)} من الإشراف.`);
       } catch {
         await ctx.reply('❌ تعذّر التنزيل. لا يمكن تنزيل مشرف رقّاه شخص آخر أو مالك الجروب.');
       }
@@ -230,7 +230,7 @@ export const moderationPlugin: Plugin = {
       if (!ok) return void ctx.reply(t('errors.generic'));
       await logAction(ctx.chat.id, 'restrict', ctx.from.id, target.id, secs ? `${secs}s` : undefined);
       await ctx.reply(
-        `🔗 تم تقييد ${displayName(target)} تقييداً كاملاً (ممنوع الكتابة أو إرسال أي شيء)${secs ? ` لمدة ${formatDuration(secs)}` : ''}.`,
+        `🔗 تم تقييد ${mention(target)} تقييداً كاملاً (ممنوع الكتابة أو إرسال أي شيء)${secs ? ` لمدة ${formatDuration(secs)}` : ''}.`,
       );
     });
 
@@ -245,7 +245,7 @@ export const moderationPlugin: Plugin = {
         .catch(() => false);
       if (!ok) return void ctx.reply(t('errors.generic'));
       await logAction(ctx.chat.id, 'unrestrict', ctx.from.id, target.id);
-      await ctx.reply(`✅ تم رفع التقييد عن ${displayName(target)}.`);
+      await ctx.reply(`✅ تم رفع التقييد عن ${mention(target)}.`);
     });
 
     // Word filters
@@ -301,7 +301,7 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
         unban: 'mod.unbanned',
       };
       await logAction(ctx.chat.id, kind, ctx.from.id, target.id);
-      await ctx.reply(t(replyKey[kind], { name: displayName(target) }));
+      await ctx.reply(t(replyKey[kind], { name: mention(target) }));
     } else if (!ok) {
       await ctx.reply(t('errors.generic'));
     }
