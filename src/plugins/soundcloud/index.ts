@@ -12,21 +12,26 @@ import { env } from '../../config/env';
 const log = createLogger('plugin:soundcloud');
 const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024; // ~50MB bot upload cap
 
-// The bot's own @handle, appended to every song it sends (fetched once, cached).
-let botHandle: string | null = null;
-async function botTag(telegram: BotContext['telegram']): Promise<string> {
-  if (botHandle === null) {
-    botHandle = await telegram
-      .getMe()
-      .then((me) => (me.username ? `@${me.username}` : ''))
-      .catch(() => '');
+const escHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// A decorated "userbot" signature line with the bot's name as a clickable
+// mention (the outgoing interceptor turns the <a>/<b> tags into real entities).
+let cachedSig: string | null = null;
+async function botSignature(telegram: BotContext['telegram']): Promise<string> {
+  if (cachedSig === null) {
+    const me = await telegram.getMe().catch(() => null);
+    cachedSig = me
+      ? `🎧 𝗨𝗦𝗘𝗥𝗕𝗢𝗧 : <a href="tg://user?id=${me.id}">${escHtml(me.first_name || me.username || 'Bot')}</a>`
+      : '';
   }
-  return botHandle;
+  return cachedSig;
 }
-/** Song caption with the bot's handle as a signature line. */
+/** Song caption: title line + the decorated USERBOT signature. */
 async function songCaption(telegram: BotContext['telegram'], title: string): Promise<string> {
-  const tag = await botTag(telegram);
-  return tag ? `🎵 ${title}\n${tag}` : `🎵 ${title}`;
+  const sig = await botSignature(telegram);
+  const head = `🎵 <b>${escHtml(title)}</b>`;
+  return sig ? `${head}\n${sig}` : head;
 }
 
 const pending = new Map<string, { query: string; items: ScItem[] }>(); // `${chatId}:${msgId}` → results
