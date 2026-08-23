@@ -123,7 +123,9 @@ const ALIASES: Alias[] = [
   { command: 'ban', triggers: ['حظر', 'احظر', 'حظره'] },
   { command: 'unban', triggers: ['الغاء حظر', 'فك حظر', 'رفع حظر', 'الغاء الحظر'] },
   { command: 'kick', triggers: ['طرد', 'اطرد', 'طرده'] },
-  { command: 'antiswear', triggers: ['منع السب', 'منع الشتم', 'مكافحة السب', 'حظر السب'] },
+  // NB: «منع السب / فتح سب / منع روابط …» are handled by the unified quick-toggle
+  // in the protection plugin — NOT aliased here (that would route to the old
+  // on/off command and shadow the new behavior).
   { command: 'checkup', triggers: ['فحص', 'فحص البوت', 'تشخيص', 'حالة البوت'] },
   { command: 'guard', triggers: ['حارس', 'حماية قصوى', 'وضع الحارس', 'حارس الجروب'] },
   { command: 'guardall', triggers: ['حارس الكل', 'حماية كل القروبات'] },
@@ -227,7 +229,7 @@ const ALIASES: Alias[] = [
   // Protection
   { command: 'lockdown', triggers: ['قفل الجروب', 'اقفل الجروب', 'اغلاق الجروب'] },
   { command: 'unlock', triggers: ['فتح الجروب', 'افتح الجروب'] },
-  { command: 'antiraid', triggers: ['مكافحة الغارات', 'وضع الحمايه'] },
+  { command: 'antiraid', triggers: ['وضع الحمايه'] }, // «مكافحة الغارات» → quick-toggle
 ];
 
 /** Normalize Arabic text: strip diacritics/tatweel, unify alef/ya/ta-marbuta. */

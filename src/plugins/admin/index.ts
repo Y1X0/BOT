@@ -124,12 +124,10 @@ export const adminPlugin: Plugin = {
     // 🚫 Toggle the built-in profanity/insult filter.
     bot.command('antiswear', requireRole('manager'), async (ctx) => {
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
-      const on = arg === 'on' || arg === 'تفعيل' || arg === 'فعل';
       const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف' || arg === 'وقف';
-      if (!on && !off) {
-        const cur = (ctx.state.settings as { badwordsEnabled?: boolean } | undefined)?.badwordsEnabled ? 'مفعّل ✅' : 'متوقف ❌';
-        return void ctx.reply(`🚫 منع السب حالياً: ${cur}\nاستخدم: /antiswear on   أو   /antiswear off`);
-      }
+      // No arg → just flip the current state (smart toggle).
+      const cur = !!(ctx.state.settings as { badwordsEnabled?: boolean } | undefined)?.badwordsEnabled;
+      const on = arg === 'on' || arg === 'تفعيل' || arg === 'فعل' ? true : off ? false : !cur;
       await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { badwordsEnabled: on } });
       await ctx.reply(
         on

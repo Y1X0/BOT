@@ -122,13 +122,10 @@ export const protectionPlugin: Plugin = {
     bot.command('antiraid', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
-      const on = arg === 'on' || arg === 'تفعيل';
       const off = arg === 'off' || arg === 'ايقاف' || arg === 'إيقاف';
-      if (!on && !off) {
-        const cur = ctx.state.settings?.antiRaidEnabled ? 'مفعّلة ✅' : 'متوقفة ❌';
-        await ctx.reply(`🛡 مكافحة الغارات حالياً: ${cur}\nاستخدم: /antiraid on   أو   /antiraid off`);
-        return;
-      }
+      // No arg → flip the current state (smart toggle).
+      const cur = !!ctx.state.settings?.antiRaidEnabled;
+      const on = arg === 'on' || arg === 'تفعيل' ? true : off ? false : !cur;
       await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { antiRaidEnabled: on } });
       await ctx.reply(on ? '🛡 تم تفعيل مكافحة الغارات — سيتم قفل الجروب تلقائياً عند دخول جماعي مفاجئ.' : '🛡 تم إيقاف مكافحة الغارات.');
     });
@@ -193,8 +190,8 @@ export const protectionPlugin: Plugin = {
   },
 };
 
-// Quick-toggle vocabulary. منع/تفعيل/شغل → ON, فتح/ايقاف/وقف → OFF.
-const BLOCK_VERBS = new Set(['منع', 'امنع', 'تفعيل', 'فعل', 'فعّل', 'شغل', 'تشغيل']);
+// Quick-toggle vocabulary. منع/تفعيل/شغل/حظر/مكافحة → ON, فتح/ايقاف/وقف → OFF.
+const BLOCK_VERBS = new Set(['منع', 'امنع', 'تفعيل', 'فعل', 'فعّل', 'شغل', 'تشغيل', 'حظر', 'مكافحة', 'مكافحه']);
 const ALLOW_VERBS = new Set(['فتح', 'افتح', 'ايقاف', 'إيقاف', 'وقف', 'اوقف', 'اطفي', 'اطفئ', 'اطفاء', 'الغاء', 'إلغاء', 'سماح', 'اسمح']);
 const QUICK_RE = new RegExp(`^(${[...BLOCK_VERBS, ...ALLOW_VERBS].join('|')})\\s+(\\S+)$`);
 const ALL_WORDS = new Set(['الكل', 'كلشي', 'كلشيء', 'الحمايات', 'الحمايه', 'الحماية', 'حمايه', 'حماية']);
