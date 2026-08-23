@@ -27,9 +27,17 @@ export async function createBot(): Promise<{
 }> {
   const bot = new Telegraf<BotContext>(env.BOT_TOKEN, {
     handlerTimeout: 30_000,
-    // Point at a self-hosted Local Bot API server when provided (enables
-    // uploads up to 2000MB instead of the cloud API's 50MB cap).
-    ...(env.TELEGRAM_API_ROOT ? { telegram: { apiRoot: env.TELEGRAM_API_ROOT } } : {}),
+    telegram: {
+      // In webhook mode Telegraf otherwise sends the first reply of each update
+      // as the webhook HTTP response, which BYPASSES telegram.callApi — and with
+      // it the outgoing interceptor (premium-emoji + <b>→entities styling). Force
+      // every reply through the API so styling/emoji always apply. Harmless in
+      // polling mode.
+      webhookReply: false,
+      // Point at a self-hosted Local Bot API server when provided (enables
+      // uploads up to 2000MB instead of the cloud API's 50MB cap).
+      ...(env.TELEGRAM_API_ROOT ? { apiRoot: env.TELEGRAM_API_ROOT } : {}),
+    },
   });
 
   // Global error boundary — never let a handler crash the process.
