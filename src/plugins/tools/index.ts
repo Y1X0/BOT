@@ -117,6 +117,43 @@ export const toolsPlugin: Plugin = {
       }, 4000).unref?.();
     });
 
+    // «مسح» (reply) → delete that message + the command.
+    // «مسح 20» (or «مسح ٢٠») → delete the last 20 messages. Admin+ only.
+    bot.hears(/^(?:مسح|امسح)(?:\s+([\d٠-٩۰-۹]+))?$/, async (ctx, next) => {
+      const chat = ctx.chat;
+      if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) return next();
+      const replied = (ctx.message as { reply_to_message?: { message_id?: number } }).reply_to_message;
+      const numStr = ctx.match[1];
+      if (!replied && !numStr) return next(); // bare «مسح» in chat → leave it alone
+      if (!ctx.state.isStaff) return next(); // silent for non-admins
+
+      const chatId = chat.id;
+      const cmdId = ctx.message.message_id;
+      const noRights = '⚠️ ما قدرت أحذف — تأكد إني مشرف وعندي صلاحية «حذف الرسائل».';
+
+      // «مسح N» → delete the last N messages (by descending id) + the command.
+      if (numStr) {
+        const ascii = numStr.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+        const n = Math.min(Math.max(parseInt(ascii, 10) || 0, 1), MAX_PURGE);
+        await ctx.deleteMessage().catch(() => undefined); // the «مسح N» command itself
+        let deleted = 0;
+        for (let id = cmdId - 1; id >= cmdId - n && id > 0; id--) {
+          const ok = await ctx.telegram.deleteMessage(chatId, id).then(() => true).catch(() => false);
+          if (ok) deleted++;
+        }
+        await logAction(chatId, 'purge', ctx.from!.id, undefined, `${deleted} msgs`);
+        if (deleted === 0) return void ctx.reply(noRights).catch(() => undefined);
+        const note = await ctx.reply(`🧹 تم حذف <b>${deleted}</b> رسالة.`).catch(() => undefined);
+        if (note) setTimeout(() => ctx.telegram.deleteMessage(chatId, note.message_id).catch(() => undefined), 4000).unref?.();
+        return;
+      }
+
+      // «مسح» as a reply → delete the replied message + the command.
+      const ok = await ctx.telegram.deleteMessage(chatId, replied!.message_id!).then(() => true).catch(() => false);
+      await ctx.deleteMessage().catch(() => undefined);
+      if (!ok) await ctx.reply(noRights).catch(() => undefined);
+    });
+
     bot.command('lock', requireRole('manager'), async (ctx) => {
       const ok = await ctx.telegram
         .setChatPermissions(ctx.chat.id, { can_send_messages: false })
