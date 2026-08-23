@@ -407,8 +407,8 @@ async function postCard(ctx: BotContext, r: StreamerResult): Promise<void> {
 
 // Playback controls shown under the card (handled by the vc:* callbacks).
 const CONTROLS = Markup.inlineKeyboard([
-  [Markup.button.callback('⏸ إيقاف', 'vc:pause'), Markup.button.callback('⏭ تخطي', 'vc:skip')],
-  [Markup.button.callback('📜 الطابور', 'vc:queue'), Markup.button.callback('⏹ إنهاء', 'vc:stop')],
+  [Markup.button.callback('🟡 ⏸ إيقاف', 'vc:pause'), Markup.button.callback('🔵 ⏭ تخطي', 'vc:skip')],
+  [Markup.button.callback('🟢 📜 الطابور', 'vc:queue'), Markup.button.callback('🔴 ⏹ إنهاء', 'vc:stop')],
 ]);
 
 // Render the queue as an HTML block (shared by /vcqueue and the 📜 button).
