@@ -5,6 +5,7 @@ import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
 import { resolveTarget, displayName, pickRandom } from '../../utils/format';
+import { escapeHtml } from '../../locales';
 import { BIO_QUOTES } from './bios';
 import { getSettings, setIdCard, setIdCardImage, setIdCardTheme } from '../../services/settings.service';
 import { getMember } from '../../services/member.service';
@@ -242,19 +243,19 @@ export const infoPlugin: Plugin = {
     bot.command('residcard', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCard(ctx.chat.id, null, null);
-      await ctx.reply('♻️ رجّعت بطاقة «ايدي» للشكل الافتراضي.');
+      await ctx.reply('♻️ <b>رجّعت بطاقة «ايدي»</b> للشكل الافتراضي.');
     });
 
     // Switch the card between a designed image and the text template.
     bot.command('idcardimage', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCardImage(ctx.chat.id, true);
-      await ctx.reply('🖼 صار كرت «ايدي» يطلع كـ *صورة* مصمّمة. جرّب: ايدي');
+      await ctx.reply('🖼 صار كرت «ايدي» يطلع كـ <b>صورة</b> مصمّمة. جرّب: <code>ايدي</code>');
     });
     bot.command('idcardtext', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       await setIdCardImage(ctx.chat.id, false);
-      await ctx.reply('📝 صار كرت «ايدي» يطلع كـ *نص* (تقدر تخصصه بـ «بطاقة ايدي»).');
+      await ctx.reply('📝 صار كرت «ايدي» يطلع كـ <b>نص</b> (تقدر تخصصه بـ «بطاقة ايدي»).');
     });
 
     // /idcardtheme — pick the card's color theme (buttons). Includes «auto»
@@ -269,7 +270,7 @@ export const infoPlugin: Plugin = {
     };
     bot.command('idcardtheme', requireRole('manager'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
-      await ctx.reply('🎨 اختر ثيم بطاقة «ايدي»:\n(«تلقائي» = كل عضو بلون ثابت مختلف، «عشوائي» = يتغيّر كل مرة)', themeKeyboard());
+      await ctx.reply('🎨 <b>اختر ثيم بطاقة «ايدي»:</b>\n(«تلقائي» = كل عضو بلون ثابت مختلف، «عشوائي» = يتغيّر كل مرة)', themeKeyboard());
     });
     bot.action(/^idth:(.+)$/, requireRole('manager'), async (ctx) => {
       if (!ctx.chat) return;
@@ -286,7 +287,7 @@ export const infoPlugin: Plugin = {
     // that hasn't set its own. Same reply-capture flow as /setidcard.
     bot.command('setidcardall', async (ctx) => {
       if (!ctx.from || !isBotOwner(ctx.from.id)) {
-        await ctx.reply('🔒 هذا الأمر لمالك البوت فقط.');
+        await ctx.reply('🔒 <b>هذا الأمر لمالك البوت فقط.</b>');
         return;
       }
       const replied = (ctx.message as {
@@ -313,11 +314,11 @@ export const infoPlugin: Plugin = {
     // /residcardall — bot-owner only. Clears the global card (back to default).
     bot.command('residcardall', async (ctx) => {
       if (!ctx.from || !isBotOwner(ctx.from.id)) {
-        await ctx.reply('🔒 هذا الأمر لمالك البوت فقط.');
+        await ctx.reply('🔒 <b>هذا الأمر لمالك البوت فقط.</b>');
         return;
       }
       await setGlobalIdCard(null, null);
-      await ctx.reply('♻️ رجّعت بطاقة «ايدي» العامة للشكل الافتراضي في كل القروبات.');
+      await ctx.reply('♻️ <b>رجّعت بطاقة «ايدي» العامة</b> للشكل الافتراضي في كل القروبات.');
     });
 
     // /bio (reply) → the member's Telegram bio, or a bot-picked phrase if none.
@@ -333,9 +334,9 @@ export const infoPlugin: Plugin = {
       }
       const name = displayName(target);
       if (bio) {
-        await ctx.reply(`📝 بايو ${name}:\n«${bio}»`);
+        await ctx.reply(`📝 <b>بايو ${escapeHtml(name)}</b>\n«${escapeHtml(bio)}»`);
       } else {
-        await ctx.reply(`📝 ${name} ما حاطط بايو 🤷\nخُذ هاي من عندي:\n«${pickRandom(BIO_QUOTES)}»`);
+        await ctx.reply(`📝 <b>${escapeHtml(name)}</b> ما حاطط بايو 🤷\nخُذ هاي من عندي:\n«${escapeHtml(pickRandom(BIO_QUOTES))}»`);
       }
     });
 
