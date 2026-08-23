@@ -163,7 +163,7 @@ export const managementPlugin: Plugin = {
     // --- Diagnostic checkup: bot rights + feature toggles ---
     bot.command('checkup', requireRole('admin'), async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
-      const yn = (v: boolean) => (v ? '✅' : '❌');
+      const yn = (v: boolean) => (v ? '✔️' : '❌');
       const s = ctx.state.settings;
       let admin = false;
       let canDelete = false;
