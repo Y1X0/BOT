@@ -119,9 +119,12 @@ export const whisperPlugin: Plugin = {
 
       const id = storeWhisper({
         senderId: p.senderId,
+        senderName: p.senderName,
         targetId: p.targetId,
         targetUsername: p.targetUsername,
         targetName: p.targetName,
+        chatId: p.chatId,
+        chatTitle: p.chatTitle,
         text: secret,
       });
 
@@ -144,7 +147,14 @@ export const whisperPlugin: Plugin = {
           `🤫 ${senderMention} همس همسة سرية إلى ${targetMention}\nفقط هو من يقدر يفتحها 👇`,
           {
             parse_mode: 'HTML',
-            reply_markup: { inline_keyboard: [[{ text: '👀 عرض الهمسة', callback_data: `wh:${id}` }]] },
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '👀 عرض الهمسة', callback_data: `wh:${id}` },
+                  { text: '↩️ رد', callback_data: `whr:${id}` },
+                ],
+              ],
+            },
           },
         )
         .catch(() => undefined);
@@ -172,6 +182,40 @@ export const whisperPlugin: Plugin = {
           u.username.toLowerCase() === w.targetUsername);
 
       await ctx.answerCbQuery(allowed ? w.text : '🔒 هذه الهمسة ليست لك.', { show_alert: true });
+    });
+
+    // Reply button: ONLY the whisper's recipient can reply. Pressing it opens the
+    // bot's DM (via the callback url) to write the reply, which is then posted as
+    // a new whisper back to the original sender — reusing the whole w_ flow.
+    bot.action(/^whr:(.+)$/, async (ctx) => {
+      const id = ctx.match[1];
+      const w = whispers.get(id);
+      if (!w) return void ctx.answerCbQuery('⌛ انتهت الهمسة أو غير موجودة.', { show_alert: true }).catch(() => undefined);
+      const u = ctx.from;
+      const isTarget =
+        u.id === w.targetId ||
+        (w.targetUsername != null && u.username != null && u.username.toLowerCase() === w.targetUsername);
+      if (!isTarget)
+        return void ctx.answerCbQuery('🔒 الرد متاح فقط لمن أُرسلت له الهمسة.', { show_alert: true }).catch(() => undefined);
+      const username = ctx.botInfo?.username;
+      if (!username) return void ctx.answerCbQuery('⚠️ تعذّر تجهيز الرد الآن.', { show_alert: true }).catch(() => undefined);
+
+      // The reply is a whisper from the recipient back to the original sender.
+      const token = makeToken(u.id);
+      pendingTokens.set(token, {
+        senderId: u.id,
+        senderName: displayName(u),
+        targetId: w.senderId,
+        targetUsername: undefined,
+        targetName: w.senderName,
+        chatId: w.chatId,
+        chatTitle: w.chatTitle,
+        promptMsgId: 0, // a reply has no group prompt to clean up
+      });
+      // Open the DM with the start token so the recipient types the reply there.
+      await ctx
+        .answerCbQuery(undefined, { url: `https://t.me/${username}?start=w_${token}` })
+        .catch(() => undefined);
     });
   },
 };

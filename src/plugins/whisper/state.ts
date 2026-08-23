@@ -5,9 +5,12 @@
  */
 export interface Whisper {
   senderId: number;
+  senderName: string;
   targetId: number;
   targetUsername?: string;
   targetName: string;
+  chatId: number;
+  chatTitle?: string;
   text: string;
 }
 
