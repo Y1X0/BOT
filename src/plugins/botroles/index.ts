@@ -1,9 +1,11 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole, invalidateRole, resolveUserRole, canActOn, type Role } from '../../utils/permissions';
+import { requireRole, invalidateRole, resolveUserRole, canActOn, isBotOwner, type Role } from '../../utils/permissions';
 import { resolveTarget, displayName } from '../../utils/format';
-import { setChatRole, removeChatRole, listChatRoles, type AssignableRole } from '../../services/roles.service';
+import { setChatRole, removeChatRole, listChatRoles, getChatRole, type AssignableRole } from '../../services/roles.service';
+import { prisma } from '../../core/database';
+import { env } from '../../config/env';
 
 const isGroup = (ctx: BotContext) => ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup');
 
@@ -120,5 +122,57 @@ export const botRolesPlugin: Plugin = {
       );
       await ctx.reply(parts.join('\n'));
     });
+
+    // Diagnostic (owner-only): why an admin/rank isn't recognized, and whether
+    // ranks are being lost. Reply to someone to inspect them; else the sender.
+    bot.command('rolesdiag', async (ctx) => {
+      if (!isGroup(ctx) || !ctx.chat) return;
+      if (!ctx.from || !isBotOwner(ctx.from.id)) return;
+      const target = resolveTarget(ctx) ?? ctx.from;
+
+      // Raw Telegram status.
+      let tgStatus = 'غير معروف';
+      try {
+        const m = await ctx.telegram.getChatMember(ctx.chat.id, target.id);
+        tgStatus = m.status;
+      } catch (e) {
+        tgStatus = `فشل getChatMember: ${e instanceof Error ? e.message : e}`;
+      }
+      let inAdminList = false;
+      try {
+        const admins = await ctx.telegram.getChatAdministrators(ctx.chat.id);
+        inAdminList = admins.some((a) => a.user?.id === target.id);
+      } catch {
+        /* ignore */
+      }
+
+      const dbRole = await getChatRole(ctx.chat.id, target.id).catch(() => null);
+      const resolved = await resolveUserRole(ctx, target.id).catch(() => 'member');
+      const rowCount = await prisma.chatRole
+        .count({ where: { chatId: BigInt(ctx.chat.id) } })
+        .catch(() => -1);
+
+      // Is the DB ephemeral? SQLite on a container without a mounted volume is
+      // wiped on every redeploy — the usual cause of "ranks reset".
+      const isSqlite = env.DATABASE_PROVIDER !== 'postgresql';
+      const dbLine = isSqlite
+        ? `⚠️ SQLite (<code>${escapeHtml(env.DATABASE_URL)}</code>)\nهاي بتتصفّر كل Redeploy إذا مش مربوطة على Volume. الحل: Postgres أو Volume ثابت.`
+        : `✅ Postgres (ثابتة)`;
+
+      const lines = [
+        '🩺 <b>تشخيص الرتب</b>',
+        `• الشخص: ${escapeHtml(displayName(target))} (<code>${target.id}</code>)`,
+        `• حالة تيليجرام: <b>${escapeHtml(tgStatus)}</b>`,
+        `• بقائمة المشرفين: <b>${inAdminList ? 'نعم' : 'لا'}</b>`,
+        `• رتبة البوت المحفوظة: <b>${dbRole ?? 'لا يوجد'}</b>`,
+        `• الرتبة النهائية المحسوبة: <b>${resolved}</b>`,
+        `• عدد رتب البوت بهالجروب: <b>${rowCount}</b>`,
+        `• قاعدة البيانات: ${dbLine}`,
+      ];
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' }).catch(() => undefined);
+    });
   },
 };
+
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
