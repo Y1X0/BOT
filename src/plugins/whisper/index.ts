@@ -43,7 +43,7 @@ export const whisperPlugin: Plugin = {
       const replied = (ctx.message as { reply_to_message?: { from?: TargetUser } }).reply_to_message;
       const target = replied?.from;
       if (!target || target.is_bot || target.id === ctx.from.id) {
-        await ctx.reply('🤫 ردّ على رسالة الشخص الذي تريد أن تهمس له ثم اكتب: اهمس');
+        await ctx.reply('🤫 <b>ردّ على رسالة الشخص</b> الذي تريد أن تهمس له ثم اكتب: <code>اهمس</code>');
         return;
       }
 
@@ -161,7 +161,7 @@ export const whisperPlugin: Plugin = {
 
       // Clean up the group prompt and confirm privately.
       await ctx.telegram.deleteMessage(p.chatId, p.promptMsgId).catch(() => undefined);
-      await ctx.reply('✅ تم إرسال همستك للقروب بسرية.');
+      await ctx.reply('✅ <b>تم إرسال همستك للقروب بسرية.</b>');
     });
 
     // Step 4: reveal on button press.

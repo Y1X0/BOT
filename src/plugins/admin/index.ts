@@ -92,7 +92,7 @@ export const adminPlugin: Plugin = {
         return void ctx.reply('🔢 استخدم رقماً بين 1 و 20. مثال: /setwarns 3');
       }
       await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { maxWarnings: n } });
-      await ctx.reply(`✅ تم ضبط حد التحذيرات إلى ${n}.`);
+      await ctx.reply(`✅ <b>تم ضبط حد التحذيرات إلى ${n}.</b>`);
     });
 
     // ⚙️ Set what happens when a member reaches the warning limit.
@@ -103,7 +103,7 @@ export const adminPlugin: Plugin = {
       }
       await prisma.chatSettings.update({ where: { chatId: BigInt(ctx.chat.id) }, data: { warnAction: action } });
       const label = { mute: 'كتم 🔇', kick: 'طرد 👢', ban: 'حظر 🚫' }[action];
-      await ctx.reply(`✅ عند بلوغ حد التحذيرات ستكون العقوبة: ${label}.`);
+      await ctx.reply(`✅ عند بلوغ حد التحذيرات ستكون العقوبة: <b>${label}</b>.`);
     });
 
     // 🚦 Configure flood detection: max messages per window (seconds).
@@ -112,13 +112,13 @@ export const adminPlugin: Plugin = {
       const limit = Number(limitRaw);
       const windowSec = windowRaw === undefined ? 10 : Number(windowRaw);
       if (!Number.isInteger(limit) || limit < 3 || limit > 50 || !Number.isInteger(windowSec) || windowSec < 3 || windowSec > 60) {
-        return void ctx.reply('🚦 استخدم: /setflood <عدد 3-50> <ثواني 3-60>\nمثال: /setflood 7 10');
+        return void ctx.reply('🚦 <b>الاستخدام:</b> <code>/setflood [عدد 3-50] [ثواني 3-60]</code>\nمثال: <code>/setflood 7 10</code>');
       }
       await prisma.chatSettings.update({
         where: { chatId: BigInt(ctx.chat.id) },
         data: { floodLimit: limit, floodWindowSec: windowSec, floodEnabled: true },
       });
-      await ctx.reply(`✅ تم ضبط مكافحة التكرار: ${limit} رسائل خلال ${windowSec} ثانية.`);
+      await ctx.reply(`✅ <b>تم ضبط مكافحة التكرار:</b> ${limit} رسائل خلال ${windowSec} ثانية.`);
     });
 
     // 🚫 Toggle the built-in profanity/insult filter.
@@ -141,14 +141,14 @@ export const adminPlugin: Plugin = {
     bot.command('setwelcome', requireRole('manager'), async (ctx) => {
       const msg = ctx.message.text.split(' ').slice(1).join(' ').trim();
       if (!msg) {
-        await ctx.reply('استخدم: /setwelcome نص الترحيب (يدعم {name} و {title})');
+        await ctx.reply('📝 <b>الاستخدام:</b> <code>/setwelcome نص الترحيب</code>\n(يدعم {name} و {title})');
         return;
       }
       await prisma.chatSettings.update({
         where: { chatId: BigInt(ctx.chat.id) },
         data: { welcomeMessage: msg, welcomeEnabled: true },
       });
-      await ctx.reply('✅ تم تحديث رسالة الترحيب.');
+      await ctx.reply('✅ <b>تم تحديث رسالة الترحيب.</b>');
     });
   },
 };
