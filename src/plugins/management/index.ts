@@ -4,7 +4,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { prisma } from '../../core/database';
 import { env } from '../../config/env';
-import { requireRole } from '../../utils/permissions';
+import { requireRole, hasRole } from '../../utils/permissions';
 import { displayName } from '../../utils/format';
 import { createLogger } from '../../core/logger';
 
@@ -87,13 +87,27 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
   allLastUsed.set(chatId, Date.now()); // start the cooldown now
 
   const mentions = people.map((m) => `<a href="tg://user?id=${m.id}">${escapeHtml(m.name)}</a>`);
-  const header = note ? `📢 ${escapeHtml(note)}\n\n` : `📢 نداء للجميع (${mentions.length}):\n\n`;
+  const header = note
+    ? `📢 ${escapeHtml(note)}\n\n`
+    : viaAssistant
+      ? `📢 نداء للجميع (${mentions.length}):\n\n`
+      : `📢 نداء (${mentions.length} عضو مسجّل):\n\n`;
   // 8 mentions per message; pause between batches so Telegram doesn't rate-limit
   // and silently drop the later ones.
   for (let i = 0; i < mentions.length; i += 8) {
     const chunk = mentions.slice(i, i + 8).join(' ');
     await ctx.reply((i === 0 ? header : '') + chunk, { parse_mode: 'HTML' }).catch(() => undefined);
     if (i + 8 < mentions.length) await sleep(700);
+  }
+
+  // When we couldn't get the FULL list (no assistant), tell the admin why the
+  // count looks small and how to reach everyone.
+  if (!viaAssistant) {
+    await ctx
+      .reply(
+        'ℹ️ البوت وحده ما بيقدر يشوف إلا الأعضاء اللي حكوا. لتنشين <b>كل</b> أعضاء القروب لازم يكون حساب المساعد (userbot) مفعّل وموجود بالجروب.',
+      )
+      .catch(() => undefined);
   }
 }
 
@@ -143,6 +157,28 @@ export const managementPlugin: Plugin = {
       if (!ctx.state.isStaff) return next(); // silently ignore for non-staff
       await mentionAll(ctx, text.slice(m[0].length).trim());
       return; // consumed
+    });
+
+    // --- Why does @all tag only N? (founder diagnostic) ---
+    bot.command('alldiag', async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      if (!hasRole(ctx.state.role ?? 'member', 'founder')) return;
+      const dbCount = await prisma.member.count({ where: { chatId: BigInt(ctx.chat.id) } }).catch(() => -1);
+      let assistant: string;
+      if (!STREAMER_URL) {
+        assistant = '❌ غير مهيّأ (STREAMER_URL فاضي)';
+      } else {
+        const r = await fetchMembersViaAssistant(ctx.chat.id);
+        assistant = r ? `✅ يعمل — رجّع <b>${r.length}</b> عضو` : '❌ فشل (المساعد مش بالجروب، أو الخدمة موقّفة)';
+      }
+      const lines = [
+        '🩺 <b>تشخيص «الكل»</b>',
+        `• أعضاء مسجّلين بالبوت: <b>${dbCount}</b>`,
+        `• حساب المساعد (userbot): ${assistant}`,
+        '',
+        'ℹ️ لو المساعد ما بيشتغل، البوت بيمنشن بس الأعضاء المسجّلين (اللي حكوا). لتنشين الكل: فعّل المساعد وخلّيه عضو بالجروب.',
+      ];
+      await ctx.reply(lines.join('\n')).catch(() => undefined);
     });
 
     // --- Admins list ---
