@@ -50,7 +50,7 @@ export const youtubePlugin: Plugin = {
   description: 'YouTube audio: multi-result search, per-chat queue, live status',
   commands: [
     { command: 'yt', description: '🎵 بحث صوت: /yt اسم الأغنية' },
-    { command: 'ytnow', description: '⚡ أغنية يوتيوب فورية: يوت اسم الأغنية' },
+    { command: 'ytnow', description: '⚡ أغنية يوتيوب فورية: /ytnow اسم الأغنية' },
     { command: 'ytconfig', description: '⚙️ إعدادات اليوتيوب', staffOnly: true },
     { command: 'ytset', description: '🔧 تعديل حد يوتيوب', staffOnly: true },
   ],
