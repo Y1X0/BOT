@@ -117,7 +117,5 @@
   "onboard.btn.commands": "📋 Commands",
   "onboard.btn.settings": "⚙️ Settings",
   "onboard.btn.support": "🆘 Support",
-  "onboard.cmds_hint": "Type «الأوامر» or /menu to see all commands.",
-  "onboard.settings_hint": "Type «الإعدادات» (manager+) to configure the bot.",
-  "onboard.support_hint": "Support: contact the group owner or the bot developer."
+  "onboard.btn.channel": "📢 Channel"
 }

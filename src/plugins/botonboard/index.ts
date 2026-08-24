@@ -4,9 +4,26 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { prisma } from '../../core/database';
 import { makeTranslator, type Var } from '../../locales';
-import { getLocale } from '../../services/settings.service';
+import { getLocale, getSettings } from '../../services/settings.service';
+import { hasRole } from '../../utils/permissions';
 import { env } from '../../config/env';
+import { HOME_TEXT, homeKeyboard } from '../menu';
+import { buildSettingsText } from '../admin';
 import { createLogger } from '../../core/logger';
+
+/** Normalize a support/channel value into a full https link, or undefined.
+ *  Accepts @username, username, or a full http(s):// URL. */
+export function normalizeContact(v?: string): string | undefined {
+  const s = (v ?? '').trim();
+  if (!s) return undefined;
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^tg:\/\//i.test(s)) return s;
+  const u = s.replace(/^@/, '');
+  return /^[a-zA-Z0-9_]{4,32}$/.test(u) ? `https://t.me/${u}` : undefined;
+}
+
+const SUPPORT_URL = normalizeContact(env.SUPPORT_CONTACT);
+const CHANNEL_URL = normalizeContact(env.BOT_CHANNEL_URL);
 
 const log = createLogger('plugin:botonboard');
 
@@ -49,14 +66,22 @@ export function missingPerms(me: BotMember, t: T): string[] {
   return miss;
 }
 
-const keyboard = (t: T) =>
-  Markup.inlineKeyboard([
+// Buttons: 📋 الأوامر + ⚙️ الإعدادات act in-place; 🆘 الدعم / 📢 القناة are URL
+// buttons, and are only shown when their env link is configured (no broken buttons).
+const keyboard = (t: T) => {
+  type Btn = ReturnType<typeof Markup.button.callback> | ReturnType<typeof Markup.button.url>;
+  const rows: Btn[][] = [
     [
       Markup.button.callback(t('onboard.btn.commands'), 'onb:cmds'),
       Markup.button.callback(t('onboard.btn.settings'), 'onb:settings'),
-      Markup.button.callback(t('onboard.btn.support'), 'onb:support'),
     ],
-  ]);
+  ];
+  const links: Btn[] = [];
+  if (SUPPORT_URL) links.push(Markup.button.url(t('onboard.btn.support'), SUPPORT_URL));
+  if (CHANNEL_URL) links.push(Markup.button.url(t('onboard.btn.channel'), CHANNEL_URL));
+  if (links.length) rows.push(links);
+  return Markup.inlineKeyboard(rows);
+};
 
 /**
  * Bot onboarding: greet the group when the bot is added, tell the admin what
@@ -132,9 +157,29 @@ export const botOnboardPlugin: Plugin = {
       }
     });
 
-    // Button hints (short alerts, translated).
-    bot.action('onb:cmds', (ctx) => ctx.answerCbQuery((ctx.state.t ?? makeTranslator('ar'))('onboard.cmds_hint'), { show_alert: true }).catch(() => undefined));
-    bot.action('onb:settings', (ctx) => ctx.answerCbQuery((ctx.state.t ?? makeTranslator('ar'))('onboard.settings_hint'), { show_alert: true }).catch(() => undefined));
-    bot.action('onb:support', (ctx) => ctx.answerCbQuery((ctx.state.t ?? makeTranslator('ar'))('onboard.support_hint'), { show_alert: true }).catch(() => undefined));
+    // 📋 الأوامر → show the real interactive menu (reuses the /menu home view).
+    bot.action('onb:cmds', async (ctx) => {
+      await ctx.answerCbQuery().catch(() => undefined);
+      await ctx
+        .editMessageText(HOME_TEXT, { parse_mode: 'HTML', ...homeKeyboard() })
+        .catch(() => ctx.reply(HOME_TEXT, { parse_mode: 'HTML', ...homeKeyboard() }).catch(() => undefined));
+    });
+
+    // ⚙️ الإعدادات → open the real settings panel (manager+). Rejection alert only.
+    bot.action('onb:settings', async (ctx) => {
+      const t: T = ctx.state.t ?? makeTranslator('ar');
+      if (!hasRole(ctx.state.role ?? 'member', 'manager')) {
+        await ctx.answerCbQuery('⛔️ الإعدادات للمدير فأعلى', { show_alert: true }).catch(() => undefined);
+        return;
+      }
+      await ctx.answerCbQuery().catch(() => undefined);
+      const s = ctx.state.settings ?? (ctx.chat ? await getSettings(ctx.chat.id).catch(() => null) : null);
+      if (!s) {
+        await ctx.reply(t('errors.generic')).catch(() => undefined);
+        return;
+      }
+      const text = buildSettingsText(s, t);
+      await ctx.editMessageText(text).catch(() => ctx.reply(text).catch(() => undefined));
+    });
   },
 };

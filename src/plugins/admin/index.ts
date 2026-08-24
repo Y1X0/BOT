@@ -13,6 +13,24 @@ import {
 } from '../../services/settings.service';
 import { isSupportedLocale } from '../../locales';
 import { prisma } from '../../core/database';
+import type { ChatSettings } from '@prisma/client';
+
+/** Render the group's settings panel. Shared by /settings and the onboarding
+ *  «⚙️ الإعدادات» button so the two never diverge. */
+export function buildSettingsText(s: ChatSettings, t: (key: string) => string): string {
+  const on = t('settings.on');
+  const off = t('settings.off');
+  const lines = TOGGLEABLE_SETTINGS.map(
+    (key) => `${(s as Record<string, unknown>)[key] ? '🟢' : '🔴'} ${key}: ${(s as Record<string, unknown>)[key] ? on : off}`,
+  );
+  lines.push(
+    '',
+    `🔢 maxWarnings: ${s.maxWarnings}`,
+    `⚙️ warnAction: ${s.warnAction}`,
+    `🚦 floodLimit: ${s.floodLimit}/${s.floodWindowSec}s`,
+  );
+  return `${t('settings.header')}\n\n${lines.join('\n')}\n\n/set <key> on|off`;
+}
 
 /**
  * Admin control panel. `/settings` shows all toggles; `/set <key> <on|off>`
@@ -38,18 +56,7 @@ export const adminPlugin: Plugin = {
       const t = ctx.state.t!;
       const s = ctx.state.settings ?? (await getSettings(ctx.chat.id));
       if (!s) return;
-      const on = t('settings.on');
-      const off = t('settings.off');
-      const lines = TOGGLEABLE_SETTINGS.map(
-        (key) => `${(s as Record<string, unknown>)[key] ? '🟢' : '🔴'} ${key}: ${(s as Record<string, unknown>)[key] ? on : off}`,
-      );
-      lines.push(
-        '',
-        `🔢 maxWarnings: ${s.maxWarnings}`,
-        `⚙️ warnAction: ${s.warnAction}`,
-        `🚦 floodLimit: ${s.floodLimit}/${s.floodWindowSec}s`,
-      );
-      await ctx.reply(`${t('settings.header')}\n\n${lines.join('\n')}\n\n/set <key> on|off`);
+      await ctx.reply(buildSettingsText(s, t));
     });
 
     // /set <key> <on|off>

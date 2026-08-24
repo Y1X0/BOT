@@ -117,7 +117,5 @@
   "onboard.btn.commands": "📋 الأوامر",
   "onboard.btn.settings": "⚙️ الإعدادات",
   "onboard.btn.support": "🆘 الدعم",
-  "onboard.cmds_hint": "اكتب «الأوامر» أو /menu لعرض كل أوامر البوت.",
-  "onboard.settings_hint": "اكتب «الإعدادات» (للمدير فأعلى) لضبط البوت.",
-  "onboard.support_hint": "للدعم: راجع مالك الجروب أو مطوّر البوت."
+  "onboard.btn.channel": "📢 القناة"
 }

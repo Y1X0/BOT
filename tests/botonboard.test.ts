@@ -1,6 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { classifyTransition, missingPerms } from '../src/plugins/botonboard';
+import { classifyTransition, missingPerms, normalizeContact } from '../src/plugins/botonboard';
 import { translate } from '../src/locales';
+
+describe('normalizeContact', () => {
+  it('turns @username / username into a t.me link', () => {
+    expect(normalizeContact('@my_support')).toBe('https://t.me/my_support');
+    expect(normalizeContact('my_support')).toBe('https://t.me/my_support');
+  });
+  it('keeps a full http(s)/tg link as-is', () => {
+    expect(normalizeContact('https://t.me/foo')).toBe('https://t.me/foo');
+    expect(normalizeContact('tg://resolve?domain=foo')).toBe('tg://resolve?domain=foo');
+  });
+  it('returns undefined for empty / invalid so no broken button is shown', () => {
+    expect(normalizeContact(undefined)).toBeUndefined();
+    expect(normalizeContact('')).toBeUndefined();
+    expect(normalizeContact('   ')).toBeUndefined();
+    expect(normalizeContact('@ab')).toBeUndefined(); // too short for a username
+  });
+});
 
 const t = (key: string, vars?: Record<string, string | number>) => translate('ar', key, vars);
 

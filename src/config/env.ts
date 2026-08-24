@@ -72,6 +72,11 @@ const envSchema = z.object({
   DEFAULT_TIMEZONE: z.string().default('Asia/Riyadh'),
   DEFAULT_LANGUAGE: z.enum(['ar', 'en']).default('ar'),
 
+  // Onboarding buttons: support contact (@user / username / full t.me link) and
+  // an optional channel link. Shown on the bot's welcome message.
+  SUPPORT_CONTACT: z.string().optional(),
+  BOT_CHANNEL_URL: z.string().optional(),
+
   // AI (optional feature)
   AI_ENABLED: z
     .string()
