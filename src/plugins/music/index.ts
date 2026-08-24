@@ -247,6 +247,28 @@ function nowPlayingCard(r: StreamerResult, requester: Requester, em: CardEmoji):
 
 const reqOf = (ctx: BotContext): Requester => (ctx.from ? { name: ctx.from.first_name || 'مستخدم', user: ctx.from } : null);
 
+// A replied message that may carry a voice/audio to play directly in the call.
+type RepliedForPlay = {
+  text?: string;
+  caption?: string;
+  voice?: { file_id: string; duration?: number };
+  audio?: { file_id: string; duration?: number; title?: string; performer?: string };
+  video_note?: { file_id: string; duration?: number };
+  document?: { file_id: string; mime_type?: string; file_name?: string };
+};
+
+/** Extract a playable audio file from a replied message, or null. */
+function repliedAudio(m?: RepliedForPlay): { fileId: string; title: string; duration: number } | null {
+  if (!m) return null;
+  if (m.voice) return { fileId: m.voice.file_id, title: 'مقطع صوتي', duration: m.voice.duration ?? 0 };
+  if (m.audio)
+    return { fileId: m.audio.file_id, title: m.audio.title || m.audio.performer || 'أغنية', duration: m.audio.duration ?? 0 };
+  if (m.video_note) return { fileId: m.video_note.file_id, title: 'مقطع', duration: m.video_note.duration ?? 0 };
+  if (m.document && /^audio\//.test(m.document.mime_type || ''))
+    return { fileId: m.document.file_id, title: m.document.file_name || 'مقطع صوتي', duration: 0 };
+  return null;
+}
+
 // The bot's @handle for the card footer (fetched once, cached).
 let cachedHandle: string | null = null;
 async function botHandle(telegram: Telegram): Promise<string | undefined> {
@@ -480,17 +502,34 @@ export const musicPlugin: Plugin = {
     bot.command('vcplay', async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
+      const chatId = ctx.chat.id;
       const parts = ctx.message.text.split(' ').slice(1).join(' ').trim();
-      const replied = (ctx.message as { reply_to_message?: { text?: string; caption?: string } }).reply_to_message;
-      const query = parts || replied?.text || replied?.caption || '';
-      if (!query) return void ctx.reply('🎵 <b>اكتب اسم الأغنية:</b>\n<code>تشغيل نانسي عجرم</code>');
-      const status = await ctx.reply(pickSearching());
-      let r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
+      const replied = (ctx.message as { reply_to_message?: RepliedForPlay }).reply_to_message;
+      const media = parts ? null : repliedAudio(replied);
+
+      // Build the play call: a replied voice/audio → /playfile (direct URL, no
+      // search); otherwise the normal search flow. Same response handling below.
+      let status: { message_id: number };
+      let playCall: () => Promise<StreamerResult | null>;
+      if (media) {
+        status = await ctx.reply('🎧 <b>عم شغّل المقطع بالكول…</b>');
+        const link = await ctx.telegram.getFileLink(media.fileId).catch(() => null);
+        if (!link) return void edit(ctx, status.message_id, '⚠️ تعذّر جلب الملف (قد يكون كبيراً جداً).');
+        playCall = () =>
+          callStreamer('/playfile', { chat_id: chatId, url: link.toString(), title: media.title, duration: media.duration });
+      } else {
+        const query = parts || replied?.text || replied?.caption || '';
+        if (!query) return void ctx.reply('🎵 <b>اكتب اسم الأغنية:</b>\n<code>تشغيل نانسي عجرم</code>\nأو ردّ على مقطع صوتي بـ <code>تشغيل</code>.');
+        status = await ctx.reply(pickSearching());
+        playCall = () => callStreamer('/play', { chat_id: chatId, query });
+      }
+
+      let r = await playCall();
       if (isNotMember(r)) {
         await edit(ctx, status.message_id, '⏳ عم ضيف الحساب المساعد للجروب…');
         const j = await autoAddAssistant(ctx);
         if (!(j?.ok || j?.already)) return void edit(ctx, status.message_id, errorText(j));
-        r = await callStreamer('/play', { chat_id: ctx.chat.id, query });
+        r = await playCall();
       }
       if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
 

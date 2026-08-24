@@ -98,7 +98,7 @@ async def _archive_bg(track: dict) -> None:
     request for it is served instantly. Fully detached — it must NEVER affect
     playback, so every failure is swallowed."""
     storage = config.MUSIC_STORAGE_CHANNEL_ID
-    if not storage or not track:
+    if not storage or not track or track.get("no_archive"):
         return
     key = (track.get("webpage") or "").strip() or f"{track.get('title', '')}|{int(track.get('duration') or 0)}"
     if key in _archived_keys:
@@ -289,6 +289,49 @@ async def play(request: web.Request) -> web.Response:
         log.info("stale active track in %s with no live call — playing directly", chat_id)
         qm.clear(chat_id)
 
+    qm.set_active(chat_id, track)
+    try:
+        await _play_now(chat_id, track)
+    except Exception as e:
+        qm.clear(chat_id)
+        return web.json_response({"ok": False, "error": str(e)})
+    return web.json_response({"ok": True, "queued": False, **_track_info(track)})
+
+
+@routes.post("/playfile")
+async def playfile(request: web.Request) -> web.Response:
+    """Play a DIRECT audio URL (e.g. a Telegram voice/audio file link) with no
+    search — used when a user replies «تشغيل» to a voice/audio message. Mirrors
+    /play's enqueue-or-play logic but builds the track straight from the URL."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
+    data = await _body(request)
+    chat_id, url = data.get("chat_id"), (data.get("url") or "").strip()
+    if not chat_id or not url:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+    chat_id = int(chat_id)
+
+    guard = await _require_open_call(chat_id)
+    if guard is not None:
+        return guard
+
+    track = {
+        "url": url,
+        "title": (str(data.get("title") or "مقطع صوتي"))[:200],
+        "duration": int(data.get("duration") or 0),
+        "webpage": "",
+        "thumb": "",
+        "uploader": (str(data.get("uploader") or ""))[:120],
+        "no_archive": True,  # a Telegram file is already stored — don't re-upload
+    }
+
+    if qm.active(chat_id) and await _has_live_call(chat_id):
+        pos = qm.enqueue(chat_id, track)
+        return web.json_response({"ok": True, "queued": True, "position": pos, **_track_info(track)})
+    if qm.active(chat_id):
+        qm.clear(chat_id)
     qm.set_active(chat_id, track)
     try:
         await _play_now(chat_id, track)
