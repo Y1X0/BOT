@@ -50,6 +50,7 @@ export const youtubePlugin: Plugin = {
   description: 'YouTube audio: multi-result search, per-chat queue, live status',
   commands: [
     { command: 'yt', description: '🎵 بحث صوت: /yt اسم الأغنية' },
+    { command: 'ytnow', description: '⚡ أغنية يوتيوب فورية: يوت اسم الأغنية' },
     { command: 'ytconfig', description: '⚙️ إعدادات اليوتيوب', staffOnly: true },
     { command: 'ytset', description: '🔧 تعديل حد يوتيوب', staffOnly: true },
   ],
@@ -86,6 +87,27 @@ export const youtubePlugin: Plugin = {
       });
     });
 
+    // --- «يوت» → instant top YouTube result (no list), delivered right away. ---
+    bot.command('ytnow', async (ctx) => {
+      if (!ctx.chat) return;
+      if (!env.YT_ENABLED) return void ctx.reply('🎵 خدمة الصوت غير مفعّلة.');
+      if (ctx.state.settings?.musicBlocked) return void ctx.reply(MUSIC_LOCKED);
+      const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
+      if (!query) return void ctx.reply('⚡ اكتب اسم الأغنية وبتوصلك فوراً:\nيوت اسم الأغنية');
+      if (query.length > 150) return void ctx.reply('🎵 البحث طويل جداً.');
+
+      const status = await ctx.reply(`🔎 جاري البحث عن: ${query} ...`).catch(() => undefined);
+      const found = await resolveSearch(query, 1);
+      if ('error' in found || !found.length) {
+        const msg = 'error' in found ? ERRORS[found.error] : '❌ ما لقيت نتيجة، جرّب اسم ثاني.';
+        if (status) await editText(ctx, status.message_id, msg);
+        else await ctx.reply(msg).catch(() => undefined);
+        return;
+      }
+      if (status) await ctx.telegram.deleteMessage(ctx.chat.id, status.message_id).catch(() => undefined);
+      await deliverItem(ctx.telegram, ctx.chat.id, found[0]);
+    });
+
     // --- Pick a result → enqueue a download job ---
     bot.action(/^ytp:(\d+):(\d+)$/, async (ctx) => {
       const chatId = ctx.chat!.id;
@@ -98,96 +120,7 @@ export const youtubePlugin: Plugin = {
         return;
       }
       await ctx.answerCbQuery(`تمت الإضافة: ${item.title.slice(0, 40)}`);
-
-      const telegram = ctx.telegram;
-
-      // --- Cache hit: re-send instantly, no YouTube request, no queue. ---
-      const cached = await getCachedAudio(item.videoId).catch(() => null);
-      if (cached) {
-        const s = await telegram.sendMessage(chatId, `⚡️ من الأرشيف: ${item.title}`).catch(() => undefined);
-        try {
-          await telegram.sendAudio(chatId, cached.fileId, {
-            title: cached.title,
-            performer: 'YouTube',
-            caption: `🎵 ${cached.title}`,
-          });
-          await bumpCacheHit(item.videoId);
-          if (s) await telegram.deleteMessage(chatId, s.message_id).catch(() => undefined);
-          return;
-        } catch {
-          // Stale file_id — drop it and fall through to a fresh download.
-          await dropCachedAudio(item.videoId);
-          if (s) await telegram.deleteMessage(chatId, s.message_id).catch(() => undefined);
-        }
-      }
-
-      const status = await telegram
-        .sendMessage(chatId, `⏳ في قائمة الانتظار: ${item.title}`)
-        .catch(() => undefined);
-      const statusId = status?.message_id;
-
-      const job = async () => {
-        try {
-          if (statusId) await telegram.editMessageText(chatId, statusId, undefined, `⬇️ جاري التحميل: ${item.title}`).catch(() => undefined);
-          await telegram.sendChatAction(chatId, 'upload_voice').catch(() => undefined);
-
-          const result = await resolveDownload(item.videoId, (engine) => {
-            if (statusId && engine !== 'yt-dlp') {
-              void telegram
-                .editMessageText(chatId, statusId, undefined, `🔁 محاولة عبر محرك بديل (${engine}): ${item.title}`)
-                .catch(() => undefined);
-            }
-          });
-          if ('error' in result) {
-            if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error]).catch(() => undefined);
-            return;
-          }
-
-          try {
-            const { size } = await stat(result.filePath);
-            if (size > TELEGRAM_SEND_LIMIT) {
-              if (statusId)
-                await telegram
-                  .editMessageText(
-                    chatId,
-                    statusId,
-                    undefined,
-                    `❌ حجم الملف ${(size / 1024 / 1024).toFixed(1)}MB أكبر من حد تيليجرام للبوتات (50MB).\nلرفع الحد يلزم تشغيل Local Bot API.`,
-                  )
-                  .catch(() => undefined);
-              return;
-            }
-            const sent = await telegram.sendAudio(
-              chatId,
-              Input.fromLocalFile(result.filePath),
-              { title: result.title, performer: 'YouTube', caption: `🎵 ${result.title}` },
-            );
-            // Cache the Telegram file_id so this song is never re-downloaded.
-            const fileId = (sent as { audio?: { file_id?: string } }).audio?.file_id;
-            if (fileId) {
-              await cacheAudio(item.videoId, fileId, result.title, item.duration).catch(() => undefined);
-            }
-            if (statusId) await telegram.deleteMessage(chatId, statusId).catch(() => undefined);
-          } finally {
-            await result.cleanup(); // always remove temp files
-          }
-        } catch (err) {
-          log.error({ err, chatId }, 'download job error');
-          if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS.failed).catch(() => undefined);
-        }
-      };
-
-      const position = youtubeQueue.enqueue(
-        chatId,
-        job,
-        youtubeConfig.concurrentDownloadsPerGroup,
-        youtubeConfig.maxQueuePerGroup,
-      );
-      if (position === -1) {
-        if (statusId) await telegram.editMessageText(chatId, statusId, undefined, '⚠️ قائمة الانتظار ممتلئة، حاول لاحقاً.').catch(() => undefined);
-      } else if (position > youtubeConfig.concurrentDownloadsPerGroup && statusId) {
-        await telegram.editMessageText(chatId, statusId, undefined, `⏳ في قائمة الانتظار (ترتيبك: ${position}): ${item.title}`).catch(() => undefined);
-      }
+      await deliverItem(ctx.telegram, chatId, item);
     });
 
     // --- Admin: view/adjust limits ---
@@ -226,6 +159,82 @@ export const youtubePlugin: Plugin = {
     });
   },
 };
+
+/**
+ * Deliver one YouTube item: serve instantly from the archive if cached, else
+ * queue a download (via cobalt → yt-dlp → piped → invidious), send the audio, and
+ * cache its file_id. Shared by the numbered picker and the instant «يوت».
+ */
+async function deliverItem(
+  telegram: BotContext['telegram'],
+  chatId: number,
+  item: SearchItem,
+): Promise<void> {
+  // Cache hit → re-send instantly, no YouTube request, no queue.
+  const cached = await getCachedAudio(item.videoId).catch(() => null);
+  if (cached) {
+    const s = await telegram.sendMessage(chatId, `⚡️ من الأرشيف: ${item.title}`).catch(() => undefined);
+    try {
+      await telegram.sendAudio(chatId, cached.fileId, { title: cached.title, performer: 'YouTube', caption: `🎵 ${cached.title}` });
+      await bumpCacheHit(item.videoId);
+      if (s) await telegram.deleteMessage(chatId, s.message_id).catch(() => undefined);
+      return;
+    } catch {
+      await dropCachedAudio(item.videoId);
+      if (s) await telegram.deleteMessage(chatId, s.message_id).catch(() => undefined);
+    }
+  }
+
+  const status = await telegram.sendMessage(chatId, `⏳ في قائمة الانتظار: ${item.title}`).catch(() => undefined);
+  const statusId = status?.message_id;
+
+  const job = async () => {
+    try {
+      if (statusId) await telegram.editMessageText(chatId, statusId, undefined, `⬇️ جاري التحميل: ${item.title}`).catch(() => undefined);
+      await telegram.sendChatAction(chatId, 'upload_voice').catch(() => undefined);
+
+      const result = await resolveDownload(item.videoId, (engine) => {
+        if (statusId && engine !== 'yt-dlp') {
+          void telegram.editMessageText(chatId, statusId, undefined, `🔁 محاولة عبر محرك بديل (${engine}): ${item.title}`).catch(() => undefined);
+        }
+      });
+      if ('error' in result) {
+        if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error]).catch(() => undefined);
+        return;
+      }
+      try {
+        const { size } = await stat(result.filePath);
+        if (size > TELEGRAM_SEND_LIMIT) {
+          if (statusId)
+            await telegram
+              .editMessageText(chatId, statusId, undefined, `❌ حجم الملف ${(size / 1024 / 1024).toFixed(1)}MB أكبر من حد تيليجرام (50MB).`)
+              .catch(() => undefined);
+          return;
+        }
+        const sent = await telegram.sendAudio(chatId, Input.fromLocalFile(result.filePath), {
+          title: result.title,
+          performer: 'YouTube',
+          caption: `🎵 ${result.title}`,
+        });
+        const fileId = (sent as { audio?: { file_id?: string } }).audio?.file_id;
+        if (fileId) await cacheAudio(item.videoId, fileId, result.title, item.duration).catch(() => undefined);
+        if (statusId) await telegram.deleteMessage(chatId, statusId).catch(() => undefined);
+      } finally {
+        await result.cleanup();
+      }
+    } catch (err) {
+      log.error({ err, chatId }, 'download job error');
+      if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS.failed).catch(() => undefined);
+    }
+  };
+
+  const position = youtubeQueue.enqueue(chatId, job, youtubeConfig.concurrentDownloadsPerGroup, youtubeConfig.maxQueuePerGroup);
+  if (position === -1) {
+    if (statusId) await telegram.editMessageText(chatId, statusId, undefined, '⚠️ قائمة الانتظار ممتلئة، حاول لاحقاً.').catch(() => undefined);
+  } else if (position > youtubeConfig.concurrentDownloadsPerGroup && statusId) {
+    await telegram.editMessageText(chatId, statusId, undefined, `⏳ في قائمة الانتظار (ترتيبك: ${position}): ${item.title}`).catch(() => undefined);
+  }
+}
 
 async function editText(
   ctx: BotContext,
