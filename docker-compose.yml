@@ -1,0 +1,52 @@
+# One-command deploy for a VPS (DigitalOcean droplet, Oracle Cloud, etc.).
+# Runs the whole stack together: Postgres + the main bot + the voice-chat
+# streamer. Fill .env (copy from .env.example), then:  docker compose up -d --build
+#
+# Services reach each other by name on the default compose network:
+#   bot        → music-bot:8080   (STREAMER_URL)
+#   music-bot  → bot:3000         (BOT_CALLBACK_URL)
+#   bot        → postgres:5432    (DATABASE_URL)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+      POSTGRES_DB: botdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bot -d botdb']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      BOT_MODE: polling # a VPS has no public HTTPS by default → long polling
+      PORT: 3000
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: postgres://bot:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/botdb
+      STREAMER_URL: http://music-bot:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  music-bot:
+    build: ./music-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8080
+      BOT_CALLBACK_URL: http://bot:3000
+    depends_on:
+      - bot
+
+volumes:
+  pgdata:
