@@ -37,6 +37,13 @@ describe('Arabic command aliases', () => {
     expect(matchAlias('فك تقييد')).toBe('/unrestrict');
   });
 
+  it('maps the owner / developer card triggers', () => {
+    expect(matchAlias('المالك')).toBe('/owner');
+    expect(matchAlias('المطور')).toBe('/dev');
+    expect(matchAlias('مطور البوت')).toBe('/dev');
+    expect(matchAlias('المبرمج')).toBe('/dev');
+  });
+
   it('ignores real slash commands and non-matches', () => {
     expect(matchAlias('/joke')).toBeNull();
     expect(matchAlias('كلام عادي ما يطابق شيء')).toBeNull();

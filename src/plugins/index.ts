@@ -8,6 +8,7 @@ import { createGeneralPlugin } from './general';
 import { menuPlugin } from './menu';
 import { infoPlugin } from './info';
 import { ownerPlugin } from './owner';
+import { developerPlugin } from './developer';
 import { adminPlugin } from './admin';
 import { moderationPlugin } from './moderation';
 import { protectionPlugin } from './protection';
@@ -87,6 +88,7 @@ allPlugins.push(
   menuPlugin,
   infoPlugin,
   ownerPlugin,
+  developerPlugin,
   adminPlugin,
   moderationPlugin,
   botRolesPlugin, // custom in-bot ranks (admin/moderator/vip)

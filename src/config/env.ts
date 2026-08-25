@@ -77,6 +77,16 @@ const envSchema = z.object({
   SUPPORT_CONTACT: z.string().optional(),
   BOT_CHANNEL_URL: z.string().optional(),
 
+  // Developer card (/dev · المطور). Identity of the bot's developer; all optional
+  // — DEV_ID falls back to the first OWNER_IDS entry, and name/username/avatar are
+  // pulled live from Telegram when not overridden here.
+  DEV_ID: z.string().optional(), // Telegram user id of the developer
+  DEV_NAME: z.string().optional(), // display name override
+  DEV_USERNAME: z.string().optional(), // @handle override (with or without @)
+  DEV_TITLE: z.string().default('مطوّر ومصمّم البوت'),
+  DEV_TAGLINE: z.string().default('صُنع بإتقان وشغف'),
+  DEV_CONTACT: z.string().optional(), // button link: @user / username / full URL
+
   // AI (optional feature)
   AI_ENABLED: z
     .string()

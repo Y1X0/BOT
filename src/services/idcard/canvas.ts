@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCanvas, loadImage, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
 import { createLogger } from '../../core/logger';
-import type { IdCardImageData, CardTheme, OwnerCardData } from './image';
+import type { IdCardImageData, CardTheme, OwnerCardData, DevCardData } from './image';
 
 const log = createLogger('idcard:canvas');
 
@@ -1041,6 +1041,509 @@ export async function renderOwnerCardMp4(d: OwnerCardData): Promise<{ buffer: Bu
         drawOwnerCard(ctx, d, avatar, i / OFRAMES);
         i++;
         const img = ctx.getImageData(0, 0, OW, OH);
+        const frame = Buffer.from(img.data.buffer as ArrayBuffer, img.data.byteOffset, img.data.byteLength);
+        if (!stdin.write(frame)) {
+          stdin.once('drain', pump);
+          return;
+        }
+      }
+      stdin.end();
+    };
+    stdin.on('error', () => undefined);
+    pump();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEVELOPER CARD — the grandest of the three. A holographic, tech-luxury design
+// for the bot's developer, on a living aurora background. Beyond the owner
+// card's motion it adds: a rotating hologram ring, particles orbiting the
+// medallion in 3D (dimming as they pass behind), an iridescent name, a scanning
+// tech grid, and — the headline effect — the whole card gently turns in space
+// (a 3D "flip"), catching an edge-light glint at the narrowest point.
+// ─────────────────────────────────────────────────────────────────────────────
+const DW = 640;
+const DH = 640;
+// Holographic palette (cyan → violet → magenta) on near-black.
+const HC = ['#22d3ee', '#818cf8', '#c084fc', '#f472b6'];
+const HHI = '#e9d5ff';
+
+async function loadDevAvatar(uri?: string): Promise<Avatar | null> {
+  if (!uri) return null;
+  return loadImage(uri).catch(() => null);
+}
+
+/** A left→right holographic gradient (cyan·indigo·violet·pink) across [x0,x1],
+ *  with an optional moving highlight band position `shift` (0..1). */
+function holoGradient(ctx: SKRSContext2D, x0: number, x1: number, shift = -1) {
+  const g = ctx.createLinearGradient(x0, 0, x1, 0);
+  g.addColorStop(0, HC[0]);
+  g.addColorStop(0.34, HC[1]);
+  g.addColorStop(0.67, HC[2]);
+  g.addColorStop(1, HC[3]);
+  if (shift >= 0) {
+    const s = Math.min(0.98, Math.max(0.02, shift));
+    g.addColorStop(Math.max(0.02, s - 0.06), HC[2]);
+    g.addColorStop(s, '#ffffff');
+    g.addColorStop(Math.min(0.98, s + 0.06), HC[3]);
+  }
+  return g;
+}
+
+function drawDevCard(ctx: SKRSContext2D, d: DevCardData, avatar: Avatar | null, phase: number): void {
+  const cx = DW / 2;
+  const TAU = Math.PI * 2;
+  const anim = phase >= 0;
+  const ph = anim ? phase : 0;
+  const wob = anim ? Math.sin(ph * TAU) : 0; // -1..1
+  const wob2 = anim ? Math.cos(ph * TAU) : 1;
+  const pulse = 0.5 - 0.5 * Math.cos(ph * TAU); // 0..1..0
+
+  // ── Solid base so squeezed edges never show through. ──
+  ctx.fillStyle = '#05060d';
+  ctx.fillRect(0, 0, DW, DH);
+
+  // ── Living aurora: three big drifting blobs of holo colour (screen-blended). ──
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const blobs: [number, number, string, number][] = [
+    [cx + (anim ? Math.sin(ph * TAU) * 90 : 40), 200, HC[0], 300],
+    [cx + (anim ? Math.cos(ph * TAU) * 110 : -60), 430, HC[2], 340],
+    [cx + (anim ? Math.sin(ph * TAU + 1.7) * 80 : 90), 560, HC[3], 260],
+  ];
+  for (const [bx, by, col, rad] of blobs) {
+    const g = ctx.createRadialGradient(bx, by, 10, bx, by, rad);
+    g.addColorStop(0, hexRgba(col, 0.22));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, DW, DH);
+  }
+  ctx.restore();
+
+  // ── Faint tech grid + a scan line sweeping down (behind the card). ──
+  ctx.save();
+  ctx.strokeStyle = hexRgba(HC[1], 0.06);
+  ctx.lineWidth = 1;
+  for (let gx = 40; gx < DW; gx += 40) {
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, DH); ctx.stroke();
+  }
+  for (let gy = 40; gy < DH; gy += 40) {
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(DW, gy); ctx.stroke();
+  }
+  if (anim) {
+    const scanY = ph * DH;
+    const sg = ctx.createLinearGradient(0, scanY - 40, 0, scanY + 40);
+    sg.addColorStop(0, 'rgba(0,0,0,0)');
+    sg.addColorStop(0.5, hexRgba(HC[0], 0.12));
+    sg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, scanY - 40, DW, 80);
+  }
+  ctx.restore();
+
+  // ── 3D turn of the whole card: squeeze horizontally + a little tilt & bob, so
+  //    it reads as a card slowly turning in space. sx never goes negative (no
+  //    mirrored text); at its narrowest the card is nearly edge-on. ──
+  const sx = anim ? 0.46 + 0.54 * (0.5 + 0.5 * wob2) : 1; // 0.46 … 1.0
+  const tilt = anim ? wob * 0.05 : 0;
+  const bob = anim ? Math.sin(ph * TAU + 1) * 5 : 0;
+
+  ctx.save();
+  ctx.translate(cx, DH / 2 + bob);
+  ctx.rotate(tilt);
+  ctx.scale(sx, 1);
+  ctx.translate(-cx, -DH / 2);
+
+  // Card panel background (drawn oversized so the tilt leaves no gap).
+  const panel = ctx.createLinearGradient(0, 0, DW, DH);
+  panel.addColorStop(0, 'rgba(14,12,28,0.92)');
+  panel.addColorStop(0.55, 'rgba(9,8,18,0.95)');
+  panel.addColorStop(1, 'rgba(5,5,12,0.97)');
+  ctx.fillStyle = panel;
+  roundRect(ctx, 6, 6, DW - 12, DH - 12, 34);
+  ctx.fill();
+
+  // Darkened avatar cover with a Ken-Burns drift, clipped to the panel.
+  if (avatar) {
+    ctx.save();
+    roundRect(ctx, 6, 6, DW - 12, DH - 12, 34);
+    ctx.clip();
+    const zoom = 1.26 * (1 + (anim ? 0.1 * pulse : 0));
+    const scale = Math.max(DW / avatar.width, DH / avatar.height) * zoom;
+    const dw = avatar.width * scale;
+    const dh = avatar.height * scale;
+    ctx.globalAlpha = 0.22;
+    ctx.filter = 'blur(3px)';
+    ctx.drawImage(avatar, (DW - dw) / 2 + (anim ? wob * 20 : 0), (DH - dh) / 2 + (anim ? (wob2 - 1) * 12 : 0), dw, dh);
+    ctx.restore();
+  }
+
+  // Holographic double frame: an outer stroke that is itself a holo gradient.
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = holoGradient(ctx, 10, DW - 10, anim ? (0.5 + wob * 0.5) : -1);
+  roundRect(ctx, 4.5, 4.5, DW - 9, DH - 9, 33);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = hexRgba(HC[1], 0.32);
+  roundRect(ctx, 14, 14, DW - 28, DH - 28, 26);
+  ctx.stroke();
+  cornerOrnament(ctx, 28, 28, 1, 1, hexRgba(HC[0], 0.85));
+  cornerOrnament(ctx, DW - 28, 28, -1, 1, hexRgba(HC[2], 0.85));
+  cornerOrnament(ctx, 28, DH - 28, 1, -1, hexRgba(HC[2], 0.85));
+  cornerOrnament(ctx, DW - 28, DH - 28, -1, -1, hexRgba(HC[3], 0.85));
+
+  // Header emblem: code brackets </> with a pulsing neon glow that bobs.
+  ctx.textAlign = 'center';
+  ctx.save();
+  const emY = 70 + (anim ? Math.sin(ph * TAU) * 5 : 0);
+  ctx.font = FONT(700, 34);
+  ctx.fillStyle = HHI;
+  if (anim) {
+    ctx.shadowColor = hexRgba(HC[0], 0.6 + Math.sin(ph * TAU) * 0.4);
+    ctx.shadowBlur = 14 + Math.sin(ph * TAU) * 12;
+  }
+  ctx.direction = 'ltr';
+  ctx.fillText('</>', cx, emY);
+  ctx.restore();
+  ctx.fillStyle = hexRgba(HC[0], 0.95);
+  ctx.font = LUX(700, 13);
+  drawTracked(ctx, 'DEVELOPER', cx, 100, 6);
+
+  // ── Medallion avatar with orbiting particles + rotating hologram ring. ──
+  const ar = 84;
+  const acy = 208;
+
+  // Orbiting particles that pass BEHIND the avatar (draw first, dimmed).
+  const drawParticle = (a: number, rx: number, ry: number, size: number, col: string, front: boolean) => {
+    const depth = (Math.sin(a) + 1) / 2; // 0 back … 1 front
+    if (front !== depth > 0.5) return;
+    const x = cx + Math.cos(a) * rx;
+    const y = acy + Math.sin(a) * ry;
+    const s = size * (0.5 + depth * 0.9);
+    const al = 0.25 + depth * 0.75;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = hexRgba(col, al);
+    ctx.shadowBlur = 10 * depth + 3;
+    ctx.fillStyle = hexRgba(col, al);
+    ctx.beginPath();
+    ctx.arc(x, y, s, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  };
+  const particles: [number, number, number, number, string][] = [
+    [0.0, ar + 26, 34, 3.4, HC[0]],
+    [TAU / 3, ar + 26, 34, 3.0, HC[2]],
+    [(TAU / 3) * 2, ar + 26, 34, 3.2, HC[3]],
+    [0.9, ar + 40, 20, 2.4, HC[1]],
+    [0.9 + Math.PI, ar + 40, 20, 2.6, HHI],
+  ];
+  const spin = anim ? ph * TAU : 0;
+  for (const [off, rx, ry, s, col] of particles) drawParticle(spin + off, rx, ry, s, col, false);
+
+  // Rotating hologram ring: coloured arc segments sweeping around the medallion.
+  ctx.save();
+  const segRot = anim ? ph * TAU : 0;
+  for (let k = 0; k < 48; k++) {
+    const a0 = (TAU / 48) * k + segRot;
+    ctx.beginPath();
+    ctx.arc(cx, acy, ar + 12, a0, a0 + TAU / 48);
+    ctx.lineWidth = 3;
+    const c = HC[k % HC.length];
+    ctx.strokeStyle = hexRgba(c, 0.5 + 0.3 * Math.sin(a0 * 3));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Avatar (clipped circle) with a breathing zoom + tiny drift.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, acy, ar, 0, TAU);
+  ctx.closePath();
+  ctx.clip();
+  if (avatar) {
+    const mz = 1 + (anim ? 0.09 * (0.5 - 0.5 * Math.cos(ph * TAU + Math.PI)) : 0);
+    const sz = ar * 2 * mz;
+    const mdx = anim ? wob * 5 : 0;
+    const mdy = anim ? wob2 * 4 : 0;
+    ctx.drawImage(avatar, cx - sz / 2 + mdx, acy - sz / 2 + mdy, sz, sz);
+  } else {
+    const g = ctx.createLinearGradient(cx - ar, acy - ar, cx + ar, acy + ar);
+    g.addColorStop(0, '#1c2140');
+    g.addColorStop(1, '#120f22');
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - ar, acy - ar, ar * 2, ar * 2);
+    ctx.fillStyle = HHI;
+    ctx.font = FONT(700, 74);
+    ctx.textAlign = 'center';
+    ctx.fillText(d.initial || '?', cx, acy + 26);
+  }
+  ctx.restore();
+
+  // Neon double ring around the avatar — pulses brighter and back.
+  ctx.beginPath();
+  ctx.arc(cx, acy, ar, 0, TAU);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = holoGradient(ctx, cx - ar, cx + ar, anim ? 0.5 + wob * 0.5 : -1);
+  ctx.save();
+  if (anim) { ctx.shadowColor = hexRgba(HC[1], 0.5 + pulse * 0.4); ctx.shadowBlur = 12 + pulse * 12; }
+  ctx.stroke();
+  ctx.restore();
+
+  // Particles that pass in FRONT of the avatar (draw after, bright).
+  for (const [off, rx, ry, s, col] of particles) drawParticle(spin + off, rx, ry, s, col, true);
+
+  // Emblem badge (⚡) over the medallion's lower edge.
+  const badgeY = acy + ar + 2;
+  ctx.beginPath();
+  ctx.arc(cx, badgeY, 20, 0, TAU);
+  const bg2 = ctx.createLinearGradient(cx - 20, badgeY - 20, cx + 20, badgeY + 20);
+  bg2.addColorStop(0, HC[0]);
+  bg2.addColorStop(1, HC[2]);
+  ctx.fillStyle = bg2;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#05060d';
+  ctx.stroke();
+  ctx.font = EMOJI(19);
+  ctx.textAlign = 'center';
+  ctx.fillText('⚡', cx, badgeY + 7);
+
+  // Name — iridescent, with a live shimmer band moving across it.
+  const maxNameW = DW - 60;
+  const fit = fitName(ctx, d.name, maxNameW);
+  ctx.textAlign = 'center';
+  ctx.direction = 'rtl';
+  ctx.font = FONT(700, fit.size);
+  const lineGap = fit.size + 6;
+  let ny = fit.lines.length === 2 ? 328 : 340;
+  ctx.save();
+  ctx.shadowColor = hexRgba(HC[1], 0.55);
+  ctx.shadowBlur = 14;
+  const shimmer = anim ? 0.5 + wob * 0.45 : -1;
+  for (const line of fit.lines) {
+    const w = Math.min(ctx.measureText(line).width, maxNameW);
+    ctx.fillStyle = holoGradient(ctx, cx - w / 2, cx + w / 2, shimmer);
+    ctx.fillText(line, cx, ny);
+    ny += lineGap;
+  }
+  ctx.restore();
+
+  // Username.
+  const userY = fit.lines.length === 2 ? ny + 2 : 368;
+  ctx.direction = 'ltr';
+  ctx.fillStyle = '#c4cbe0';
+  ctx.font = FONT(400, 17);
+  ctx.fillText(d.username, cx, userY);
+
+  // Role pill ("⚡ <title>") with a holo fill.
+  const pillY = userY + 14;
+  ctx.font = FONT(700, 18);
+  ctx.direction = 'rtl';
+  const label = `⚡ ${d.title}`;
+  const pillW = ctx.measureText(label).width + 48;
+  const pillX = cx - pillW / 2;
+  ctx.fillStyle = holoGradient(ctx, pillX, pillX + pillW, anim ? 0.5 - wob * 0.5 : -1);
+  roundRect(ctx, pillX, pillY, pillW, 36, 18);
+  ctx.fill();
+  ctx.fillStyle = '#0b0a16';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, cx, pillY + 24);
+
+  // Ornamental divider.
+  const divY = pillY + 60;
+  ornamentalDivider(ctx, cx, divY, DW / 2 - 44, hexRgba(HC[1], 0.72));
+
+  // Tagline / signature line (centered, gently glowing).
+  let y = divY + 34;
+  ctx.textAlign = 'center';
+  ctx.direction = 'rtl';
+  ctx.save();
+  ctx.shadowColor = hexRgba(HC[2], anim ? 0.3 + pulse * 0.4 : 0.4);
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = hexRgba(HHI, 0.95);
+  ctx.font = FONT(700, 19);
+  ctx.fillText(`✦ ${d.tagline} ✦`, cx, y);
+  ctx.restore();
+  y += 30;
+
+  // ID bar.
+  const pad = 34;
+  ctx.fillStyle = hexRgba(HC[1], 0.1);
+  roundRect(ctx, pad, y, DW - pad * 2, 48, 14);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = hexRgba(HC[1], 0.34);
+  roundRect(ctx, pad, y, DW - pad * 2, 48, 14);
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.direction = 'rtl';
+  ctx.fillStyle = HC[0];
+  ctx.font = EMOJI(15);
+  ctx.fillText('🆔 الآيدي', cx + 74, y + 30);
+  ctx.direction = 'ltr';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = FONT(700, 18);
+  ctx.fillText(d.id, cx - 42, y + 30);
+
+  // Footer — luxury Roman caps.
+  ctx.fillStyle = hexRgba(HC[0], 0.92);
+  ctx.font = LUX(700, 15);
+  drawTracked(ctx, 'THE DEVELOPER', cx, DH - 28, 4);
+  const footHalf = ctx.measureText('THE DEVELOPER').width / 2 + 46;
+  ctx.strokeStyle = hexRgba(HC[1], 0.5);
+  ctx.lineWidth = 1;
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + dir * (footHalf - 24), DH - 33);
+    ctx.lineTo(cx + dir * footHalf, DH - 33);
+    ctx.stroke();
+  }
+
+  // Diagonal holo shine sweep across the card (video frames only).
+  if (anim) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const bandW = 200;
+    const skew = 130;
+    const bx = -bandW - skew + ph * (DW + bandW + skew * 2);
+    const g = ctx.createLinearGradient(bx, 0, bx + bandW, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.5, hexRgba(HC[2], 0.16));
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(bx, 0);
+    ctx.lineTo(bx + bandW, 0);
+    ctx.lineTo(bx + bandW - skew, DH);
+    ctx.lineTo(bx - skew, DH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore(); // end 3D-turn transform
+
+  // ── Edge-light glint: when the card is near edge-on (sx small), a bright
+  //    vertical bar flashes down its center — sells the flip. Drawn untransformed. ──
+  if (anim && sx < 0.62) {
+    const edge = (0.62 - sx) / 0.62; // 0..~0.35 → normalize
+    const a = Math.min(0.5, edge * 1.4);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const halfW = 30 + edge * 40;
+    const g = ctx.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.5, hexRgba(HHI, a));
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - halfW, 40, halfW * 2, DH - 80);
+    ctx.restore();
+  }
+
+  // ── Foreground twinkling sparkles over the whole scene. ──
+  if (anim) {
+    const spark = (x: number, y: number, base: number, off: number, col: string) => {
+      const tw2 = 0.5 + 0.5 * Math.sin((ph + off) * TAU);
+      const s = base * (0.3 + tw2 * 0.9);
+      const a = 0.25 + tw2 * 0.7;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.shadowColor = hexRgba(col, a);
+      ctx.shadowBlur = 6 * tw2;
+      ctx.strokeStyle = hexRgba(col, a);
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x - s, y); ctx.lineTo(x + s, y);
+      ctx.moveTo(x, y - s); ctx.lineTo(x, y + s);
+      ctx.stroke();
+      ctx.restore();
+    };
+    const pts: [number, number, number, number, string][] = [
+      [70, 120, 7, 0.0, HC[0]], [DW - 70, 130, 8, 0.5, HC[2]], [96, 250, 6, 0.2, HC[3]],
+      [DW - 96, 250, 7, 0.7, HC[1]], [56, 430, 7, 0.35, HC[0]], [DW - 56, 430, 8, 0.85, HC[2]],
+      [80, 560, 6, 0.15, HC[3]], [DW - 80, 560, 7, 0.6, HC[1]], [cx - 150, 500, 6, 0.4, HHI],
+      [cx + 150, 500, 6, 0.8, HHI],
+    ];
+    for (const [x, y, b, o, c] of pts) spark(x, y, b, o, c);
+  }
+}
+
+/** Render the developer card to a JPEG (fast, CPU-only, no browser). */
+export async function renderDevCardPng(d: DevCardData): Promise<Buffer> {
+  ensureFonts();
+  const canvas = createCanvas(DW, DH);
+  const ctx = canvas.getContext('2d');
+  const avatar = await loadDevAvatar(d.avatarDataUri);
+  drawDevCard(ctx, d, avatar, -1);
+  return canvas.encode('jpeg', 86);
+}
+
+/**
+ * Render the ANIMATED developer card as a short looping MP4 (orbits + hologram +
+ * 3D turn). CPU-only via canvas → ffmpeg (raw RGBA frames), no browser. Returns
+ * null on any failure (caller falls back to the still image). Mirrors the owner
+ * card renderer.
+ */
+export async function renderDevCardMp4(d: DevCardData): Promise<{ buffer: Buffer; ext: string } | null> {
+  ensureFonts();
+  lastMp4Error = '';
+  const dir = await mkdtemp(join(tmpdir(), 'devcard-')).catch(() => null);
+  if (!dir) {
+    lastMp4Error = 'tmpdir failed';
+    return null;
+  }
+  const out = join(dir, 'card.mp4');
+  const avatar = await loadDevAvatar(d.avatarDataUri);
+  const canvas = createCanvas(DW, DH);
+  const ctx = canvas.getContext('2d');
+  // A smooth ~2.4s loop — the turn + orbits read better slower.
+  const DFPS = 25;
+  const DFRAMES = 60;
+
+  return new Promise((resolve) => {
+    const args = [
+      '-y', '-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', `${DW}x${DH}`,
+      '-framerate', String(DFPS), '-i', '-',
+      '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', out,
+    ];
+    const p = spawn('ffmpeg', args, { stdio: ['pipe', 'ignore', 'pipe'] });
+    const stdin = p.stdin;
+    if (!stdin) {
+      lastMp4Error = 'no ffmpeg stdin';
+      void rm(dir, { recursive: true, force: true });
+      return resolve(null);
+    }
+    let stderr = '';
+    p.stderr?.on('data', (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-400);
+    });
+    const timer = setTimeout(() => p.kill('SIGKILL'), 30_000);
+    p.on('error', (e) => {
+      clearTimeout(timer);
+      lastMp4Error = (e as { code?: string }).code === 'ENOENT' ? 'ffmpeg not installed' : e.message;
+      void rm(dir, { recursive: true, force: true });
+      resolve(null);
+    });
+    p.on('close', async (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        lastMp4Error = stderr.split('\n').filter(Boolean).pop()?.slice(0, 160) || `ffmpeg exit ${code}`;
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        return resolve(null);
+      }
+      const buffer = await readFile(out).catch(() => null);
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      resolve(buffer ? { buffer, ext: 'mp4' } : null);
+    });
+
+    let i = 0;
+    const pump = (): void => {
+      while (i < DFRAMES) {
+        drawDevCard(ctx, d, avatar, i / DFRAMES);
+        i++;
+        const img = ctx.getImageData(0, 0, DW, DH);
         const frame = Buffer.from(img.data.buffer as ArrayBuffer, img.data.byteOffset, img.data.byteLength);
         if (!stdin.write(frame)) {
           stdin.once('drain', pump);

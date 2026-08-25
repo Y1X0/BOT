@@ -1,4 +1,12 @@
-import { renderCardPng, renderCardMp4, renderOwnerCardPng, renderOwnerCardMp4, getLastMp4Error } from './canvas';
+import {
+  renderCardPng,
+  renderCardMp4,
+  renderOwnerCardPng,
+  renderOwnerCardMp4,
+  renderDevCardPng,
+  renderDevCardMp4,
+  getLastMp4Error,
+} from './canvas';
 
 // Last video-render failure reason, surfaced by the /idcardtest diagnostic.
 export function getLastVideoError(): string {
@@ -29,6 +37,17 @@ export interface OwnerCardData {
   members: string; // member count, formatted
   date: string; // creation or join date
   dateLabel: string; // e.g. 'تاريخ الإنشاء' / 'تاريخ الانضمام'
+  avatarDataUri?: string;
+  initial: string;
+}
+
+/** Data for the developer card (the grandest variant — holographic, animated). */
+export interface DevCardData {
+  name: string;
+  username: string; // @handle or a placeholder
+  id: string;
+  title: string; // role, e.g. 'مطوّر ومصمّم البوت'
+  tagline: string; // signature line, e.g. 'صُنع بإتقان وشغف'
   avatarDataUri?: string;
   initial: string;
 }
@@ -105,4 +124,14 @@ export async function renderOwnerCardImage(d: OwnerCardData): Promise<Buffer> {
 /** Render the ANIMATED group-owner card (gold shine sweep) as a looping MP4. */
 export async function renderOwnerCardVideo(d: OwnerCardData): Promise<{ buffer: Buffer; ext: string } | null> {
   return renderOwnerCardMp4(d);
+}
+
+/** Render the developer card (holographic tech luxury) to a JPEG. */
+export async function renderDevCardImage(d: DevCardData): Promise<Buffer> {
+  return renderDevCardPng(d);
+}
+
+/** Render the ANIMATED developer card (orbits + 3D turn + hologram) as a looping MP4. */
+export async function renderDevCardVideo(d: DevCardData): Promise<{ buffer: Buffer; ext: string } | null> {
+  return renderDevCardMp4(d);
 }
