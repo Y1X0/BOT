@@ -15,8 +15,10 @@ interface FloodState {
   timestamps: number[];
   lastText?: string;
   repeatCount: number;
+  lastWarnAt?: number; // throttle anti-flood warnings so they don't spam
 }
 const floodMap = new Map<string, FloodState>();
+const WARN_COOLDOWN_MS = 15_000;
 
 setInterval(() => {
   const cutoff = Date.now() - 60_000;
@@ -123,13 +125,17 @@ export const antispamMiddleware: MiddlewareFn<BotContext> = async (ctx, next) =>
     if (flooding || repeating) {
       state.timestamps = [];
       state.repeatCount = 0;
-      const oneHour = Math.floor(now / 1000) + 3600;
-      await muteUser(ctx, from.id, oneHour);
-      await logAction(chat.id, 'auto_mute_flood', from.id, from.id, flooding ? 'flood' : 'repeat');
-      await ctx
-        .reply(t('mod.flood_warning', { name: displayName(from) }))
-        .catch(() => undefined);
-      log.info({ chatId: chat.id, userId: from.id }, 'Auto-muted for flooding');
+      // Policy: never auto-mute for flood/repeat — only delete the offending
+      // message and warn. Muting stays a manual admin action. Warn at most once
+      // per short cooldown so the bot doesn't spam the chat with warnings.
+      await deleteMessage(ctx);
+      await logAction(chat.id, 'antiflood_delete', ctx.botInfo?.id ?? 0, from.id, flooding ? 'flood' : 'repeat');
+      if (now - (state.lastWarnAt ?? 0) > WARN_COOLDOWN_MS) {
+        state.lastWarnAt = now;
+        await ctx.reply(t('mod.flood_warning', { name: displayName(from) })).catch(() => undefined);
+      }
+      floodMap.set(key, state);
+      log.info({ chatId: chat.id, userId: from.id }, 'anti-flood: deleted + warned (no mute)');
       return;
     }
   }
