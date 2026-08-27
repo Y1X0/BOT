@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseStoryLink } from '../src/plugins/story';
+import { parseStoryLink, storyFromMessage } from '../src/plugins/story';
 
 describe('parseStoryLink', () => {
   it('parses a full https story link', () => {
@@ -17,5 +17,21 @@ describe('parseStoryLink', () => {
     expect(parseStoryLink('https://t.me/joinchat/abcd')).toBeNull();
     expect(parseStoryLink('just some text')).toBeNull();
     expect(parseStoryLink('')).toBeNull();
+  });
+});
+
+describe('storyFromMessage', () => {
+  it('reads a shared story from a poster WITH a username', () => {
+    const msg = { story: { id: 8, chat: { id: 123, username: 'someone' } } };
+    expect(storyFromMessage(msg)).toEqual({ peer: 'someone', storyId: 8, label: '@someone' });
+  });
+  it('reads a shared story from a poster with NO username (numeric peer)', () => {
+    const msg = { story: { id: 4, chat: { id: 555, first_name: 'أحمد' } } };
+    expect(storyFromMessage(msg)).toEqual({ peer: 555, storyId: 4, label: 'أحمد' });
+  });
+  it('returns null when there is no story', () => {
+    expect(storyFromMessage({ text: 'hi' })).toBeNull();
+    expect(storyFromMessage(undefined)).toBeNull();
+    expect(storyFromMessage({ story: { id: 0, chat: { id: 1 } } })).toBeNull();
   });
 });

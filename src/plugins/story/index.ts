@@ -21,6 +21,14 @@ interface StoryResult {
   kind?: string;
 }
 
+/** A story reference: the poster (a @username or a numeric id) + the story id,
+ *  plus a human label for captions/logs. */
+export interface StoryRef {
+  peer: string | number;
+  storyId: number;
+  label: string;
+}
+
 /**
  * Extract the username + story id from a Telegram story link, or null.
  * Accepts: https://t.me/<username>/s/<id>  (scheme optional; trailing path/query
@@ -33,6 +41,21 @@ export function parseStoryLink(text: string): { username: string; storyId: numbe
   const storyId = parseInt(m[2], 10);
   if (!storyId) return null;
   return { username: m[1], storyId };
+}
+
+/** A Telegram-native shared story: Message.story = { chat, id }. Present when a
+ *  user shares/forwards a story into the chat — works even for posters with NO
+ *  username (we get the numeric chat id instead). Returns a StoryRef or null. */
+type SharedStory = { id?: number; chat?: { id?: number; username?: string; first_name?: string; title?: string } };
+
+export function storyFromMessage(msg: unknown): StoryRef | null {
+  const st = (msg as { story?: SharedStory } | undefined)?.story;
+  if (!st || !st.id || !st.chat) return null;
+  const chat = st.chat;
+  const peer: string | number | undefined = chat.username || chat.id;
+  if (peer == null) return null;
+  const label = chat.username ? `@${chat.username}` : chat.first_name || chat.title || String(chat.id);
+  return { peer, storyId: st.id, label };
 }
 
 async function callStreamer(path: string, body: Record<string, unknown>): Promise<StoryResult | null> {
@@ -56,7 +79,7 @@ async function callStreamer(path: string, body: Record<string, unknown>): Promis
 
 const ERRORS: Record<string, string> = {
   no_storage: '⚠️ الميزة تحتاج قناة تخزين. اضبط <code>MUSIC_STORAGE_CHANNEL_ID</code> (نفس قناة الأرشيف).',
-  baduser: '❌ اليوزر غير موجود أو غير صحيح.',
+  baduser: '❌ ما قدر يوصل لصاحب الستوري. لو ما عندو يوزر، شارك الستوري نفسها للبوت بدل الرابط.',
   private: '🔒 الستوري خاصة أو محمية — الحساب المساعد ما بيقدر يشوفها.',
   notfound: '⌛ الستوري غير موجودة أو انتهت (تنتهي بعد 24 ساعة).',
   starting: '⏳ الخدمة قيد التشغيل، جرّب بعد لحظات.',
@@ -66,10 +89,13 @@ const ERRORS: Record<string, string> = {
   unauthorized: '⚠️ خطأ مصادقة مع خدمة البث.',
 };
 
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 const NOT_CONFIGURED =
   '📥 <b>خدمة تنزيل الستوري مش مفعّلة.</b>\nلازم يشتغل الحساب المساعد (music-bot) ويُضبط <code>STREAMER_URL</code> + قناة تخزين.';
 
-async function handleStory(ctx: BotContext, username: string, storyId: number): Promise<void> {
+async function handleStory(ctx: BotContext, ref: StoryRef): Promise<void> {
   if (!ctx.chat) return;
   if (!STREAMER_URL) {
     await ctx.reply(NOT_CONFIGURED, { parse_mode: 'HTML' }).catch(() => undefined);
@@ -79,7 +105,7 @@ async function handleStory(ctx: BotContext, username: string, storyId: number): 
   const statusId = (status as { message_id?: number } | undefined)?.message_id;
   await ctx.sendChatAction('upload_video').catch(() => undefined);
 
-  const r = await callStreamer('/story', { username, story_id: storyId });
+  const r = await callStreamer('/story', { peer: ref.peer, story_id: ref.storyId });
 
   const clearStatus = () => (statusId ? ctx.telegram.deleteMessage(ctx.chat!.id, statusId).catch(() => undefined) : undefined);
   const failWith = (text: string) =>
@@ -99,7 +125,7 @@ async function handleStory(ctx: BotContext, username: string, storyId: number): 
 
   try {
     await ctx.telegram.copyMessage(ctx.chat.id, r.storage_chat_id, r.message_id, {
-      caption: `📥 ستوري <b>@${username}</b>`,
+      caption: `📥 ستوري <b>${escapeHtml(ref.label)}</b>`,
       parse_mode: 'HTML',
     });
     await clearStatus();
@@ -121,28 +147,42 @@ export const storyPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     bot.command('story', async (ctx) => {
+      const replied = (ctx.message as { reply_to_message?: unknown }).reply_to_message;
+      // 1) A shared story — on the replied message (works without a username).
+      const shared = storyFromMessage(replied);
+      if (shared) return void (await handleStory(ctx, shared));
+      // 2) A link — from the command args or the replied text/caption.
       const fromArg = ctx.message.text.split(/\s+/).slice(1).join(' ');
-      const replied = (ctx.message as { reply_to_message?: { text?: string; caption?: string } }).reply_to_message;
-      const text = fromArg || replied?.text || replied?.caption || '';
+      const rep = replied as { text?: string; caption?: string } | undefined;
+      const text = fromArg || rep?.text || rep?.caption || '';
       const parsed = parseStoryLink(text);
-      if (!parsed) {
-        await ctx
-          .reply('📥 أرسل: <code>/story رابط_الستوري</code>\nمثال: <code>/story https://t.me/username/s/12</code>', {
-            parse_mode: 'HTML',
-          })
-          .catch(() => undefined);
-        return;
-      }
-      await handleStory(ctx, parsed.username, parsed.storyId);
+      if (parsed) return void (await handleStory(ctx, { peer: parsed.username, storyId: parsed.storyId, label: `@${parsed.username}` }));
+      await ctx
+        .reply(
+          '📥 نزّل ستوري تليجرام:\n' +
+            '• لو صاحبها عندو يوزر: <code>/story https://t.me/username/s/12</code>\n' +
+            '• لو ما عندو يوزر: <b>شارك الستوري نفسها للبوت</b> ثم ردّ عليها بكلمة «ستوري».',
+          { parse_mode: 'HTML' },
+        )
+        .catch(() => undefined);
     });
 
-    // Auto: a pasted story link (t.me/<user>/s/<id>) → fetch it. Skip slash
-    // commands (the /story handler + the alias rewrite already cover those).
+    // A user shared a story into the chat, then replied «ستوري» — but the alias
+    // rewrite only fires on text messages, so also catch a bare shared story the
+    // user replies to. Handled above via /story. Here we auto-catch pasted links.
     bot.on(message('text'), async (ctx, next) => {
       if (ctx.message.text.startsWith('/')) return next();
+      // A reply to a shared story with the word «ستوري» / «نزل».
+      const replied = (ctx.message as { reply_to_message?: unknown }).reply_to_message;
+      const shared = storyFromMessage(replied);
+      if (shared && /^(?:ستوري|نزل|حمل|حفظ)\b/i.test(ctx.message.text.trim())) {
+        await handleStory(ctx, shared);
+        return;
+      }
+      // A pasted story link (t.me/<user>/s/<id>).
       const parsed = parseStoryLink(ctx.message.text);
       if (!parsed) return next();
-      await handleStory(ctx, parsed.username, parsed.storyId);
+      await handleStory(ctx, { peer: parsed.username, storyId: parsed.storyId, label: `@${parsed.username}` });
       // consumed — a story link isn't a normal message
     });
   },

@@ -562,8 +562,10 @@ async def story(request: web.Request) -> web.Response:
     assistant user account, relay it into the archive storage channel, and
     return the message ref so the management bot can copy it to the requester.
 
-    Body: {username, story_id}. Requires MUSIC_STORAGE_CHANNEL_ID (the bot is
-    admin there, so it can copyMessage the result out)."""
+    Body: {peer, story_id}. `peer` is a @username OR a numeric user id (used
+    when the poster has no username but the story was shared, so the bot knows
+    the id). Requires MUSIC_STORAGE_CHANNEL_ID (the bot is admin there, so it
+    can copyMessage the result out)."""
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     if not _ready:
@@ -572,30 +574,36 @@ async def story(request: web.Request) -> web.Response:
     if not storage:
         return web.json_response({"ok": False, "error": "no_storage"})
     data = await _body(request)
-    username = (str(data.get("username") or "")).strip().lstrip("@")
+    # Accept `peer` (username or numeric id); fall back to legacy `username`.
+    raw = str(data.get("peer") or data.get("username") or "").strip().lstrip("@")
+    peer: object = int(raw) if raw.lstrip("-").isdigit() else raw
     try:
         story_id = int(data.get("story_id") or 0)
     except (TypeError, ValueError):
         story_id = 0
-    if not username or story_id <= 0:
+    if not raw or story_id <= 0:
         return web.json_response({"ok": False, "error": "bad_request"}, status=400)
-    return await _fetch_story(username, story_id, storage)
+    return await _fetch_story(peer, story_id, storage)
 
 
-async def _fetch_story(username: str, story_id: int, storage: int) -> web.Response:
+async def _fetch_story(peer: object, story_id: int, storage: int) -> web.Response:
     import os
     import tempfile
 
-    # 1) Resolve the story via the user account (MTProto).
+    label = str(peer)
+
+    # 1) Resolve the story via the user account (MTProto). A numeric peer needs
+    #    the assistant to already know that user (common group / seen) — else
+    #    Telegram raises PEER_ID_INVALID and we report it as "unseen".
     try:
-        st = await assistant.get_stories(username, story_id)
+        st = await assistant.get_stories(peer, story_id)
     except Exception as e:  # noqa: BLE001
         low = str(e).lower()
         if "not_occupied" in low or "username_invalid" in low or "peer_id_invalid" in low or "username_not" in low:
             return web.json_response({"ok": False, "error": "baduser"})
         if "forbidden" in low or "private" in low or "restricted" in low:
             return web.json_response({"ok": False, "error": "private"})
-        log.info("get_stories failed for %s/%s: %s", username, story_id, e)
+        log.info("get_stories failed for %s/%s: %s", label, story_id, e)
         return web.json_response({"ok": False, "error": "notfound", "detail": str(e)[:140]})
     if isinstance(st, list):
         st = st[0] if st else None
@@ -605,10 +613,10 @@ async def _fetch_story(username: str, story_id: int, storage: int) -> web.Respon
     # 2) Download its media to a temp file.
     try:
         path = await assistant.download_media(
-            st, file_name=os.path.join(tempfile.gettempdir(), f"story_{username}_{story_id}")
+            st, file_name=os.path.join(tempfile.gettempdir(), f"story_{label}_{story_id}")
         )
     except Exception as e:  # noqa: BLE001
-        log.info("story download failed for %s/%s: %s", username, story_id, e)
+        log.info("story download failed for %s/%s: %s", label, story_id, e)
         return web.json_response({"ok": False, "error": "failed", "detail": str(e)[:140]})
     if not path:
         return web.json_response({"ok": False, "error": "failed"})
@@ -616,7 +624,7 @@ async def _fetch_story(username: str, story_id: int, storage: int) -> web.Respon
     # 3) Relay it into the storage channel; the bot copies it out from there.
     is_video = bool(getattr(st, "video", None)) or "video" in str(getattr(st, "media", "")).lower()
     is_photo = bool(getattr(st, "photo", None)) or "photo" in str(getattr(st, "media", "")).lower()
-    caption = f"📥 ستوري @{username}"
+    caption = f"📥 ستوري: {label}"
     try:
         if is_video:
             sent = await assistant.send_video(storage, path, caption=caption)
@@ -628,7 +636,7 @@ async def _fetch_story(username: str, story_id: int, storage: int) -> web.Respon
             sent = await assistant.send_document(storage, path, caption=caption)
             kind = "document"
     except Exception as e:  # noqa: BLE001
-        log.info("story relay failed for %s/%s: %s", username, story_id, e)
+        log.info("story relay failed for %s/%s: %s", label, story_id, e)
         return web.json_response({"ok": False, "error": "failed", "detail": str(e)[:140]})
     finally:
         try:
