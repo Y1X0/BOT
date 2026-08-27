@@ -28,6 +28,7 @@ import { whisperPlugin } from './whisper';
 import { musarahaPlugin } from './musaraha';
 import { youtubePlugin } from './youtube';
 import { downloaderPlugin } from './downloader';
+import { storyPlugin } from './story';
 import { voiceChatPlugin } from './voicechat';
 import { musicPlugin } from './music';
 import { islamicPlugin } from './islamic';
@@ -136,6 +137,7 @@ allPlugins.push(
   podcastPlugin,
   stickerPackPlugin, // pack creation/add — must run before sticker auto-convert
   stickerPlugin, // passive: photo → sticker
+  storyPlugin, // catches Telegram story links (t.me/<user>/s/<id>) → assistant
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,

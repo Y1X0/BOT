@@ -15,6 +15,7 @@ Endpoints (all POST JSON unless noted; send header  X-Token: <STREAMER_TOKEN>):
   /startvc {chat_id}          → open a voice chat
   /stopvc  {chat_id}          → close the voice chat
   /queue   {chat_id}          → current + upcoming
+  /story   {username,story_id}→ download a Telegram story → relay to storage
   /health  (GET)              → {ok: true}
 
 The assistant must be an admin with the "manage voice chats" right.
@@ -553,6 +554,91 @@ async def remove(request: web.Request) -> web.Response:
     if not track:
         return web.json_response({"ok": False, "error": "bad_index"})
     return web.json_response({"ok": True, **_track_info(track)})
+
+
+@routes.post("/story")
+async def story(request: web.Request) -> web.Response:
+    """Download a Telegram STORY (which the Bot API cannot access) via the
+    assistant user account, relay it into the archive storage channel, and
+    return the message ref so the management bot can copy it to the requester.
+
+    Body: {username, story_id}. Requires MUSIC_STORAGE_CHANNEL_ID (the bot is
+    admin there, so it can copyMessage the result out)."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
+    storage = config.MUSIC_STORAGE_CHANNEL_ID
+    if not storage:
+        return web.json_response({"ok": False, "error": "no_storage"})
+    data = await _body(request)
+    username = (str(data.get("username") or "")).strip().lstrip("@")
+    try:
+        story_id = int(data.get("story_id") or 0)
+    except (TypeError, ValueError):
+        story_id = 0
+    if not username or story_id <= 0:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+    return await _fetch_story(username, story_id, storage)
+
+
+async def _fetch_story(username: str, story_id: int, storage: int) -> web.Response:
+    import os
+    import tempfile
+
+    # 1) Resolve the story via the user account (MTProto).
+    try:
+        st = await assistant.get_stories(username, story_id)
+    except Exception as e:  # noqa: BLE001
+        low = str(e).lower()
+        if "not_occupied" in low or "username_invalid" in low or "peer_id_invalid" in low or "username_not" in low:
+            return web.json_response({"ok": False, "error": "baduser"})
+        if "forbidden" in low or "private" in low or "restricted" in low:
+            return web.json_response({"ok": False, "error": "private"})
+        log.info("get_stories failed for %s/%s: %s", username, story_id, e)
+        return web.json_response({"ok": False, "error": "notfound", "detail": str(e)[:140]})
+    if isinstance(st, list):
+        st = st[0] if st else None
+    if not st:
+        return web.json_response({"ok": False, "error": "notfound"})
+
+    # 2) Download its media to a temp file.
+    try:
+        path = await assistant.download_media(
+            st, file_name=os.path.join(tempfile.gettempdir(), f"story_{username}_{story_id}")
+        )
+    except Exception as e:  # noqa: BLE001
+        log.info("story download failed for %s/%s: %s", username, story_id, e)
+        return web.json_response({"ok": False, "error": "failed", "detail": str(e)[:140]})
+    if not path:
+        return web.json_response({"ok": False, "error": "failed"})
+
+    # 3) Relay it into the storage channel; the bot copies it out from there.
+    is_video = bool(getattr(st, "video", None)) or "video" in str(getattr(st, "media", "")).lower()
+    is_photo = bool(getattr(st, "photo", None)) or "photo" in str(getattr(st, "media", "")).lower()
+    caption = f"📥 ستوري @{username}"
+    try:
+        if is_video:
+            sent = await assistant.send_video(storage, path, caption=caption)
+            kind = "video"
+        elif is_photo:
+            sent = await assistant.send_photo(storage, path, caption=caption)
+            kind = "photo"
+        else:
+            sent = await assistant.send_document(storage, path, caption=caption)
+            kind = "document"
+    except Exception as e:  # noqa: BLE001
+        log.info("story relay failed for %s/%s: %s", username, story_id, e)
+        return web.json_response({"ok": False, "error": "failed", "detail": str(e)[:140]})
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    return web.json_response(
+        {"ok": True, "storage_chat_id": sent.chat.id, "message_id": sent.id, "kind": kind}
+    )
 
 
 @routes.post("/import")

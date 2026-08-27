@@ -32,6 +32,7 @@ const ALIASES: Alias[] = [
   { command: 'id', triggers: ['ايدي', 'id', 'معلوماتي', 'معلوماتك', 'الايدي', 'ايديي'] },
   { command: 'owner', triggers: ['المالك', 'مالك القروب', 'مالك الجروب', 'مالك المجموعه', 'owner'] },
   { command: 'dev', triggers: ['المطور', 'مطور البوت', 'المبرمج', 'مبرمج البوت', 'developer', 'dev'] },
+  { command: 'story', triggers: ['ستوري', 'نزل ستوري', 'حفظ ستوري', 'حمل ستوري', 'story'] },
   { command: 'bio', triggers: ['بايو', 'البايو', 'نبذه', 'bio'] },
   { command: 'rules', triggers: ['القوانين', 'قوانين', 'الشروط'] },
   { command: 'help', triggers: ['مساعده', 'المساعده'] },
