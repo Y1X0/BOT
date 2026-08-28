@@ -4,6 +4,7 @@ import { writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { env } from '../../config/env';
+import { getYtdlpPath } from '../ytdlp-updater';
 import { createLogger } from '../../core/logger';
 import { youtubeConfig } from './config';
 
@@ -113,7 +114,7 @@ function run(
     let stdout = '';
     let stderr = '';
     let done = false;
-    const child = spawn(env.YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(getYtdlpPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const timer = setTimeout(() => {
       if (!done) child.kill('SIGKILL');
     }, timeoutMs);

@@ -3,6 +3,7 @@ import { mkdtemp, rm, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, extname } from 'node:path';
 import { env } from '../config/env';
+import { getYtdlpPath } from './ytdlp-updater';
 import { createLogger } from '../core/logger';
 import { cobaltConfigured, cobaltDownload } from './cobalt';
 
@@ -109,7 +110,7 @@ async function ytDlpDownload(
       resolve(r);
     };
 
-    const child = spawn(env.YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(getYtdlpPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const timer = setTimeout(() => child.kill('SIGKILL'), TIMEOUT_MS);
     child.on('error', async (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);

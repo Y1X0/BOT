@@ -46,6 +46,14 @@ async function main(): Promise<void> {
   await import('./services/message-overrides.service').then((m) => m.refreshOverrides()).catch(() => undefined);
   await import('./services/channel.service').then((m) => m.refreshChannelReact()).catch(() => undefined);
 
+  // Keep yt-dlp fresh so SoundCloud/YouTube search («يوت»/«اغنيه») doesn't break
+  // when the host ships a stale binary. Non-blocking at boot, then daily.
+  {
+    const { ensureFreshYtdlp } = await import('./services/ytdlp-updater');
+    void ensureFreshYtdlp();
+    setInterval(() => void ensureFreshYtdlp(), 24 * 60 * 60 * 1000).unref();
+  }
+
   const app = createServer(bot);
   const server: Server = await startServer(app);
 
