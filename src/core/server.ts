@@ -18,7 +18,9 @@ const log = createLogger('server');
  */
 export function createServer(bot: Telegraf<BotContext>): Express {
   const app = express();
-  app.use(express.json());
+  // Cap request bodies — Telegram updates and streamer callbacks are small, so a
+  // tight limit blocks large-payload DoS without affecting legitimate traffic.
+  app.use(express.json({ limit: '512kb' }));
 
   app.get('/', (_req, res) => {
     res.json({ name: 'telegram-group-bot', status: 'running', mode: env.BOT_MODE });

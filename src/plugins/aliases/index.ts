@@ -315,7 +315,10 @@ export const aliasesPlugin: Plugin = {
         if (repliedFrom != null && ctx.botInfo?.id != null && repliedFrom === ctx.botInfo.id) return next();
       }
 
-      const rewritten = matchAlias(ctx.message.text);
+      // Reuse the rate-limiter's already-computed result when present (it runs
+      // matchAlias first to decide whether to throttle), else compute it now.
+      const cached = (ctx.state as { aliasRewrite?: string | null }).aliasRewrite;
+      const rewritten = cached !== undefined ? cached : matchAlias(ctx.message.text);
       if (rewritten) {
         const commandText = rewritten.split(' ')[0]; // e.g. "/joke"
         // Reply-only moderation triggers (كتم/حظر/طرد/تقييد…) are common Arabic
