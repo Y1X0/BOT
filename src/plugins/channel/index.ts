@@ -10,8 +10,9 @@ import { createLogger } from '../../core/logger';
 const log = createLogger('plugin:channel');
 
 // Content/tool commands that make sense inside a CHANNEL (no group state, no
-// per-user identity, no moderation). Group/economy/game/moderation commands are
-// intentionally NOT bridged, so they don't post confusing "group only" replies.
+// per-user identity, no moderation). Group/economy/game/moderation and voice-
+// chat commands are intentionally NOT bridged, so they don't post confusing
+// "group only" replies. Music search/download DO work (they just post audio).
 const SAFE_CHANNEL_COMMANDS = new Set([
   'decorate', 'quote', 'fact', 'joke', 'tr', 'calc', 'convert', 'currency', 'crypto',
   'qr', 'password', 'hijri', 'choose', '8ball', 'rate', 'short', 'weather', 'time',
@@ -19,6 +20,9 @@ const SAFE_CHANNEL_COMMANDS = new Set([
   'tasbeeh', 'prayer', 'truth', 'dare', 'wyr', 'riddle', 'fortune', 'compliment',
   'bio', 'rules', 'help', 'menu', 'id', 'dev', 'story', 'find', 'flip', 'dice',
   'soulmate', 'persona',
+  // Music + media download: «يوت»/«اغنيه»/«نزل» post an audio/video file — fine
+  // in a channel. Voice-chat (vc*) commands are excluded (no call in a channel).
+  'ytall', 'song', 'yt', 'dl', 'mp3',
 ]);
 
 // Telegram-approved reaction emoji (a subset that's broadly enabled).
