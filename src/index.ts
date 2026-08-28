@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   installEmojiSubstitution(bot.telegram);
   await refreshEmojiMap();
   await import('./services/message-overrides.service').then((m) => m.refreshOverrides()).catch(() => undefined);
+  await import('./services/channel.service').then((m) => m.refreshChannelReact()).catch(() => undefined);
 
   const app = createServer(bot);
   const server: Server = await startServer(app);

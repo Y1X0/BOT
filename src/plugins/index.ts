@@ -9,6 +9,7 @@ import { menuPlugin } from './menu';
 import { infoPlugin } from './info';
 import { ownerPlugin } from './owner';
 import { developerPlugin } from './developer';
+import { channelPlugin } from './channel';
 import { adminPlugin } from './admin';
 import { moderationPlugin } from './moderation';
 import { protectionPlugin } from './protection';
@@ -101,6 +102,7 @@ allPlugins.push(
   managementPlugin, // includes service-message cleanup (before analytics)
   analyticsPlugin,
   usagePlugin,
+  channelPlugin, // channel support (react + command bridge) — before musicArchive's channel_post handler
   musicArchivePlugin,
   islamicPlugin,
   toolboxPlugin,
