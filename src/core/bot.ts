@@ -13,6 +13,7 @@ import { logOutgoing } from '../services/logging.service';
 import { recordError } from './errors';
 import { registerPlugins, type Plugin } from './plugin';
 import { allPlugins } from '../plugins';
+import { MENU } from '../plugins/menu/data';
 
 const log = createLogger('bot');
 
@@ -85,31 +86,62 @@ export const MENU_COMMANDS = [
   'menu', // ← the gateway to everything, kept first
   'help',
   'id',
-  'rules',
-  'prayer',
-  'quiz',
-  'balance',
-  'pet',
-  'song',
-  'pdf',
   'checkup',
+  'rules',
 ];
 
-/** Publish the curated command list to Telegram (autocomplete menu). */
+// Telegram command-name rules: 1–32 chars, lowercase a–z / 0–9 / _, and (per
+// BotFather) must start with a letter — one bad name rejects the WHOLE call.
+const VALID_CMD = /^[a-z][a-z0-9_]{0,31}$/;
+const TG_MAX_COMMANDS = 100;
+
+/**
+ * Build the "/"-popup command list. Everyone sees the essentials + every
+ * non-admin category from the /menu (so ~all useful commands are discoverable
+ * by typing "/"); admins additionally get the moderation commands, scoped so
+ * regular members don't see them. Capped at Telegram's 100-command limit.
+ */
+function buildCommandList(mode: 'general' | 'admin', descOf: (c: string) => string) {
+  const out: { command: string; description: string }[] = [];
+  const seen = new Set<string>();
+  const add = (cmd: string, desc?: string): void => {
+    if (out.length >= TG_MAX_COMMANDS || seen.has(cmd) || !VALID_CMD.test(cmd)) return;
+    seen.add(cmd);
+    const d = (desc || descOf(cmd) || cmd).slice(0, 200);
+    out.push({ command: cmd, description: d });
+  };
+  for (const c of MENU_COMMANDS) add(c);
+  if (mode === 'admin') {
+    const adminCat = MENU.find((c) => c.key === 'admin');
+    adminCat?.items.forEach((it) => add(it.cmd, it.desc)); // admin cmds first so they fit
+  }
+  for (const cat of MENU) {
+    if (cat.key === 'admin') continue; // handled above / excluded for general
+    cat.items.forEach((it) => add(it.cmd, it.desc));
+  }
+  return out;
+}
+
+/** Publish the command list to Telegram (autocomplete popup), by scope. */
 export async function publishCommands(
   bot: Telegraf<BotContext>,
   plugins: Plugin[],
 ): Promise<void> {
-  const all = new Map(
-    plugins
-      .flatMap((p) => p.commands ?? [])
-      .filter((c) => !c.staffOnly)
-      .map((c) => [c.command, c.description] as const),
-  );
-  // Keep only whitelisted commands, in the whitelist's order.
-  const commands = MENU_COMMANDS.filter((c) => all.has(c)).map((c) => ({ command: c, description: all.get(c)! }));
+  // Descriptions come from the curated /menu (Arabic) first, else the plugin's
+  // own command description.
+  const pluginDesc = new Map(plugins.flatMap((p) => p.commands ?? []).map((c) => [c.command, c.description] as const));
+  const descOf = (c: string): string => pluginDesc.get(c) ?? '';
 
-  await bot.telegram.setMyCommands(commands).catch((err) => {
-    log.warn({ err }, 'Failed to set command menu');
-  });
+  const general = buildCommandList('general', descOf);
+  const admin = buildCommandList('admin', descOf);
+
+  // Default scope: everyone (and every chat) sees the general commands.
+  await bot.telegram.setMyCommands(general).catch((err) => log.warn({ err }, 'set default commands failed'));
+  // Admin scope: group admins (in every group) additionally see the moderation
+  // commands — regular members never see them in the popup.
+  await bot.telegram
+    .setMyCommands(admin, { scope: { type: 'all_chat_administrators' } })
+    .catch((err) => log.warn({ err }, 'set admin commands failed'));
+
+  log.info({ general: general.length, admin: admin.length }, 'published command menus');
 }
