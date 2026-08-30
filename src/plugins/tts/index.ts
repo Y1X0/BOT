@@ -52,6 +52,9 @@ async function speak(ctx: BotContext, text: string): Promise<void> {
       toolong: '📏 النص طويل كتير، قصّره شوي وجرّب.',
       nokey: '🎙 مفتاح الصوت غير مضبوط.',
       api: '⚠️ تعذّر توليد الصوت الآن، حاول مرة ثانية.',
+      notspeech:
+        '🎙 <b>اكتب نصاً كاملاً للقراءة</b> — جملة أو أكثر، مش تحية أو كلمة أو سؤال قصير.\n' +
+        '✍️ مثال: <i>نطق أهلاً وسهلاً بكم في الفيديو الجديد، تابعوا معنا حتى النهاية.</i>',
     };
     let text2 = MSG[result.error] || MSG.api;
     // Show the real failure reason to the bot owner only (helps configure keys).

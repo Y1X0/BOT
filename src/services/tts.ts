@@ -5,7 +5,7 @@ import { createLogger } from '../core/logger';
 
 const log = createLogger('tts');
 
-export type TtsError = 'disabled' | 'empty' | 'toolong' | 'nokey' | 'api';
+export type TtsError = 'disabled' | 'empty' | 'toolong' | 'nokey' | 'api' | 'notspeech';
 export interface TtsResult {
   buffer: Buffer;
   ext: 'mp3';
@@ -151,7 +151,11 @@ export async function synthesize(
     if (!buffer.length) return { error: 'api' };
     return { buffer, ext: 'mp3' };
   } catch (err) {
+    const msg = String(err);
     log.warn({ err }, 'tts synthesis failed');
-    return { error: 'api', detail: String(err).slice(0, 120) };
+    // Gemini rejects greetings/questions/short prompts (it tries to "answer"
+    // them instead of reading them) — surface a clear, friendly hint instead.
+    if (/should only be used for TTS|tried to generate text/i.test(msg)) return { error: 'notspeech' };
+    return { error: 'api', detail: msg.slice(0, 160) };
   }
 }
