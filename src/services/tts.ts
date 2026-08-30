@@ -124,13 +124,15 @@ export async function synthesize(
 
   try {
     let buffer: Buffer;
-    const voice = voiceOverride || env.TTS_VOICE;
+    const voice = (voiceOverride || env.TTS_VOICE).trim();
+    // Trim the key — a stray space/newline from a mobile paste yields a 401.
+    const key = (env.TTS_API_KEY || '').trim();
     if (env.TTS_PROVIDER === 'elevenlabs') {
-      if (!env.TTS_API_KEY) return { error: 'nokey' };
-      buffer = await elevenTts(clean, voice, env.TTS_API_KEY, env.TTS_MODEL);
+      if (!key) return { error: 'nokey' };
+      buffer = await elevenTts(clean, voice, key, env.TTS_MODEL.trim());
     } else if (env.TTS_PROVIDER === 'gemini') {
-      if (!env.TTS_API_KEY) return { error: 'nokey' };
-      buffer = await geminiTts(clean, voice, env.TTS_API_KEY, env.TTS_MODEL);
+      if (!key) return { error: 'nokey' };
+      buffer = await geminiTts(clean, voice, key, env.TTS_MODEL.trim());
     } else {
       buffer = await edgeTts(clean, voice);
     }
