@@ -7,6 +7,7 @@ import { ensureChat, getSettings, setVcCardEmoji } from '../../services/settings
 import { getGlobalVcCardEmoji, setGlobalVcCardEmoji } from '../../services/global.service';
 import { getEmojiMap, setEmojiMap } from '../../services/emojiMap';
 import { createLogger } from '../../core/logger';
+import { env } from '../../config/env';
 
 const log = createLogger('plugin:music');
 
@@ -16,8 +17,25 @@ const log = createLogger('plugin:music');
 const STREAMER_URL = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
 const STREAMER_TOKEN = process.env.STREAMER_TOKEN || '';
 
+// A clickable developer link for the "coming soon" notice: DEV_CONTACT /
+// SUPPORT_CONTACT (@user / username / URL), else a tg://user link to the owner.
+const DEV_LINK = (() => {
+  const c = (env.DEV_CONTACT || env.SUPPORT_CONTACT || '').trim();
+  if (c) {
+    if (/^https?:\/\//i.test(c) || /^tg:\/\//i.test(c)) return c;
+    const u = c.replace(/^@/, '');
+    if (/^[a-zA-Z0-9_]{4,32}$/.test(u)) return `https://t.me/${u}`;
+  }
+  const owner = env.OWNER_IDS[0];
+  return owner ? `tg://user?id=${owner}` : '';
+})();
+
+// A friendly "coming soon" notice (the old one exposed STREAMER_URL internals).
 const NOT_CONFIGURED =
-  '🎧 <b>خدمة الكول مش مفعّلة بعد.</b>\nلازم يشتغل سيرفر البث (music-bot) ويُضبط <code>STREAMER_URL</code> على البوت.';
+  '🎧 <b>خدمة التشغيل بالكول قريباً!</b>\n' +
+  '✦ ┈┈┈┈┈┈┈┈ ✦\n' +
+  'عم نجهّزها لتشغيل الأغاني داخل المكالمة، ورح تكون متاحة قريباً بإذن الله. 🎶' +
+  (DEV_LINK ? `\n\n👨‍💻 للاستفسار أو التواصل: <a href="${DEV_LINK}">المطوّر</a>` : '');
 
 // Rotate the "searching" line so it doesn't get stale.
 const SEARCHING = [
