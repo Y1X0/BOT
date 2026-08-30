@@ -1,53 +1,49 @@
-# Render Blueprint — one-click deploy.
+# Render Blueprint — near one-click deploy for the main bot.
 # Docs: https://render.com/docs/blueprint-spec
 #
-# This provisions a web service (the bot) + a PostgreSQL database.
-# The bot runs in webhook mode, exposing /health for Render's health checks.
+# In Render:  New → Blueprint → pick this repo → Render reads this file and
+# pre-configures everything. You only fill the 3 secret values it asks for
+# (BOT_TOKEN, OWNER_IDS, DATABASE_URL).
+#
+# - runtime: docker  → uses the Dockerfile, so ffmpeg + yt-dlp + chromium are
+#   installed (يوت / تنزيل / PDF keep working). The node runtime would drop them.
+# - BOT_MODE: polling → no public webhook URL needed (simplest).
+# - DATABASE_URL is entered by you = your Neon connection string (permanent,
+#   free, no card). We do NOT use Render's own DB — its free tier is deleted
+#   after 30 days, which would lose your data again.
 
 services:
   - type: web
     name: telegram-group-bot
-    runtime: node
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     plan: free
     region: frankfurt
-    branch: main
-    buildCommand: npm ci && npm run build && npm run db:push
-    startCommand: node dist/index.js
+    branch: claude/telegram-group-bot-xenp00
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
       - key: BOT_MODE
-        value: webhook
-      - key: WEBHOOK_DOMAIN
-        # Set to your Render service URL, e.g. https://telegram-group-bot.onrender.com
-        sync: false
-      - key: WEBHOOK_SECRET
-        generateValue: true
-      - key: BOT_TOKEN
-        sync: false
-      - key: OWNER_IDS
-        sync: false
+        value: polling
+      - key: DATABASE_PROVIDER
+        value: postgresql
       - key: DEFAULT_LANGUAGE
         value: ar
       - key: DEFAULT_TIMEZONE
         value: Asia/Riyadh
-      - key: DATABASE_PROVIDER
-        value: postgresql
-      - key: DATABASE_URL
-        fromDatabase:
-          name: telegram-bot-db
-          property: connectionString
-      # Optional integrations (set in the Render dashboard):
-      # - key: WEATHER_API_KEY
+      # ---- You fill these 3 in the Render dashboard when prompted ----
+      - key: BOT_TOKEN
+        sync: false
+      - key: OWNER_IDS
+        sync: false
+      - key: DATABASE_URL          # ← paste your Neon URL (…neon.tech/…?sslmode=require)
+        sync: false
+      # ---- Optional (leave unset if you don't use them) ----
+      # - key: SUPPORT_CONTACT
       #   sync: false
-      # - key: AI_ENABLED
-      #   value: "false"
-      # - key: AI_API_KEY
+      # - key: BOT_CHANNEL_URL
       #   sync: false
-
-databases:
-  - name: telegram-bot-db
-    plan: free
-    region: frankfurt
+      # - key: YT_COOKIES
+      #   sync: false
