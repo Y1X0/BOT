@@ -181,6 +181,19 @@ const envSchema = z.object({
   TRANSCRIBE_LANGUAGE: z.string().optional(), // '' = auto-detect; 'ar' to force Arabic
   TRANSCRIBE_MAX_MB: z.coerce.number().default(25),
 
+  // Text-to-speech (text → natural voice-over). Default provider "edge" uses
+  // Microsoft's neural voices — free, no key, great Arabic (incl. Jordanian
+  // ar-JO-Taim/Sana). "elevenlabs" is a premium opt-in (needs TTS_API_KEY).
+  TTS_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  TTS_PROVIDER: z.enum(['edge', 'elevenlabs']).default('edge'),
+  TTS_VOICE: z.string().default('ar-EG-ShakirNeural'), // edge voice name, or an ElevenLabs voice id
+  TTS_API_KEY: z.string().optional(), // ElevenLabs only
+  TTS_MODEL: z.string().default('eleven_multilingual_v2'), // ElevenLabs model
+  TTS_MAX_CHARS: z.coerce.number().default(2000),
+
   // Fun Image Editor (needs an image-generation API key to actually run)
   IMAGE_AI_ENABLED: z
     .string()
