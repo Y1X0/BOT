@@ -12,6 +12,9 @@ const log = createLogger('plugin:tts');
 // bare word «صوت» (already a music alias). Optional trailing text is captured.
 const TRIGGER = /^(?:نطق|انطق|انطقها|اقرأ|اقرا|اقراها|تكلم|قولها|تعليق صوتي|فويس اوفر|حوله صوت|صوتها)(?:\s+([\s\S]+))?$/;
 
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /** Pick the text to speak: the trigger's own argument, else the replied
  *  message's text/caption. Exported for testing. */
 export function pickTtsText(arg: string | undefined, repliedText: string | undefined): string | null {
@@ -50,7 +53,10 @@ async function speak(ctx: BotContext, text: string): Promise<void> {
       nokey: '🎙 مفتاح الصوت غير مضبوط.',
       api: '⚠️ تعذّر توليد الصوت الآن، حاول مرة ثانية.',
     };
-    const text2 = MSG[result.error] || MSG.api;
+    let text2 = MSG[result.error] || MSG.api;
+    // Show the real failure reason to the bot owner only (helps configure keys).
+    const detail = 'detail' in result ? result.detail : '';
+    if (detail && ctx.from && isBotOwner(ctx.from.id)) text2 += `\n🔧 <code>${escapeHtml(detail)}</code>`;
     if (statusId) await ctx.telegram.editMessageText(ctx.chat.id, statusId, undefined, text2, { parse_mode: 'HTML' }).catch(() => undefined);
     else await ctx.reply(text2, { parse_mode: 'HTML' }).catch(() => undefined);
     return;
