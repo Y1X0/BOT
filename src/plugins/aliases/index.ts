@@ -134,6 +134,7 @@ const ALIASES: Alias[] = [
   // in the protection plugin — NOT aliased here (that would route to the old
   // on/off command and shadow the new behavior).
   { command: 'checkup', triggers: ['فحص', 'فحص البوت', 'تشخيص', 'حالة البوت'] },
+  { command: 'speed', triggers: ['سرعه', 'سرعة البوت', 'فحص السرعه', 'فحص سرعه', 'قياس السرعه'] },
   { command: 'msgedits', triggers: ['التعديلات', 'الرسائل المعدله', 'ردودي المحفوظه'] },
   { command: 'guard', triggers: ['حارس', 'حماية قصوى', 'وضع الحارس', 'حارس الجروب'] },
   { command: 'guardall', triggers: ['حارس الكل', 'حماية كل القروبات'] },
