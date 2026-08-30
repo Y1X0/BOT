@@ -86,11 +86,17 @@ async function geminiTts(text: string, voice: string, key: string, model: string
   }).finally(() => clearTimeout(timer));
   if (!res.ok) throw new Error(`gemini ${res.status}`);
   const data = (await res.json()) as {
-    candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
+    candidates?: { finishReason?: string; content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
+    promptFeedback?: { blockReason?: string };
   };
-  const part = data.candidates?.[0]?.content?.parts?.find((p) => p?.inlineData?.data);
+  const cand = data.candidates?.[0];
+  const part = cand?.content?.parts?.find((p) => p?.inlineData?.data);
   const b64 = part?.inlineData?.data;
-  if (!b64) throw new Error('gemini: no audio in response');
+  if (!b64) {
+    const reason = data.promptFeedback?.blockReason || cand?.finishReason || 'empty';
+    // MAX_TOKENS / low free-tier TTS daily cap is the usual cause of "no audio".
+    throw new Error(`gemini no audio (${reason})`);
+  }
   const rate = Number((part!.inlineData!.mimeType || '').match(/rate=(\d+)/)?.[1]) || 24000;
   return pcmToMp3(Buffer.from(b64, 'base64'), rate);
 }
