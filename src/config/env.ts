@@ -168,6 +168,19 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   MESSAGE_LOG_RETENTION_DAYS: z.coerce.number().default(7),
 
+  // Speech-to-text (voice/audio → text) via a hosted Whisper API. Groq's free
+  // tier runs whisper-large-v3 fast and free (get a key at console.groq.com);
+  // OpenAI is also supported. Reply «نص» to a voice message to transcribe it.
+  TRANSCRIBE_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  TRANSCRIBE_PROVIDER: z.enum(['groq', 'openai']).default('groq'),
+  TRANSCRIBE_API_KEY: z.string().optional(),
+  TRANSCRIBE_MODEL: z.string().default('whisper-large-v3'),
+  TRANSCRIBE_LANGUAGE: z.string().optional(), // '' = auto-detect; 'ar' to force Arabic
+  TRANSCRIBE_MAX_MB: z.coerce.number().default(25),
+
   // Fun Image Editor (needs an image-generation API key to actually run)
   IMAGE_AI_ENABLED: z
     .string()
