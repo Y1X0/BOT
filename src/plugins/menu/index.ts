@@ -6,7 +6,11 @@ import { MENU, type MenuCategory } from './data';
 import { searchMenu, CATEGORY_COLORS } from './logic';
 
 export const HOME_TEXT =
-  '🤖 <b>قائمة البوت</b>\n\nاختر قسماً بالضغط على الأزرار 👇\nأو اكتب أي أمر مباشرة (بالعربي بدون /).';
+  '🤖 <b>قائمة البوت — كل شي مرتّب بالأقسام</b>\n\n' +
+  'اختر قسم من الأزرار تحت 👇\n' +
+  'أو اكتب أي أمر مباشرة بالعربي (بدون /).\n\n' +
+  '🛡 <b>بدك تدير الجروب؟</b> افتح «الإدارة» — فيه الكتم والطرد والحظر والتحذير، مع شرح كيف تستخدم كل أمر.\n' +
+  '🔍 مش لاقي أمر؟ اكتب: <code>بحث</code> ثم الكلمة (مثال: <code>بحث حظر</code>).';
 
 const color = (key: string) => CATEGORY_COLORS[key] ?? '▫️';
 
@@ -19,8 +23,14 @@ export function homeKeyboard() {
 }
 
 function categoryText(c: MenuCategory): string {
-  const lines = c.items.map((it) => `• <b>${esc(it.ar)}</b>  <code>/${it.cmd}</code>\n   ${esc(it.desc)}`).join('\n');
-  return `${color(c.key)} ${c.emoji} <b>${esc(c.title)}</b>\n${c.note ? esc(c.note) + '\n' : ''}\n${lines}`;
+  const lines = c.items
+    .map((it) => {
+      const usage = it.usage ? `\n   <i>↳ ${esc(it.usage)}</i>` : '';
+      return `• <b>${esc(it.ar)}</b>  <code>/${it.cmd}</code>\n   ${esc(it.desc)}${usage}`;
+    })
+    .join('\n');
+  const intro = c.intro ? `\n💡 <i>${esc(c.intro)}</i>\n` : '';
+  return `${color(c.key)} ${c.emoji} <b>${esc(c.title)}</b>\n${c.note ? esc(c.note) + '\n' : ''}${intro}\n${lines}`;
 }
 
 const backKeyboard = () => Markup.inlineKeyboard([[Markup.button.callback('⬅️ رجوع للقائمة', 'menu:home')]]);
