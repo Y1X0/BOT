@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat, readdir } from 'node:fs/promises';
 import { writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -215,11 +215,14 @@ async function attemptDownload(
 
   const args = [
     ...commonArgs(client),
-    '-x',
-    '--audio-format',
-    'mp3',
-    '--audio-quality',
-    '0',
+    // Grab YouTube's native audio (usually m4a/AAC) and send it AS-IS — no
+    // ffmpeg re-encode. Re-encoding every track to mp3 (-x --audio-format mp3
+    // --audio-quality 0) was the main slowdown on weak/shared CPUs. Telegram
+    // plays m4a fine. Fall back to any bestaudio if no m4a stream exists.
+    '-f',
+    'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio',
+    '--concurrent-fragments',
+    '4',
     '--no-playlist',
     '-o',
     `${outBase}.%(ext)s`,
@@ -244,10 +247,16 @@ async function attemptDownload(
   }
 
   const title = stdout.trim().split('\n').filter(Boolean).pop() ?? 'audio';
-  const filePath = `${outBase}.mp3`;
+  // The container extension now varies (m4a/webm/opus) since we no longer force
+  // mp3, so find the produced file instead of assuming a fixed extension.
   try {
-    const s = await stat(filePath);
-    if (s.size > 0) return { filePath, title, cleanup };
+    const files = await readdir(dir);
+    const name = files.find((f) => f.startsWith('audio.') && !f.endsWith('.part'));
+    if (name) {
+      const filePath = join(dir, name);
+      const s = await stat(filePath);
+      if (s.size > 0) return { filePath, title, cleanup };
+    }
   } catch {
     /* no file produced */
   }
