@@ -32,24 +32,46 @@ export async function ensureChat(
     bootstrapped.delete(key); // settings row vanished → fall through to re-create
   }
 
-  await prisma.chat.upsert({
-    where: { id },
-    create: {
-      id,
-      title: title ?? null,
-      type: type ?? 'group',
-      language: env.DEFAULT_LANGUAGE,
-      settings: { create: {} },
-    },
-    update: { title: title ?? undefined },
-  });
+  try {
+    await prisma.chat.upsert({
+      where: { id },
+      create: {
+        id,
+        title: title ?? null,
+        type: type ?? 'group',
+        language: env.DEFAULT_LANGUAGE,
+        settings: { create: {} },
+      },
+      update: { title: title ?? undefined },
+    });
+  } catch (err) {
+    // Concurrency race on first contact: several messages from the SAME new chat
+    // arrive together, each runs upsert, all see "no row" and try to INSERT — the
+    // first wins, the rest hit the unique constraint (P2002). Harmless: the row
+    // exists now, so fall through and read it. Re-throw anything else.
+    if (!isUniqueViolation(err)) throw err;
+  }
 
-  const settings = await prisma.chatSettings.findUnique({ where: { chatId: id } });
+  let settings = await prisma.chatSettings.findUnique({ where: { chatId: id } });
+  if (!settings) {
+    // Chat row exists but its settings row is missing — create it, tolerating the
+    // same race (a parallel create may have just made it).
+    try {
+      settings = await prisma.chatSettings.create({ data: { chatId: id } });
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      settings = await prisma.chatSettings.findUnique({ where: { chatId: id } });
+    }
+  }
   bootstrapped.set(key, Date.now());
   if (settings) return settings;
+  throw new Error(`ensureChat: settings unavailable for ${key}`);
+}
 
-  // Race-safe fallback if settings row was missing.
-  return prisma.chatSettings.create({ data: { chatId: id } });
+/** True for a Prisma unique-constraint violation (P2002) — a benign concurrency
+ *  race when two requests create the same new row at once. */
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === 'P2002';
 }
 
 export async function getSettings(chatId: number | bigint): Promise<ChatSettings | null> {
