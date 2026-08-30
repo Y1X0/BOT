@@ -32,6 +32,7 @@ import { downloaderPlugin } from './downloader';
 import { storyPlugin } from './story';
 import { transcribePlugin } from './transcribe';
 import { ttsPlugin } from './tts';
+import { netdiagPlugin } from './netdiag';
 import { voiceChatPlugin } from './voicechat';
 import { musicPlugin } from './music';
 import { islamicPlugin } from './islamic';
@@ -144,6 +145,7 @@ allPlugins.push(
   storyPlugin, // catches Telegram story links (t.me/<user>/s/<id>) → assistant
   transcribePlugin, // reply «نص» to a voice/audio → speech-to-text (Whisper)
   ttsPlugin, // «نطق النص» → text-to-speech voice-over
+  netdiagPlugin, // owner /udptest — checks if the host allows UDP (for the كول)
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,
