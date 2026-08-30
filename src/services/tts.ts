@@ -84,7 +84,10 @@ async function geminiTts(text: string, voice: string, key: string, model: string
     }),
     signal: controller.signal,
   }).finally(() => clearTimeout(timer));
-  if (!res.ok) throw new Error(`gemini ${res.status}`);
+  if (!res.ok) {
+    const body = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 180);
+    throw new Error(`gemini ${res.status}: ${body}`);
+  }
   const data = (await res.json()) as {
     candidates?: { finishReason?: string; content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
     promptFeedback?: { blockReason?: string };
@@ -111,7 +114,10 @@ async function elevenTts(text: string, voiceId: string, key: string, model: stri
     body: JSON.stringify({ text, model_id: model }),
     signal: controller.signal,
   }).finally(() => clearTimeout(timer));
-  if (!res.ok) throw new Error(`elevenlabs ${res.status}`);
+  if (!res.ok) {
+    const body = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 180);
+    throw new Error(`elevenlabs ${res.status}: ${body}`);
+  }
   return Buffer.from(await res.arrayBuffer());
 }
 
