@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { env } from '../config/env';
 import { createLogger } from '../core/logger';
@@ -13,7 +14,7 @@ export interface TtsResult {
 /** True when text-to-speech is configured and usable. */
 export function ttsReady(): boolean {
   if (!env.TTS_ENABLED) return false;
-  if (env.TTS_PROVIDER === 'elevenlabs') return !!env.TTS_API_KEY;
+  if (env.TTS_PROVIDER === 'elevenlabs' || env.TTS_PROVIDER === 'gemini') return !!env.TTS_API_KEY;
   return true; // edge needs no key
 }
 
@@ -46,6 +47,54 @@ async function edgeTts(text: string, voice: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+/** Wrap raw signed-16-bit little-endian mono PCM into an MP3 via ffmpeg (needed
+ *  for Gemini, which returns PCM — Telegram only accepts mp3/m4a as audio). */
+function pcmToMp3(pcm: Buffer, sampleRate: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(
+      'ffmpeg',
+      ['-hide_banner', '-loglevel', 'error', '-f', 's16le', '-ar', String(sampleRate), '-ac', '1', '-i', 'pipe:0', '-f', 'mp3', '-b:a', '160k', 'pipe:1'],
+      { stdio: ['pipe', 'pipe', 'ignore'] },
+    );
+    const out: Buffer[] = [];
+    p.stdout.on('data', (c: Buffer) => out.push(c));
+    p.on('error', reject);
+    p.on('close', (code) => (code === 0 ? resolve(Buffer.concat(out)) : reject(new Error(`ffmpeg exit ${code}`))));
+    p.stdin.on('error', () => undefined);
+    p.stdin.write(pcm);
+    p.stdin.end();
+  });
+}
+
+/** Google Gemini TTS — natural quality, generous free tier (Google AI Studio
+ *  key, no card). Returns base64 PCM, which we transcode to MP3. */
+async function geminiTts(text: string, voice: string, key: string, model: string): Promise<Buffer> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+      },
+    }),
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timer));
+  if (!res.ok) throw new Error(`gemini ${res.status}`);
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
+  };
+  const part = data.candidates?.[0]?.content?.parts?.find((p) => p?.inlineData?.data);
+  const b64 = part?.inlineData?.data;
+  if (!b64) throw new Error('gemini: no audio in response');
+  const rate = Number((part!.inlineData!.mimeType || '').match(/rate=(\d+)/)?.[1]) || 24000;
+  return pcmToMp3(Buffer.from(b64, 'base64'), rate);
+}
+
 /** ElevenLabs — premium quality, needs an API key. */
 async function elevenTts(text: string, voiceId: string, key: string, model: string): Promise<Buffer> {
   const controller = new AbortController();
@@ -75,11 +124,15 @@ export async function synthesize(
 
   try {
     let buffer: Buffer;
+    const voice = voiceOverride || env.TTS_VOICE;
     if (env.TTS_PROVIDER === 'elevenlabs') {
       if (!env.TTS_API_KEY) return { error: 'nokey' };
-      buffer = await elevenTts(clean, voiceOverride || env.TTS_VOICE, env.TTS_API_KEY, env.TTS_MODEL);
+      buffer = await elevenTts(clean, voice, env.TTS_API_KEY, env.TTS_MODEL);
+    } else if (env.TTS_PROVIDER === 'gemini') {
+      if (!env.TTS_API_KEY) return { error: 'nokey' };
+      buffer = await geminiTts(clean, voice, env.TTS_API_KEY, env.TTS_MODEL);
     } else {
-      buffer = await edgeTts(clean, voiceOverride || env.TTS_VOICE);
+      buffer = await edgeTts(clean, voice);
     }
     if (!buffer.length) return { error: 'api' };
     return { buffer, ext: 'mp3' };

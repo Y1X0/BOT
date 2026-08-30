@@ -188,10 +188,10 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
-  TTS_PROVIDER: z.enum(['edge', 'elevenlabs']).default('edge'),
-  TTS_VOICE: z.string().default('ar-EG-ShakirNeural'), // edge voice name, or an ElevenLabs voice id
-  TTS_API_KEY: z.string().optional(), // ElevenLabs only
-  TTS_MODEL: z.string().default('eleven_multilingual_v2'), // ElevenLabs model
+  TTS_PROVIDER: z.enum(['edge', 'elevenlabs', 'gemini']).default('edge'),
+  TTS_VOICE: z.string().default('ar-EG-ShakirNeural'), // edge voice name / ElevenLabs voice id / Gemini voice (e.g. Kore)
+  TTS_API_KEY: z.string().optional(), // ElevenLabs or Gemini (Google AI Studio) key
+  TTS_MODEL: z.string().default('eleven_multilingual_v2'), // ElevenLabs model, or gemini-2.5-flash-preview-tts
   TTS_MAX_CHARS: z.coerce.number().default(2000),
 
   // Fun Image Editor (needs an image-generation API key to actually run)
