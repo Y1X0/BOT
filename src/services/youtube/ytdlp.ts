@@ -49,14 +49,14 @@ function getCookiesPath(): string | null {
  * so those go first. `tv` is last (it caused "DRM protected" failures).
  * No cookies required; cookies (if set) attach to every attempt.
  */
+// Trimmed to the clients that actually yield downloadable audio, best-first.
+// Each extra client is a full failed round-trip when YouTube blocks the IP, so
+// fewer = faster failure to a working method. The mobile clients return normal
+// (non-DRM) audio; tv/web mostly returned DRM-protected formats we can't save.
 const CLIENT_FALLBACKS = [
   'android',
   'ios',
-  'mweb',
-  'android_vr',
-  'web_embedded',
-  'web',
-  'tv',
+  'tv_embedded',
 ];
 
 /** The ordered list of player clients to attempt for this environment. */
@@ -67,7 +67,9 @@ function clientsToTry(): (string | null)[] {
 
 /** Args applied to every yt-dlp call. `client` null = no player_client override. */
 function commonArgs(client: string | null): string[] {
-  const a = ['--no-warnings', '--geo-bypass'];
+  // --socket-timeout: fail a stalled connection fast instead of hanging, so a
+  // blocked attempt moves on to the next method quickly (key on datacenter IPs).
+  const a = ['--no-warnings', '--geo-bypass', '--socket-timeout', '20'];
   if (env.YT_FORCE_IPV4 && !env.YT_PROXY) a.push('--force-ipv4');
   if (env.YT_PROXY) a.push('--proxy', env.YT_PROXY);
   const cp = getCookiesPath();
@@ -81,8 +83,11 @@ function isRetryable(e: YtError): boolean {
   return e === 'blocked' || e === 'failed' || e === 'drm';
 }
 
-const SEARCH_TIMEOUT_MS = 30_000;
-const DOWNLOAD_TIMEOUT_MS = 600_000; // 10 min — long videos allowed
+const SEARCH_TIMEOUT_MS = 20_000;
+// Per-attempt cap. Audio files are small, so a real download finishes in well
+// under this; the old 10-min ceiling meant one stalled attempt could hang for
+// minutes before the next method was tried.
+const DOWNLOAD_ATTEMPT_TIMEOUT_MS = 90_000;
 
 export interface SearchItem {
   videoId: string;
@@ -231,6 +236,11 @@ async function attemptDownload(
     'after_move:%(title)s',
     '--no-simulate',
     '--no-progress',
+    // Fail a blocked/broken extraction fast instead of retrying for a long time.
+    '--retries',
+    '3',
+    '--extractor-retries',
+    '1',
   ];
   if (youtubeConfig.maxDuration != null) {
     args.push('--match-filter', `duration <= ${youtubeConfig.maxDuration}`);
@@ -240,7 +250,7 @@ async function attemptDownload(
   }
   args.push(`https://www.youtube.com/watch?v=${videoId}`);
 
-  const { code, stdout, stderr, spawnError } = await run(args, DOWNLOAD_TIMEOUT_MS);
+  const { code, stdout, stderr, spawnError } = await run(args, DOWNLOAD_ATTEMPT_TIMEOUT_MS);
   if (spawnError) {
     await cleanup();
     return { error: spawnError.code === 'ENOENT' ? 'notinstalled' : 'failed' };
