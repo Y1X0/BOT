@@ -381,8 +381,13 @@ async function createMosaic(ctx: BotContext, fileId: string, cols: number): Prom
   const how = posted
     ? 'الرسالة اللي فوق هي صورتك مركّبة من الرموز 👆'
     : '⚠️ ما قدرت أعرض الصورة مركّبة (تحتاج Telegram Premium لإرسال الرموز المميزة).';
+  // The bot's name in the message is a clickable link to the bot (the set title
+  // itself can't be a link — Telegram titles are plain text).
+  const botLink = `https://t.me/${username}`;
   await ctx.reply(
-    `✅ صار عندك «${title}»!\n🧷 ${link('emoji', name)}\n\n${how}\n\n` +
+    `✅ صارت جاهزة باسم <a href="${botLink}">${title}</a> 👈 اضغط عليه بيوديك للبوت\n` +
+      `🧷 <a href="${link('emoji', name)}">أضف الحزمة</a>\n\n${how}\n\n` +
       `📌 كيف يستخدمها غيرك: يضيف الحزمة، وبعدها يرسل الرموز بالترتيب (سطر ورا سطر) فتتجمّع وتكوّن الصورة.`,
+    { parse_mode: 'HTML' },
   );
 }
