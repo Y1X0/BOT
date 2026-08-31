@@ -44,22 +44,13 @@ export async function sliceToEmojiTiles(image: Buffer, colsWanted: number): Prom
       .linear(1.08, -8)
       .toBuffer();
 
-    // A thin transparent frame leaves a subtle gap between neighbours (the
-    // "designed panel" look) without dominating the small rendered tiles.
-    const GAP = 3;
-    const inner = TILE - 2 * GAP;
-
+    // Seamless, edge-to-edge tiles (no gap) so the emoji sit flush against each
+    // other and rebuild one clean, continuous picture.
     const tiles: Buffer[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const content = await sharp(flat)
+        const tile = await sharp(flat)
           .extract({ left: c * TILE, top: r * TILE, width: TILE, height: TILE })
-          .resize(inner, inner, { fit: 'fill' })
-          .toBuffer();
-        const tile = await sharp({
-          create: { width: TILE, height: TILE, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-        })
-          .composite([{ input: content, left: GAP, top: GAP }])
           .webp({ quality: 92 })
           .toBuffer();
         tiles.push(tile);

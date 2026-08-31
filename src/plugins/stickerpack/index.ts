@@ -380,7 +380,7 @@ async function createMosaic(ctx: BotContext, fileId: string, cols: number): Prom
   const posted = await ctx.telegram.sendMessage(ctx.chat.id, text, { entities }).catch(() => null);
 
   const how = posted
-    ? 'الرسالة اللي فوق هي صورتك مركّبة من الرموز 👆'
+    ? 'الرسالة اللي فوق هي صورتك مركّبة 👆\n📤 عشان تبعتها بأي مكان: اعمل لها تحويل (Forward) — بتنبعت جاهزة.'
     : '⚠️ ما قدرت أعرض الصورة مركّبة (تحتاج Telegram Premium لإرسال الرموز المميزة).';
   // The bot's name in the message is a clickable link to the bot (the set title
   // itself can't be a link — Telegram titles are plain text).
