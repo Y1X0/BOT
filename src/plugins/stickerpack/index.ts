@@ -337,8 +337,9 @@ async function createMosaic(ctx: BotContext, fileId: string, cols: number): Prom
   const ids = await uploadTiles(ctx, sliced.tiles);
   if (!ids) return void editStatus('❌ تعذّر رفع بعض الرموز، حاول بصورة أصغر أو عدد أعمدة أقل.') as unknown as void;
 
-  // Title = the bot's username in Unicode bold (branding; no size, no "بوستر").
-  const title = toBold(username).slice(0, 64);
+  // Title = @username in Unicode bold (branding; no size, no "بوستر"). In the
+  // reply below it's wrapped in a link, so tapping it opens the bot.
+  const title = `@${toBold(username)}`.slice(0, 64);
   const name = packName(ctx.from.id, username, 10000 + Math.floor(Math.random() * 89999));
   try {
     // Up to 50 stickers per createNewStickerSet call; add the rest after.
