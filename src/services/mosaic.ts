@@ -34,15 +34,31 @@ export async function sliceToEmojiTiles(image: Buffer, colsWanted: number): Prom
 
     const W = cols * TILE;
     const H = rows * TILE;
-    // Fill to the exact grid (no padding) so adjacent tiles align perfectly.
-    const flat = await sharp(image).resize(W, H, { fit: 'fill' }).toBuffer();
+    // Fill to the exact grid, then lift contrast/saturation a touch so the
+    // picture "pops" as a mosaic instead of looking like a flat, chopped photo.
+    const flat = await sharp(image)
+      .resize(W, H, { fit: 'fill' })
+      .modulate({ saturation: 1.14, brightness: 1.02 })
+      .linear(1.08, -8)
+      .toBuffer();
+
+    // A small transparent frame inside each tile leaves a clean gap between
+    // neighbours when they're placed together — the "designed panel" grid look.
+    const GAP = 5;
+    const inner = TILE - 2 * GAP;
 
     const tiles: Buffer[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const tile = await sharp(flat)
+        const content = await sharp(flat)
           .extract({ left: c * TILE, top: r * TILE, width: TILE, height: TILE })
-          .webp({ quality: 90 })
+          .resize(inner, inner, { fit: 'fill' })
+          .toBuffer();
+        const tile = await sharp({
+          create: { width: TILE, height: TILE, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+        })
+          .composite([{ input: content, left: GAP, top: GAP }])
+          .webp({ quality: 92 })
           .toBuffer();
         tiles.push(tile);
       }
