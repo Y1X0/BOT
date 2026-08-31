@@ -192,6 +192,20 @@ export const stickerPackPlugin: Plugin = {
   },
 };
 
+/** Render ASCII letters/digits as Unicode sans-serif bold, so a plain-text
+ *  place like a sticker-set title looks bold. Other characters pass through. */
+function toBold(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!;
+    if (c >= 0x41 && c <= 0x5a) out += String.fromCodePoint(0x1d5d4 + (c - 0x41)); // A–Z
+    else if (c >= 0x61 && c <= 0x7a) out += String.fromCodePoint(0x1d5ee + (c - 0x61)); // a–z
+    else if (c >= 0x30 && c <= 0x39) out += String.fromCodePoint(0x1d7ec + (c - 0x30)); // 0–9
+    else out += ch;
+  }
+  return out;
+}
+
 function mediaOf(msg: unknown): { fileId: string; type: MediaType } | null {
   const p = largestPhoto(msg);
   if (p) return { fileId: p.fileId, type: 'photo' };
@@ -323,7 +337,8 @@ async function createMosaic(ctx: BotContext, fileId: string, cols: number): Prom
   const ids = await uploadTiles(ctx, sliced.tiles);
   if (!ids) return void editStatus('❌ تعذّر رفع بعض الرموز، حاول بصورة أصغر أو عدد أعمدة أقل.') as unknown as void;
 
-  const title = `بوستر ${sliced.cols}×${sliced.rows}`;
+  // Title = the bot's username in Unicode bold (branding; no size, no "بوستر").
+  const title = toBold(username).slice(0, 64);
   const name = packName(ctx.from.id, username, 10000 + Math.floor(Math.random() * 89999));
   try {
     // Up to 50 stickers per createNewStickerSet call; add the rest after.
