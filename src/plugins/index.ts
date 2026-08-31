@@ -21,6 +21,7 @@ import { repliesPlugin } from './replies';
 import { analyticsPlugin } from './analytics';
 import { extrasPlugin } from './extras';
 import { decoratePlugin } from './decorate';
+import { nameDesignPlugin } from './namedesign';
 import { funPlugin } from './fun';
 import { notesPlugin } from './notes';
 import { afkPlugin } from './afk';
@@ -133,6 +134,7 @@ allPlugins.push(
   imageEditorPlugin,
   extrasPlugin,
   decoratePlugin,
+  nameDesignPlugin, // «تصميم الاسم» → decorative name image
   funPlugin,
   toolsPlugin,
   whisperPlugin,
