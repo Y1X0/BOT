@@ -6,57 +6,62 @@ export const DASHBOARD_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>لوحة تحكم البوت</title>
 <style>
-  :root { --bg:#0e1015; --card:#161922; --soft:#0f1219; --line:#232735; --fg:#e8eaf0; --muted:#868c9e; --accent:#7c6cf0; --ok:#34d399; --bad:#f87171; --user:#141824; --botmsg:#17251b; }
+  :root { --bg:#0a0c12; --bg2:#0e1220; --card:#151a27; --soft:#111624; --line:#242c3e; --fg:#eaedf5; --muted:#8b93a8; --accent:#6d5efc; --accent2:#22d3ee; --ok:#34d399; --bad:#fb7185; --warn:#fbbf24; --grad:linear-gradient(135deg,#6d5efc,#9d7bff); --user:#141a28; --botmsg:#12241d; }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:system-ui,'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var(--fg); font-size:14px; line-height:1.5; }
-  header { padding:11px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  header h1 { font-size:15px; font-weight:600; margin:0; }
-  nav { display:flex; gap:6px; padding:9px 12px; border-bottom:1px solid var(--line); overflow-x:auto; position:sticky; top:0; background:var(--bg); z-index:5; }
+  body { margin:0; font-family:system-ui,'Segoe UI',Tahoma,'Noto Sans Arabic',sans-serif; background:var(--bg); color:var(--fg); font-size:14px; line-height:1.55; background-image:radial-gradient(900px 520px at 100% -10%,rgba(109,94,252,.14),transparent 60%),radial-gradient(700px 400px at -10% 0,rgba(34,211,238,.08),transparent 55%); background-attachment:fixed; }
+  header { padding:13px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px; background:rgba(12,15,24,.72); backdrop-filter:blur(10px); position:sticky; top:0; z-index:10; }
+  header h1 { font-size:15.5px; font-weight:700; margin:0; background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  nav { display:flex; gap:7px; padding:11px 14px; overflow-x:auto; position:sticky; top:49px; background:rgba(10,12,18,.85); backdrop-filter:blur(10px); z-index:9; border-bottom:1px solid var(--line); }
   nav::-webkit-scrollbar { display:none; }
-  nav button { background:transparent; border:1px solid var(--line); color:var(--muted); border-radius:18px; padding:5px 13px; cursor:pointer; white-space:nowrap; font-family:inherit; font-size:13px; transition:.15s; }
-  nav button:hover { color:var(--fg); }
-  nav button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-  .page { padding:14px; max-width:920px; margin:0 auto; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
-  .card h3 { font-size:14px; font-weight:600; margin:0 0 10px; }
-  .card h3:not(:first-child) { margin-top:16px; }
+  nav button { background:var(--soft); border:1px solid var(--line); color:var(--muted); border-radius:20px; padding:6px 15px; cursor:pointer; white-space:nowrap; font-family:inherit; font-size:13px; transition:.15s; font-weight:500; }
+  nav button:hover { color:var(--fg); border-color:var(--accent); }
+  nav button.active { background:var(--grad); color:#fff; border-color:transparent; box-shadow:0 4px 14px rgba(109,94,252,.4); }
+  .page { padding:16px; max-width:960px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; margin-bottom:14px; box-shadow:0 1px 2px rgba(0,0,0,.2),0 8px 24px rgba(0,0,0,.18); }
+  .card h3 { font-size:14px; font-weight:700; margin:0 0 12px; display:flex; align-items:center; gap:7px; }
+  .card h3:not(:first-child) { margin-top:18px; }
   .muted { color:var(--muted); font-size:12.5px; }
   .row { display:flex; gap:8px; margin:8px 0; flex-wrap:wrap; align-items:center; }
-  input,textarea,select { background:var(--soft); border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:9px 11px; font-family:inherit; font-size:13.5px; outline:none; transition:border-color .15s; }
-  input:focus,textarea:focus,select:focus { border-color:var(--accent); }
+  input,textarea,select { background:var(--soft); border:1px solid var(--line); color:var(--fg); border-radius:10px; padding:10px 12px; font-family:inherit; font-size:13.5px; outline:none; transition:border-color .15s,box-shadow .15s; }
+  input:focus,textarea:focus,select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(109,94,252,.18); }
   input,textarea { flex:1; min-width:0; }
   button { font-family:inherit; font-size:13.5px; }
-  button.act { background:var(--accent); color:#fff; border:none; border-radius:9px; padding:9px 15px; cursor:pointer; font-weight:500; }
-  button.act:hover { filter:brightness(1.1); }
-  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:9px 14px; cursor:pointer; }
-  button.ghost:hover { background:var(--soft); }
-  button.del { background:transparent; color:var(--bad); border:1px solid var(--line); border-radius:7px; padding:3px 9px; cursor:pointer; font-size:13px; }
-  .toggle { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--line); }
+  button.act { background:var(--grad); color:#fff; border:none; border-radius:10px; padding:10px 16px; cursor:pointer; font-weight:600; box-shadow:0 4px 14px rgba(109,94,252,.35); transition:.15s; }
+  button.act:hover { filter:brightness(1.08); transform:translateY(-1px); }
+  button.act:active { transform:translateY(0); }
+  button.ghost { background:var(--soft); border:1px solid var(--line); color:var(--fg); border-radius:10px; padding:10px 15px; cursor:pointer; transition:.15s; }
+  button.ghost:hover { border-color:var(--accent); }
+  button.del { background:transparent; color:var(--bad); border:1px solid var(--line); border-radius:8px; padding:3px 9px; cursor:pointer; font-size:13px; }
+  button.del:hover { border-color:var(--bad); background:rgba(251,113,133,.1); }
+  .toggle { display:flex; align-items:center; justify-content:space-between; padding:11px 2px; border-bottom:1px solid var(--line); }
   .toggle:last-child { border-bottom:none; }
-  .switch { position:relative; width:42px; height:23px; flex-shrink:0; }
+  .switch { position:relative; width:44px; height:24px; flex-shrink:0; }
   .switch input { display:none; }
-  .slider { position:absolute; inset:0; background:#333846; border-radius:20px; cursor:pointer; transition:.2s; }
-  .slider:before { content:''; position:absolute; width:17px; height:17px; right:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
-  input:checked + .slider { background:var(--accent); }
-  input:checked + .slider:before { transform:translateX(-19px); }
-  .chat-item { padding:9px 11px; border-radius:9px; cursor:pointer; border:1px solid transparent; transition:.12s; }
+  .slider { position:absolute; inset:0; background:#2a3142; border-radius:20px; cursor:pointer; transition:.2s; }
+  .slider:before { content:''; position:absolute; width:18px; height:18px; right:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; box-shadow:0 1px 3px rgba(0,0,0,.4); }
+  input:checked + .slider { background:var(--grad); }
+  input:checked + .slider:before { transform:translateX(-20px); }
+  .chat-item { padding:10px 12px; border-radius:10px; cursor:pointer; border:1px solid transparent; transition:.12s; margin-bottom:2px; }
   .chat-item:hover { background:var(--soft); }
   .chat-item.active { background:var(--soft); border-color:var(--accent); }
-  .grid2 { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
-  .grid2 > * { flex:1; min-width:260px; margin-bottom:0; }
+  .grid2 { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
+  .grid2 > * { flex:1; min-width:270px; margin-bottom:0; }
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
-  td,th { text-align:right; padding:7px 8px; border-bottom:1px solid var(--line); }
+  td,th { text-align:right; padding:9px 9px; border-bottom:1px solid var(--line); }
   tr:last-child td { border-bottom:none; }
-  th { color:var(--muted); font-weight:500; }
-  .pill { display:inline-flex; align-items:center; gap:6px; background:var(--soft); border:1px solid var(--line); border-radius:8px; padding:5px 10px; margin:0 0 6px 6px; font-size:13px; }
-  .box { background:var(--soft); border:1px solid var(--line); border-radius:11px; padding:13px 10px; text-align:center; flex:1; min-width:70px; }
-  .box b { font-size:19px; display:block; margin-bottom:2px; }
-  .box span,.box { font-size:12px; color:var(--muted); }
-  .box b { color:var(--fg); }
-  .stat { display:flex; gap:10px; flex-wrap:wrap; }
+  th { color:var(--muted); font-weight:600; font-size:11.5px; letter-spacing:.02em; }
+  table tr:hover td { background:rgba(255,255,255,.02); }
+  .pill { display:inline-flex; align-items:center; gap:6px; background:var(--soft); border:1px solid var(--line); border-radius:9px; padding:6px 11px; margin:0 0 6px 6px; font-size:13px; }
+  .box { background:linear-gradient(160deg,var(--soft),rgba(109,94,252,.06)); border:1px solid var(--line); border-radius:14px; padding:15px 12px; text-align:center; flex:1; min-width:80px; transition:.15s; }
+  .box:hover { border-color:var(--accent); transform:translateY(-2px); }
+  .box b { font-size:22px; display:block; margin-bottom:2px; color:var(--fg); font-weight:700; }
+  .box span { font-size:12px; color:var(--muted); }
+  .kicon { font-size:20px; margin-bottom:5px; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin-bottom:14px; }
+  .stat { display:flex; gap:12px; flex-wrap:wrap; }
   .media-item { display:inline-block; width:110px; vertical-align:top; margin:4px; text-align:center; }
-  .media-item .thumb { width:110px; height:82px; background:var(--soft); border:1px solid var(--line); border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:30px; cursor:pointer; overflow:hidden; }
-  .media-item .thumb:hover { border-color:var(--accent); }
+  .media-item .thumb { width:110px; height:82px; background:var(--soft); border:1px solid var(--line); border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:30px; cursor:pointer; overflow:hidden; transition:.15s; }
+  .media-item .thumb:hover { border-color:var(--accent); transform:translateY(-2px); }
   .media-item img { max-width:100%; max-height:100%; }
   .center { text-align:center; padding:60px 20px; }
   .err { color:var(--bad); font-size:12px; margin:3px 0; }
@@ -65,18 +70,17 @@ export const DASHBOARD_HTML = `<!doctype html>
   .msg .meta { font-size:10.5px; color:var(--muted); margin-bottom:3px; }
   .msg.in { align-self:flex-start; background:var(--user); border-bottom-right-radius:4px; }
   .msg.out { align-self:flex-end; background:var(--botmsg); border-bottom-left-radius:4px; }
-  /* WhatsApp/Telegram-style chat UI */
-  .avatar { width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#7c6cf0,#5b4bd6); display:flex; align-items:center; justify-content:center; font-weight:600; color:#fff; flex-shrink:0; font-size:16px; }
-  .chatlist-item { display:flex; gap:10px; align-items:center; padding:9px 8px; border-radius:10px; cursor:pointer; border:1px solid transparent; }
+  .avatar { width:42px; height:42px; border-radius:50%; background:var(--grad); display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; flex-shrink:0; font-size:16px; }
+  .chatlist-item { display:flex; gap:10px; align-items:center; padding:9px 8px; border-radius:12px; cursor:pointer; border:1px solid transparent; }
   .chatlist-item:hover { background:var(--soft); }
   .chatlist-item.active { background:var(--soft); border-color:var(--accent); }
   .ci-main { flex:1; min-width:0; }
-  .ci-name { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ci-name { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ci-sub { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ci-time { font-size:10.5px; color:var(--muted); flex-shrink:0; align-self:flex-start; }
   .chat { display:flex; flex-direction:column; height:72vh; min-height:430px; }
-  .chat-head { display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid var(--line); background:var(--card); }
-  .ch-name { font-size:14px; font-weight:600; }
+  .chat-head { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--line); background:var(--card); }
+  .ch-name { font-size:14px; font-weight:700; }
   .ch-sub { font-size:11px; color:var(--muted); }
   .iconbtn { background:transparent; border:none; color:var(--muted); font-size:17px; cursor:pointer; padding:5px 7px; border-radius:8px; }
   .iconbtn:hover { background:var(--soft); color:var(--fg); }
@@ -86,8 +90,6 @@ export const DASHBOARD_HTML = `<!doctype html>
   .bubble.in { align-self:flex-start; background:#212b36; border-top-left-radius:3px; }
   .bubble.out { align-self:flex-end; background:#0f5c47; border-top-right-radius:3px; }
   .bubble .btime { font-size:9.5px; color:rgba(255,255,255,.5); margin-top:2px; text-align:left; }
-  /* Group monitor feed — a readable log, not a two-party chat. One header per
-     speaker (color-coded), messages stacked full-width so long threads scan easily. */
   .gfeed { gap:0; padding:10px 10px; font-family:system-ui,'Segoe UI','Noto Sans','Noto Sans Arabic',Tahoma,'Segoe UI Symbol','Noto Color Emoji',sans-serif; }
   .gmsg { margin-top:9px; }
   .ghead { display:flex; align-items:center; gap:7px; margin:0 0 3px; }
@@ -101,16 +103,18 @@ export const DASHBOARD_HTML = `<!doctype html>
   .gcap { font-size:13px; line-height:1.45; margin-top:4px; word-break:break-word; white-space:pre-wrap; }
   .chat-input { display:flex; gap:8px; align-items:center; padding:9px 10px; border-top:1px solid var(--line); background:var(--card); }
   .chat-input input { flex:1; border-radius:20px; padding:10px 15px; }
-  .sendbtn { width:40px; height:40px; border-radius:50%; border:none; background:var(--accent); color:#fff; font-size:16px; cursor:pointer; flex-shrink:0; }
+  .sendbtn { width:40px; height:40px; border-radius:50%; border:none; background:var(--grad); color:#fff; font-size:16px; cursor:pointer; flex-shrink:0; }
   .sendbtn:hover { filter:brightness(1.1); }
+  .login-card { max-width:400px; margin:0 auto; text-align:center; }
+  .login-card .logo { font-size:44px; margin-bottom:6px; }
 </style>
 </head>
 <body>
-<header><h1>🦋 لوحة تحكم البوت — Super Admin</h1><span id="hdr"></span></header>
+<header><h1>🦋 لوحة تحكم البوت</h1><span id="hdr"></span></header>
 
 <div id="login" class="center" style="display:none">
-  <div class="card" style="max-width:420px;margin:0 auto"><h2>تسجيل الدخول</h2>
-  <p class="muted">بحساب تيليجرام (المالك فقط).</p><div id="tg-btn"></div>
+  <div class="card login-card"><div class="logo">🦋</div><h2 style="margin:0 0 4px">تسجيل الدخول</h2>
+  <p class="muted">بحساب تيليجرام (المالك فقط).</p><div id="tg-btn" style="display:flex;justify-content:center;margin-top:10px"></div>
   <p class="muted err" id="loginNote"></p></div>
 </div>
 
@@ -123,7 +127,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 const api=(p,o={})=>fetch('/api'+p,{credentials:'include',headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 /* Turn a decorated Telegram name into something a phone browser can actually render.
-   NFKD folds fancy math/fraktur/bold letters back to plain ones; \p{M} drops the
+   NFKD folds fancy math/fraktur/bold letters back to plain ones; \\p{M} drops the
    stacked harakat/combining marks; the last range strips zero-width & bidi controls.
    If nothing readable survives, fall back to the raw string (then the id upstream). */
 function cleanName(s){ const raw=String(s??'');
@@ -131,16 +135,16 @@ function cleanName(s){ const raw=String(s??'');
   return t||raw; }
 /* Stable, legible color per user so you can track who's who at a glance. */
 function uColor(id){ let h=0; const s=String(id); for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0; return 'hsl('+(h%360)+',62%,68%)'; }
-const TABS=[['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['whispers','الهمسات'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
-let current=null, tab='groups', monTimer=null;
+const TABS=[['overview','الرئيسية'],['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['whispers','الهمسات'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
+let current=null, tab='overview', monTimer=null;
 
 async function boot(){ const me=await api('/me');
-  if(me.authenticated){ document.getElementById('app').style.display='block'; document.getElementById('hdr').innerHTML='<button class="ghost" onclick="logout()">خروج</button>'; renderNav(); showTab('groups'); }
+  if(me.authenticated){ document.getElementById('app').style.display='block'; document.getElementById('hdr').innerHTML='<button class="ghost" onclick="logout()">خروج</button>'; renderNav(); showTab('overview'); }
   else showLogin(); }
 
 function renderNav(){ document.getElementById('nav').innerHTML=TABS.map(([k,l])=>'<button id="t-'+k+'" class="'+(k===tab?'active':'')+'" onclick="showTab(\\''+k+'\\')">'+l+'</button>').join(''); }
 function showTab(t){ tab=t; if(monTimer){clearInterval(monTimer);monTimer=null;} renderNav();
-  ({groups:loadGroups,monitor:loadMonitor,users:loadUsers,musaraha:loadMusaraha,whispers:loadWhispers,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
+  ({overview:loadOverview,groups:loadGroups,monitor:loadMonitor,users:loadUsers,musaraha:loadMusaraha,whispers:loadWhispers,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
 
 async function showLogin(){ document.getElementById('login').style.display='block'; const c=await api('/config');
   if(!c.botUsername){document.getElementById('loginNote').textContent='⚠️ BOT_USERNAME غير مضبوط.';return;}
@@ -148,6 +152,27 @@ async function showLogin(){ document.getElementById('login').style.display='bloc
   const s=document.createElement('script'); s.async=true; s.src='https://telegram.org/js/telegram-widget.js?22';
   s.setAttribute('data-telegram-login',c.botUsername); s.setAttribute('data-size','large'); s.setAttribute('data-onauth','onTelegramAuth(user)'); document.getElementById('tg-btn').appendChild(s); }
 async function logout(){ await api('/auth/logout',{method:'POST'}); location.reload(); }
+
+/* ---- Overview (home) ---- */
+async function loadOverview(){ const c=document.getElementById('content'); c.innerHTML='<p class="muted" style="padding:16px">جاري التحميل...</p>';
+  const [chats,users,a,sys]=await Promise.all([api('/chats'),api('/users'),api('/analytics'),api('/system')]);
+  const msgs=(a.topTypes||[]).reduce((s,x)=>s+(x.count||0),0);
+  const kpi=(icon,val,label)=>'<div class="box"><div class="kicon">'+icon+'</div><b>'+val+'</b><span>'+label+'</span></div>';
+  const topG=(a.topGroups||[]).slice(0,6).map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(cleanName(x.title))+'</td><td>'+x.count+'</td></tr>').join('')||'<tr><td colspan="3" class="muted">لا بيانات</td></tr>';
+  const topU=(a.topUsers||[]).slice(0,6).map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(cleanName(x.name))+'</td><td>'+x.count+'</td></tr>').join('')||'<tr><td colspan="3" class="muted">لا بيانات</td></tr>';
+  c.innerHTML='<div class="kpi-grid">'
+    +kpi('👥',chats.length,'جروب')
+    +kpi('💬',users.length,'محادثة خاصة')
+    +kpi('✉️',msgs,'رسالة مسجّلة')
+    +kpi('⏱',Math.floor(sys.uptimeSec/3600)+'h','مدة التشغيل')
+    +kpi('🧠',sys.memory.rssMB+'MB','الذاكرة')
+    +kpi(sys.errors.length?'⚠️':'✅',sys.errors.length,'أخطاء')
+    +'</div>'
+    +'<div class="grid2">'
+    +'<div class="card"><h3 style="margin-top:0">🏆 أنشط الجروبات</h3><table><tr><th>#</th><th>الجروب</th><th>رسائل</th></tr>'+topG+'</table></div>'
+    +'<div class="card"><h3 style="margin-top:0">👤 أنشط الأعضاء</h3><table><tr><th>#</th><th>العضو</th><th>رسائل</th></tr>'+topU+'</table></div>'
+    +'</div>'
+    +'<div class="card"><h3 style="margin-top:0">⚡ إجراءات سريعة</h3><div class="row"><button class="ghost" onclick="showTab(\\'groups\\')">⚙️ إدارة الجروبات</button><button class="ghost" onclick="showTab(\\'monitor\\')">📡 المراقبة المباشرة</button><button class="ghost" onclick="showTab(\\'analytics\\')">📊 التحليلات</button><button class="ghost" onclick="showTab(\\'system\\')">🖥 النظام</button></div></div>'; }
 
 /* ---- Groups ---- */
 async function loadGroups(){ const chats=await api('/chats'); const c=document.getElementById('content');
@@ -167,7 +192,6 @@ async function groupChat(id){ current=id; gtab(true); const rows=await api('/mon
     const uid=String(r.userId), col=uColor(uid), nm=cleanName(r.userName)||uid;
     const rep=r.replyToName?'<div class="greply">↩️ رداً على '+esc(cleanName(r.replyToName))+'</div>':'';
     const body=msgBody(r);
-    // Group consecutive messages from the same user under one name header.
     const head=uid!==lastUid?'<div class="ghead"><span class="gavatar" style="background:'+col+'">'+esc(cleanName(nm).charAt(0)||'?')+'</span><span class="gname" style="color:'+col+'">'+esc(nm)+'</span><span class="guid">'+esc(uid)+'</span></div>':'';
     lastUid=uid;
     html+='<div class="gmsg"'+(head?'':' style="margin-top:1px"')+'>'+head+'<div class="gbubble" style="border-right:3px solid '+col+'">'+rep+'<div class="gtext">'+body+'</div><div class="btime">'+tm+(r.flagged?' 🚩':'')+'</div></div></div>';
