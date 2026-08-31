@@ -148,7 +148,7 @@ export const stickerPackPlugin: Plugin = {
       if (!src || src.type !== 'photo') {
         return void ctx.reply('🖼 ردّ على صورة واكتب «موزاييك» (أو «موزاييك 8» لتحديد عدد الأعمدة).');
       }
-      const cols = Number(ctx.message.text.split(/\s+/)[1]) || 6;
+      const cols = Number(ctx.message.text.split(/\s+/)[1]) || 8;
       await createMosaic(ctx, src.fileId, cols);
     });
 
@@ -177,7 +177,7 @@ export const stickerPackPlugin: Plugin = {
       const caption = (ctx.message as { caption?: string }).caption;
       const mosaic = caption && src.type === 'photo' ? MOSAIC_RE.exec(caption) : null;
       if (mosaic) {
-        await createMosaic(ctx, src.fileId, Number(mosaic[1]) || 6);
+        await createMosaic(ctx, src.fileId, Number(mosaic[1]) || 8);
         return;
       }
       if (caption && ADD_RE.test(caption)) {

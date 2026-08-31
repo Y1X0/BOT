@@ -7,9 +7,11 @@ const log = createLogger('mosaic');
 // seamlessly when the set is sent back as a grid to reconstruct the picture.
 const TILE = 100;
 export const MIN_COLS = 3;
-export const MAX_COLS = 9;
-// Upload time + set limits budget: each tile is one uploadStickerFile call.
-export const MAX_TILES = 90;
+export const MAX_COLS = 10;
+// More tiles = a sharper, clearer picture (36 was too blocky). Capped at 100
+// so the assembled preview stays within Telegram's per-message custom-emoji
+// limit and creation stays reasonably quick (one upload per tile).
+export const MAX_TILES = 100;
 
 export interface MosaicResult {
   tiles: Buffer[]; // row-major (left→right, top→bottom)
@@ -42,9 +44,9 @@ export async function sliceToEmojiTiles(image: Buffer, colsWanted: number): Prom
       .linear(1.08, -8)
       .toBuffer();
 
-    // A small transparent frame inside each tile leaves a clean gap between
-    // neighbours when they're placed together — the "designed panel" grid look.
-    const GAP = 5;
+    // A thin transparent frame leaves a subtle gap between neighbours (the
+    // "designed panel" look) without dominating the small rendered tiles.
+    const GAP = 3;
     const inner = TILE - 2 * GAP;
 
     const tiles: Buffer[] = [];
