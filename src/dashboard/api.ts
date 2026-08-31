@@ -3,10 +3,11 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import type { Telegram } from 'telegraf';
 import { prisma } from '../core/database';
 import { env, isProd } from '../config/env';
-import { isBotOwner } from '../utils/permissions';
+import { isBotOwner, invalidateRole } from '../utils/permissions';
 import { memberCount, totalMessages, topByMessages } from '../services/member.service';
 import { addReply, deleteReply, listReplies } from '../services/replies.service';
 import { addFilter, deleteFilter, listFilters } from '../services/filters.service';
+import { listChatRoles, setChatRole, removeChatRole, ASSIGNABLE_ROLES, type AssignableRole } from '../services/roles.service';
 import { TOGGLEABLE_SETTINGS } from '../services/settings.service';
 import { queryLogs, queryMedia, logAnalytics, listConversants, userConversation } from '../services/logging.service';
 import { recentMessages as recentMusaraha } from '../services/musaraha.service';
@@ -149,6 +150,29 @@ export function createDashboardApi(telegram: Telegram): express.Router {
   });
   router.delete('/chats/:id/filters/:word', async (req, res) => {
     const ok = await deleteFilter(BigInt(req.params.id), req.params.word);
+    json(res, { ok });
+  });
+
+  // ---- Bot ranks / admin permissions (managed from the dashboard) ----
+  router.get('/chats/:id/roles', async (req, res) => {
+    json(res, { roles: await listChatRoles(BigInt(req.params.id)), assignable: ASSIGNABLE_ROLES });
+  });
+  router.post('/chats/:id/roles', async (req: AuthedRequest, res) => {
+    const { userId, role, name } = (req.body ?? {}) as { userId?: string; role?: string; name?: string };
+    if (!userId || !/^-?\d+$/.test(String(userId)) || !role || !(ASSIGNABLE_ROLES as readonly string[]).includes(role)) {
+      return json(res, { error: 'bad_input' }, 400);
+    }
+    await setChatRole(BigInt(req.params.id), BigInt(userId), role as AssignableRole, name?.slice(0, 64) ?? null, req.userId ?? null);
+    invalidateRole(BigInt(req.params.id), BigInt(userId)); // enforcement picks up the new rank at once
+    await audit(req.userId, 'set_role', req.params.id + ':' + userId + '→' + role);
+    json(res, { ok: true });
+  });
+  router.delete('/chats/:id/roles/:userId', async (req: AuthedRequest, res) => {
+    const uid = req.params.userId;
+    if (!/^-?\d+$/.test(uid)) return json(res, { error: 'bad_input' }, 400);
+    const ok = await removeChatRole(BigInt(req.params.id), BigInt(uid));
+    invalidateRole(BigInt(req.params.id), BigInt(uid));
+    await audit(req.userId, 'remove_role', req.params.id + ':' + uid);
     json(res, { ok });
   });
 

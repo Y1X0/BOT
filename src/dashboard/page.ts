@@ -199,18 +199,24 @@ async function groupChat(id){ current=id; gtab(true); const rows=await api('/mon
   b.innerHTML='<div class="chat-body gfeed" style="height:60vh;border-radius:10px">'+(html||'<div class="center muted">لا رسائل في هذا الجروب بعد.</div>')+'</div>';
   const cb=b.querySelector('.chat-body'); if(cb)cb.scrollTop=cb.scrollHeight; }
 async function groupSettings(id){ current=id; gtab(false);
-  const [s,st,rep,fil]=await Promise.all([api('/chats/'+id+'/settings'),api('/chats/'+id+'/stats'),api('/chats/'+id+'/replies'),api('/chats/'+id+'/filters')]);
+  const [s,st,rep,fil,rd]=await Promise.all([api('/chats/'+id+'/settings'),api('/chats/'+id+'/stats'),api('/chats/'+id+'/replies'),api('/chats/'+id+'/filters'),api('/chats/'+id+'/roles')]);
   const tog=TOGGLES.map(([k,l])=>'<div class="toggle"><span>'+l+'</span><label class="switch"><input type="checkbox" '+(s[k]?'checked':'')+' onchange="setTog(\\''+k+'\\',this.checked)"><span class="slider"></span></label></div>').join('');
   const top=(st.top||[]).slice(0,5).map((m,i)=>(i+1)+'. '+esc(m.name)+' — '+m.messages+' 💬').join('<br>')||'-';
   const rl=rep.map(r=>'<span class="pill">'+esc(r.trigger)+' <button class="del" onclick="delRep(\\''+encodeURIComponent(r.trigger)+'\\')">×</button></span>').join('')||'<span class="muted">لا شيء</span>';
   const fl=fil.map(f=>'<span class="pill">'+esc(f.word)+' <button class="del" onclick="delFil(\\''+encodeURIComponent(f.word)+'\\')">×</button></span>').join('')||'<span class="muted">لا شيء</span>';
+  const RBADGE={owner:'👑 مالك',manager:'🔰 مدير',admin:'🛡 أدمن',vip:'💎 مميّز'};
+  const rolesHtml=(rd&&rd.roles||[]).map(r=>'<span class="pill">'+esc(cleanName(r.name)||r.userId)+' — '+(RBADGE[r.role]||r.role)+' <button class="del" onclick="delRole(\\''+r.userId+'\\')">×</button></span>').join('')||'<span class="muted">لا رتب مخصّصة بعد</span>';
+  const roleOpts=Object.keys(RBADGE).map(k=>'<option value="'+k+'">'+RBADGE[k]+'</option>').join('');
   const b=document.getElementById('gbody'); if(!b)return;
   b.innerHTML='<h3 style="margin-top:0">📊 الإحصائيات</h3><div class="stat"><div class="box"><b>'+st.members+'</b>أعضاء</div><div class="box"><b>'+st.messages+'</b>رسائل</div></div><div class="muted" style="margin-top:8px">الأكثر نشاطاً:<br>'+top+'</div>'
    +'<h3>📣 إرسال رسالة للجروب</h3><div class="row"><input id="bc" placeholder="نص الرسالة"><button class="act" onclick="broadcast()">إرسال</button></div>'
    +'<h3>⚙️ الإعدادات</h3>'+tog
    +'<h3>📜 القوانين</h3><textarea id="rules" rows="2">'+esc(s.rules||'')+'</textarea><div class="row"><button class="act" onclick="saveRules()">حفظ</button></div>'
    +'<h3>💬 الردود</h3>'+rl+'<div class="row"><input id="rt" placeholder="محفّز"><input id="rr" placeholder="رد"><button class="act" onclick="addRep()">+</button></div>'
-   +'<h3>🚫 الكلمات الممنوعة</h3>'+fl+'<div class="row"><input id="fw" placeholder="كلمة"><button class="act" onclick="addFil()">+</button></div>'; }
+   +'<h3>🚫 الكلمات الممنوعة</h3>'+fl+'<div class="row"><input id="fw" placeholder="كلمة"><button class="act" onclick="addFil()">+</button></div>'
+   +'<h3>🛡 صلاحيات الأدمن (الرتب)</h3>'+rolesHtml
+   +'<div class="row"><input id="ruid" placeholder="آيدي العضو (User ID)"><input id="rname" placeholder="الاسم (اختياري)"><select id="rsel">'+roleOpts+'</select><button class="act" onclick="addRole()">رفع</button></div>'
+   +'<p class="muted">💡 كل رتبة تقدر تستخدم أوامر رتبتها وما تحتها. آيدي العضو بتلاقيه بتبويب «المراقبة» أو «السجلات».</p>'; }
 async function setTog(k,v){ await api('/chats/'+current+'/settings',{method:'PATCH',body:JSON.stringify({[k]:v})}); }
 async function saveRules(){ await api('/chats/'+current+'/settings',{method:'PATCH',body:JSON.stringify({rules:document.getElementById('rules').value})}); alert('تم'); }
 async function broadcast(){ const t=document.getElementById('bc').value.trim(); if(!t)return; const r=await api('/chats/'+current+'/broadcast',{method:'POST',body:JSON.stringify({text:t})}); alert(r.ok?'تم الإرسال':'فشل'); document.getElementById('bc').value=''; }
@@ -218,6 +224,8 @@ async function addRep(){ const trigger=document.getElementById('rt').value.trim(
 async function delRep(t){ await api('/chats/'+current+'/replies/'+t,{method:'DELETE'}); refreshChat(); }
 async function addFil(){ const w=document.getElementById('fw').value.trim(); if(!w)return; await api('/chats/'+current+'/filters',{method:'POST',body:JSON.stringify({word:w})}); refreshChat(); }
 async function delFil(w){ await api('/chats/'+current+'/filters/'+w,{method:'DELETE'}); refreshChat(); }
+async function addRole(){ const userId=document.getElementById('ruid').value.trim(),role=document.getElementById('rsel').value,name=document.getElementById('rname').value.trim(); if(!userId)return alert('اكتب آيدي العضو (رقم).'); const r=await api('/chats/'+current+'/roles',{method:'POST',body:JSON.stringify({userId,role,name})}); if(r.ok)refreshChat(); else alert('آيدي غير صحيح — لازم يكون رقم.'); }
+async function delRole(uid){ if(!confirm('سحب رتبة هذا العضو؟'))return; await api('/chats/'+current+'/roles/'+uid,{method:'DELETE'}); refreshChat(); }
 function refreshChat(){ if(current)groupSettings(current); }
 
 /* ---- Monitor (live) ---- */
