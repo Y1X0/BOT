@@ -77,6 +77,11 @@ async function callStreamer(path: string, body: Record<string, unknown>): Promis
       signal: controller.signal,
     });
     clearTimeout(timer);
+    if (!res.ok) {
+      // Render free spins the service down; a cold start returns a non-JSON 5xx
+      // page. Treat 5xx as "starting" (friendly retry hint) vs other non-2xx.
+      return { ok: false, error: res.status >= 500 ? 'starting' : 'bad_response' };
+    }
     return (await res.json().catch(() => ({ ok: false, error: 'bad_response' }))) as StreamerResult;
   } catch (err) {
     log.warn({ err, path }, 'streamer call failed');
@@ -483,6 +488,7 @@ function errorText(r: StreamerResult | null): string {
   if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN|FORBIDDEN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
   if (/already.?joined/i.test(e)) return 'ℹ️ المساعد عالق بكول قديم. جرّب: سكر كول ← افتح كول ← تشغيل';
   if (/GROUPCALL_INVALID/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
+  if (e === 'bad_response') return '🔄 خدمة الكول عم تصحى أو ردّت بشكل غير متوقّع. جرّب بعد دقيقة، وإذا استمرّت راجع سيرفر الكول.';
   return `تعذّر التنفيذ: ${e || 'خطأ غير معروف'}`;
 }
 
