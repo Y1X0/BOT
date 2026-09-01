@@ -65,28 +65,65 @@ interface StreamerResult {
   upcoming?: { title: string; duration: number }[];
 }
 
-async function callStreamer(path: string, body: Record<string, unknown>): Promise<StreamerResult | null> {
-  if (!STREAMER_URL) return null;
+/** GET /health once — used to wake and detect a cold (spun-down) streamer. */
+async function pingHealth(timeoutMs = 8000): Promise<boolean> {
+  if (!STREAMER_URL) return false;
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), timeoutMs);
+    const res = await fetch(`${STREAMER_URL}/health`, { signal: c.signal }).finally(() => clearTimeout(t));
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Render free spins the streamer down after ~15 min idle; a cold start takes
+ * ~30-60s. Rather than keep it always-on (which wouldn't fit the free
+ * instance-hours), we let it sleep and wake it on demand: poll /health until it
+ * answers. Returns true once awake.
+ */
+async function wakeStreamer(): Promise<boolean> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (await pingHealth()) return true;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return false;
+}
+
+type Attempt = StreamerResult | { cold: true } | null;
+
+async function streamerAttempt(path: string, body: Record<string, unknown>, timeoutMs: number): Promise<Attempt> {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25_000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(`${STREAMER_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(STREAMER_TOKEN ? { 'X-Token': STREAMER_TOKEN } : {}) },
       body: JSON.stringify(body),
       signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) {
-      // Render free spins the service down; a cold start returns a non-JSON 5xx
-      // page. Treat 5xx as "starting" (friendly retry hint) vs other non-2xx.
-      return { ok: false, error: res.status >= 500 ? 'starting' : 'bad_response' };
-    }
+    }).finally(() => clearTimeout(timer));
+    // 5xx during a cold start returns a non-JSON page → treat as "cold" and wake.
+    if (!res.ok) return res.status >= 500 ? { cold: true } : { ok: false, error: 'bad_response' };
     return (await res.json().catch(() => ({ ok: false, error: 'bad_response' }))) as StreamerResult;
   } catch (err) {
     log.warn({ err, path }, 'streamer call failed');
-    return { ok: false, error: 'unreachable' };
+    return { cold: true }; // network error / abort → the service is likely asleep
   }
+}
+
+async function callStreamer(path: string, body: Record<string, unknown>): Promise<StreamerResult | null> {
+  if (!STREAMER_URL) return null;
+  let r = await streamerAttempt(path, body, 25_000);
+  if (r && 'cold' in r) {
+    // Asleep/cold — wake it, then retry once with a longer window.
+    if (!(await wakeStreamer())) return { ok: false, error: 'unreachable' };
+    r = await streamerAttempt(path, body, 30_000);
+    if (r && 'cold' in r) return { ok: false, error: 'starting' };
+  }
+  return r;
 }
 
 function isNotMember(r: StreamerResult | null): boolean {
