@@ -193,11 +193,18 @@ async function deliverItem(
       if (statusId) await telegram.editMessageText(chatId, statusId, undefined, `⬇️ جاري التحميل: ${item.title}`).catch(() => undefined);
       await telegram.sendChatAction(chatId, 'upload_voice').catch(() => undefined);
 
-      const result = await resolveDownload(item.videoId, (engine) => {
-        if (statusId && engine !== 'yt-dlp') {
-          void telegram.editMessageText(chatId, statusId, undefined, `🔁 محاولة عبر محرك بديل (${engine}): ${item.title}`).catch(() => undefined);
-        }
-      });
+      // Long tracks: fetch a smaller (lower-bitrate) audio stream so the big
+      // file downloads + uploads to Telegram much faster (~1/3 the size).
+      const lowBitrate = (item.duration ?? 0) > 15 * 60;
+      const result = await resolveDownload(
+        item.videoId,
+        (engine) => {
+          if (statusId && engine !== 'yt-dlp') {
+            void telegram.editMessageText(chatId, statusId, undefined, `🔁 محاولة عبر محرك بديل (${engine}): ${item.title}`).catch(() => undefined);
+          }
+        },
+        { lowBitrate },
+      );
       if ('error' in result) {
         if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error]).catch(() => undefined);
         return;

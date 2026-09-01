@@ -192,12 +192,19 @@ export async function search(query: string, limit: number): Promise<SearchItem[]
  * Download a video's audio as MP3. Applies duration/size caps only if they are
  * configured (null = unlimited). Never throws; returns a result or an error.
  */
+export interface DownloadOpts {
+  /** Prefer a smaller (lower-bitrate) native audio stream — for long tracks,
+   *  so the file downloads and uploads to Telegram much faster. */
+  lowBitrate?: boolean;
+}
+
 export async function downloadAudio(
   videoId: string,
+  opts: DownloadOpts = {},
 ): Promise<DownloadResult | { error: YtError }> {
   let lastError: YtError = 'failed';
   for (const client of clientsToTry()) {
-    const result = await attemptDownload(videoId, client);
+    const result = await attemptDownload(videoId, client, opts.lowBitrate ?? false);
     if ('filePath' in result) {
       log.info({ client: client ?? 'default' }, 'download succeeded (extractor)');
       return result;
@@ -213,19 +220,23 @@ export async function downloadAudio(
 async function attemptDownload(
   videoId: string,
   client: string | null,
+  lowBitrate: boolean,
 ): Promise<DownloadResult | { error: YtError }> {
   const dir = await mkdtemp(join(tmpdir(), 'yt-'));
   const outBase = join(dir, 'audio');
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
 
+  // Native audio, no ffmpeg re-encode (Telegram plays m4a fine). For long
+  // tracks, prefer the ~48kbps native m4a stream (itag 139) so the file is a
+  // fraction of the size and sends far faster; otherwise take the best m4a.
+  const format = lowBitrate
+    ? 'bestaudio[ext=m4a][abr<=70]/worstaudio[ext=m4a]/bestaudio[ext=m4a]/bestaudio'
+    : 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio';
+
   const args = [
     ...commonArgs(client),
-    // Grab YouTube's native audio (usually m4a/AAC) and send it AS-IS — no
-    // ffmpeg re-encode. Re-encoding every track to mp3 (-x --audio-format mp3
-    // --audio-quality 0) was the main slowdown on weak/shared CPUs. Telegram
-    // plays m4a fine. Fall back to any bestaudio if no m4a stream exists.
     '-f',
-    'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio',
+    format,
     '--concurrent-fragments',
     '4',
     '--no-playlist',

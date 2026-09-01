@@ -31,6 +31,7 @@ export async function resolveSearch(query: string, limit: number): Promise<Searc
 export async function resolveDownload(
   videoId: string,
   onEngineTry?: (engine: Engine) => void,
+  opts: { lowBitrate?: boolean } = {},
 ): Promise<DownloadResult | { error: YtError }> {
   // Cobalt first when configured: it downloads from its own IP, bypassing the
   // datacenter block that usually defeats direct yt-dlp.
@@ -44,7 +45,7 @@ export async function resolveDownload(
   }
 
   onEngineTry?.('yt-dlp');
-  const yt = await ytDownload(videoId);
+  const yt = await ytDownload(videoId, opts);
   if (!('error' in yt)) {
     log.info({ engine: 'yt-dlp' }, 'download resolved');
     return yt;
