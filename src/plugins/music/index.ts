@@ -114,14 +114,24 @@ async function streamerAttempt(path: string, body: Record<string, unknown>, time
   }
 }
 
+let wakingInFlight = false;
+
 async function callStreamer(path: string, body: Record<string, unknown>): Promise<StreamerResult | null> {
   if (!STREAMER_URL) return null;
-  let r = await streamerAttempt(path, body, 25_000);
+  const r = await streamerAttempt(path, body, 20_000);
   if (r && 'cold' in r) {
-    // Asleep/cold — wake it, then retry once with a longer window.
-    if (!(await wakeStreamer())) return { ok: false, error: 'unreachable' };
-    r = await streamerAttempt(path, body, 30_000);
-    if (r && 'cold' in r) return { ok: false, error: 'starting' };
+    // Asleep/cold. A Render cold start takes ~30-60s — longer than the bot's
+    // 30s handler timeout — so we CAN'T wake-and-play in one request. Warm it in
+    // the background and ask the user to retry, instead of hanging the handler.
+    if (!wakingInFlight) {
+      wakingInFlight = true;
+      void wakeStreamer()
+        .catch(() => false)
+        .finally(() => {
+          wakingInFlight = false;
+        });
+    }
+    return { ok: false, error: 'waking' };
   }
   return r;
 }
@@ -525,6 +535,7 @@ function errorText(r: StreamerResult | null): string {
   if (/CHAT_ADMIN_REQUIRED|RIGHT|ADMIN|FORBIDDEN/i.test(e)) return '⛔️ الحساب المساعد لازم يكون أدمن مع صلاحية إدارة المكالمات.';
   if (/already.?joined/i.test(e)) return 'ℹ️ المساعد عالق بكول قديم. جرّب: سكر كول ← افتح كول ← تشغيل';
   if (/GROUPCALL_INVALID/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
+  if (e === 'waking') return '🔄 خدمة الكول كانت نايمة وعم تصحى (بتاخد ~دقيقة). أعِد «تشغيل» بعد شوي 🎶';
   if (e === 'bad_response') return '🔄 خدمة الكول عم تصحى أو ردّت بشكل غير متوقّع. جرّب بعد دقيقة، وإذا استمرّت راجع سيرفر الكول.';
   return `تعذّر التنفيذ: ${e || 'خطأ غير معروف'}`;
 }

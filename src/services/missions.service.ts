@@ -1,3 +1,4 @@
+import type { MissionProgress } from '@prisma/client';
 import { prisma } from '../core/database';
 import { addCoins } from './economy.service';
 
@@ -11,12 +12,18 @@ function today(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
-async function ensure(chatId: bigint, userId: bigint, day: string) {
-  return prisma.missionProgress.upsert({
-    where: { chatId_userId_day: { chatId, userId, day } },
-    create: { chatId, userId, day },
-    update: {},
-  });
+async function ensure(chatId: bigint, userId: bigint, day: string): Promise<MissionProgress> {
+  const where = { chatId_userId_day: { chatId, userId, day } };
+  try {
+    return await prisma.missionProgress.upsert({ where, create: { chatId, userId, day }, update: {} });
+  } catch (err) {
+    // Concurrent messages from the same user race the create branch → the loser
+    // hits the unique constraint (P2002). The row exists now, so just read it.
+    if ((err as { code?: string } | null)?.code !== 'P2002') throw err;
+    const row = await prisma.missionProgress.findUnique({ where });
+    if (row) return row;
+    return prisma.missionProgress.upsert({ where, create: { chatId, userId, day }, update: {} });
+  }
 }
 
 export async function incMissionMessages(chatId: number | bigint, userId: number | bigint): Promise<void> {
