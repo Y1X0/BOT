@@ -88,8 +88,11 @@ async function main(): Promise<void> {
     logger.info({ url: `${env.WEBHOOK_DOMAIN}${path}` }, 'Webhook registered');
   } else {
     // Long polling. Do not await launch() — it resolves only when the bot stops.
-    await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => undefined);
-    bot.launch({ allowedUpdates: [...ALLOWED_UPDATES] }, () => logger.info('Bot started (long polling)'));
+    // Drop updates that piled up while the bot was down (e.g. a Render free
+    // spin-down): otherwise, on wake it would flood every group with a backlog
+    // of late replies all at once.
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => undefined);
+    bot.launch({ dropPendingUpdates: true, allowedUpdates: [...ALLOWED_UPDATES] }, () => logger.info('Bot started (long polling)'));
   }
 
   // --- Graceful shutdown ---
