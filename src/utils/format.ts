@@ -6,6 +6,22 @@ export function escapeMd(text: string): string {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
 }
 
+/**
+ * Make a decorated Telegram name readable: NFKD folds fancy math/bold/fraktur
+ * letters back to plain ones, \p{M} drops stacked harakat/zalgo combining marks,
+ * and the last range strips zero-width & bidi controls. Falls back to the raw
+ * string if nothing legible survives.
+ */
+export function cleanName(s?: string): string {
+  const raw = String(s ?? '');
+  const t = raw
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, '')
+    .trim();
+  return t || raw;
+}
+
 /** A friendly display name for a Telegram user (never throws). */
 export function displayName(user?: {
   first_name?: string;
@@ -13,7 +29,7 @@ export function displayName(user?: {
   id?: number;
 }): string {
   if (!user) return 'Unknown';
-  if (user.first_name) return user.first_name;
+  if (user.first_name) return cleanName(user.first_name);
   if (user.username) return `@${user.username}`;
   return `User ${user.id ?? ''}`.trim();
 }
