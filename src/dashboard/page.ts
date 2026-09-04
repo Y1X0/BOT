@@ -172,7 +172,24 @@ async function loadOverview(){ const c=document.getElementById('content'); c.inn
     +'<div class="card"><h3 style="margin-top:0">🏆 أنشط الجروبات</h3><table><tr><th>#</th><th>الجروب</th><th>رسائل</th></tr>'+topG+'</table></div>'
     +'<div class="card"><h3 style="margin-top:0">👤 أنشط الأعضاء</h3><table><tr><th>#</th><th>العضو</th><th>رسائل</th></tr>'+topU+'</table></div>'
     +'</div>'
+    +'<div class="card"><h3 style="margin-top:0">📣 رسالة جماعية للكل</h3>'
+    +'<p class="muted">أرسل رسالة وحدة لكل الجروبات والقنوات دفعة وحدة.</p>'
+    +'<textarea id="bcAll" rows="3" placeholder="اكتب نص الرسالة الجماعية..."></textarea>'
+    +'<div class="row"><select id="bcTarget"><option value="all">الكل (جروبات + قنوات)</option><option value="groups">الجروبات فقط</option><option value="channels">القنوات فقط</option></select><button class="act" onclick="broadcastAll()">📣 إرسال للكل</button></div>'
+    +'<div id="bcResult" class="muted" style="margin-top:6px"></div></div>'
     +'<div class="card"><h3 style="margin-top:0">⚡ إجراءات سريعة</h3><div class="row"><button class="ghost" onclick="showTab(\\'groups\\')">⚙️ إدارة الجروبات</button><button class="ghost" onclick="showTab(\\'monitor\\')">📡 المراقبة المباشرة</button><button class="ghost" onclick="showTab(\\'analytics\\')">📊 التحليلات</button><button class="ghost" onclick="showTab(\\'system\\')">🖥 النظام</button></div></div>'; }
+
+async function broadcastAll(){
+  const text=document.getElementById('bcAll').value.trim();
+  const target=document.getElementById('bcTarget').value;
+  if(!text)return alert('اكتب نص الرسالة أولاً.');
+  const label=target==='groups'?'الجروبات':target==='channels'?'القنوات':'الجروبات والقنوات';
+  if(!confirm('إرسال الرسالة لكل '+label+'؟ ما في تراجع.'))return;
+  const el=document.getElementById('bcResult'); el.textContent='⏳ جاري الإرسال للكل... لا تغلق الصفحة.';
+  const r=await api('/broadcast',{method:'POST',body:JSON.stringify({text,target})});
+  if(r&&r.ok){ el.innerHTML='✅ تم الإرسال: <b>'+r.sent+'</b> نجحت، '+r.failed+' فشلت (من '+r.total+' محادثة).'; document.getElementById('bcAll').value=''; }
+  else el.textContent='⚠️ تعذّر الإرسال.';
+}
 
 /* ---- Groups ---- */
 async function loadGroups(){ const chats=await api('/chats'); const c=document.getElementById('content');

@@ -308,6 +308,28 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     }
   });
 
+  // Global broadcast: send one message to ALL groups/channels the bot knows.
+  router.post('/broadcast', async (req: AuthedRequest, res) => {
+    const { text, target } = (req.body ?? {}) as { text?: string; target?: string };
+    if (!text || !text.trim()) return json(res, { error: 'bad_input' }, 400);
+    const where =
+      target === 'groups' ? { type: { in: ['group', 'supergroup'] } } : target === 'channels' ? { type: 'channel' } : {};
+    const chats = await prisma.chat.findMany({ where, select: { id: true } });
+    let sent = 0;
+    let failed = 0;
+    for (const c of chats) {
+      try {
+        await telegram.sendMessage(Number(c.id), text);
+        sent++;
+      } catch {
+        failed++;
+      }
+      await new Promise((r) => setTimeout(r, 40)); // ~20/sec — stay under Telegram's flood limits
+    }
+    await audit(req.userId, 'broadcast_all', `target=${target ?? 'all'} sent=${sent} failed=${failed}`);
+    json(res, { ok: true, sent, failed, total: chats.length });
+  });
+
   router.post('/system/clearcache', async (req: AuthedRequest, res) => {
     clearErrors();
     await audit(req.userId, 'clearcache');
