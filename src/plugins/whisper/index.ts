@@ -144,7 +144,7 @@ export const whisperPlugin: Plugin = {
       await ctx.telegram
         .sendMessage(
           p.chatId,
-          `🤫 ${senderMention} همس همسة سرية إلى ${targetMention}\nفقط هو من يقدر يفتحها 👇`,
+          `🤫 <b>همسة سرية</b>\n📩 الهمسة لـ ⬅️ ${targetMention}\n🗣 من ⬅️ ${senderMention}\n\n👇 فقط هو من يقدر يفتحها`,
           {
             parse_mode: 'HTML',
             reply_markup: {
