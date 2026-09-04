@@ -308,18 +308,27 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     }
   });
 
-  // Global broadcast: send one message to ALL groups/channels the bot knows.
+  // Global broadcast: one message to ALL groups/channels, or DM every user who
+  // has a private chat with the bot (Telegram only lets a bot DM users who
+  // started it — group members who never opened the bot can't be reached).
   router.post('/broadcast', async (req: AuthedRequest, res) => {
     const { text, target } = (req.body ?? {}) as { text?: string; target?: string };
     if (!text || !text.trim()) return json(res, { error: 'bad_input' }, 400);
-    const where =
-      target === 'groups' ? { type: { in: ['group', 'supergroup'] } } : target === 'channels' ? { type: 'channel' } : {};
-    const chats = await prisma.chat.findMany({ where, select: { id: true } });
+    let targets: number[];
+    if (target === 'users') {
+      const users = await listConversants(500);
+      targets = users.map((u) => Number(u.userId));
+    } else {
+      const where =
+        target === 'groups' ? { type: { in: ['group', 'supergroup'] } } : target === 'channels' ? { type: 'channel' } : {};
+      const chats = await prisma.chat.findMany({ where, select: { id: true } });
+      targets = chats.map((c) => Number(c.id));
+    }
     let sent = 0;
     let failed = 0;
-    for (const c of chats) {
+    for (const id of targets) {
       try {
-        await telegram.sendMessage(Number(c.id), text);
+        await telegram.sendMessage(id, text);
         sent++;
       } catch {
         failed++;
@@ -327,7 +336,7 @@ export function createDashboardApi(telegram: Telegram): express.Router {
       await new Promise((r) => setTimeout(r, 40)); // ~20/sec — stay under Telegram's flood limits
     }
     await audit(req.userId, 'broadcast_all', `target=${target ?? 'all'} sent=${sent} failed=${failed}`);
-    json(res, { ok: true, sent, failed, total: chats.length });
+    json(res, { ok: true, sent, failed, total: targets.length });
   });
 
   router.post('/system/clearcache', async (req: AuthedRequest, res) => {
