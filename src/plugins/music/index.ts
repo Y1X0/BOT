@@ -88,7 +88,9 @@ async function wakeStreamer(): Promise<boolean> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (await pingHealth()) return true;
-    await new Promise((r) => setTimeout(r, 3000));
+    // Poll gently (every 6s ≈ 10 pings/min) so we don't add to any rate-limit
+    // pressure on the free service while it's coming up.
+    await new Promise((r) => setTimeout(r, 6000));
   }
   return false;
 }
@@ -575,6 +577,8 @@ function errorText(r: StreamerResult | null): string {
   if (e === 'unauthorized' || e === 'http_401')
     return '🔑 رمز الاتصال بين البوت وخدمة الكول غير متطابق (STREAMER_TOKEN).\nخلّي نفس القيمة بالظبط على الخدمتين بإعدادات Render، بعدها جرّب.';
   if (e === 'http_404') return '🧭 مسار الطلب مش موجود بخدمة الكول (تحديث ناقص؟). تأكد إنها آخر نسخة وشغّالة.';
+  if (e === 'http_429')
+    return '🚦 خدمة الكول محدودة مؤقتاً من Render (429 Too Many Requests) — الطلب ما وصل للتطبيق أصلاً.\nغالباً نبضات الإبقاء (keep-alive) كثيرة أو الخدمة عم تُعيد التشغيل. استنى دقيقتين وجرّب، وراجع سجلّ خدمة الكول على Render.';
   if (e === 'bad_request') return '⚠️ الطلب ناقص. اكتب اسم الأغنية بعد «تشغيل».';
   if (e === 'bad_response' || /^http_4\d\d$/.test(e))
     return '🔄 خدمة الكول ردّت بشكل غير متوقّع. جرّب بعد دقيقة، وإذا استمرّت راجع سيرفر الكول.';
