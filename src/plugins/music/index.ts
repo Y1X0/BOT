@@ -105,17 +105,29 @@ async function streamerAttempt(path: string, body: Record<string, unknown>, time
       body: JSON.stringify(body),
       signal: controller.signal,
     }).finally(() => clearTimeout(timer));
-    // 5xx during a cold start returns a non-JSON page → treat as "cold" and wake.
+    // Read the body once as text, then try to parse it as JSON. This lets us log
+    // the exact status + a snippet whenever the streamer answers unexpectedly,
+    // which is the only reliable way to tell a token mismatch (401) from a wrong
+    // URL (HTML 404), a proxy page (200 non-JSON), etc.
+    const raw = await res.text().catch(() => '');
+    let parsed: unknown = null;
+    try {
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch {
+      parsed = null;
+    }
     if (!res.ok) {
+      // 5xx during a cold start returns a non-JSON page → treat as "cold" and wake.
       if (res.status >= 500) return { cold: true };
-      // 4xx: the streamer answered with a JSON error body (e.g. unauthorized on a
-      // token mismatch, bad_request). Surface that real error instead of a vague
-      // bad_response so the user gets an actionable message.
-      const body = (await res.json().catch(() => null)) as StreamerResult | null;
-      if (body && typeof body === 'object' && 'error' in body) return body;
+      if (parsed && typeof parsed === 'object' && 'error' in parsed) return parsed as StreamerResult;
+      log.warn({ path, status: res.status, body: raw.slice(0, 300) }, 'streamer 4xx (no JSON error)');
       return { ok: false, error: `http_${res.status}` };
     }
-    return (await res.json().catch(() => ({ ok: false, error: 'bad_response' }))) as StreamerResult;
+    if (parsed && typeof parsed === 'object') return parsed as StreamerResult;
+    // 2xx but NOT JSON — almost always the request never reached the aiohttp app
+    // (wrong STREAMER_URL, a Render/proxy placeholder page, or a stray redirect).
+    log.warn({ path, status: res.status, body: raw.slice(0, 300) }, 'streamer 2xx non-JSON response');
+    return { ok: false, error: 'bad_response' };
   } catch (err) {
     log.warn({ err, path }, 'streamer call failed');
     return { cold: true }; // network error / abort → the service is likely asleep
