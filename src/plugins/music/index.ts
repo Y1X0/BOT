@@ -442,6 +442,22 @@ async function sendNowPlaying(ctx: BotContext, statusId: number, r: StreamerResu
   await editEntities(ctx, statusId, text, entities, CONTROLS);
 }
 
+/** Render a successful play result: a "queued" line if it was queued, else the
+ *  now-playing card. Shared by the direct handler and the wake-then-play path. */
+async function renderResult(ctx: BotContext, statusId: number, r: StreamerResult): Promise<void> {
+  if (!ctx.chat) return;
+  const em = await cardEmoji(ctx.chat.id);
+  if (r.queued) {
+    const b = new CaptionBuilder();
+    b.add(`${EXTRA.queued} `).bold('أضيفت للطابور').add('\n');
+    b.emoji(em.title).add(` ${r.title} (${fmtDuration(r.duration)})\n`);
+    b.add(`${EXTRA.position} الترتيب: ${r.position}`);
+    await editEntities(ctx, statusId, b.text, b.entities);
+    return;
+  }
+  await sendNowPlaying(ctx, statusId, r, em);
+}
+
 // Post the now-playing card as a FRESH message via a raw Telegram instance —
 // usable without a ctx (e.g. the streamer's auto-advance callback). Same
 // premium-emoji fallback: retry without custom_emoji, then with no entities.
@@ -603,21 +619,33 @@ export const musicPlugin: Plugin = {
         if (!(j?.ok || j?.already)) return void edit(ctx, status.message_id, errorText(j));
         r = await playCall();
       }
-      if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
 
-      const em = await cardEmoji(ctx.chat.id);
-
-      // Added behind a currently-playing track → a light text card (no photo).
-      if (r.queued) {
-        const b = new CaptionBuilder();
-        b.add(`${EXTRA.queued} `).bold('أضيفت للطابور').add('\n');
-        b.emoji(em.title).add(` ${r.title} (${fmtDuration(r.duration)})\n`);
-        b.add(`${EXTRA.position} الترتيب: ${r.position}`);
-        return void editEntities(ctx, status.message_id, b.text, b.entities);
+      // Streamer was asleep (cold start). Warm it in the background, then play the
+      // song automatically once it wakes — the user doesn't need to retype «تشغيل».
+      if (r && !r.ok && r.error === 'waking') {
+        const sid = status.message_id;
+        await edit(ctx, sid, '🔄 خدمة الكول كانت نايمة وعم تصحى… رح تشتغل الأغنية تلقائياً خلال ~دقيقة 🎶');
+        void (async () => {
+          if (!(await wakeStreamer())) {
+            await edit(ctx, sid, '⚠️ تعذّر إيقاظ خدمة الكول. جرّب بعد شوي.');
+            return;
+          }
+          let r2 = await playCall();
+          if (isNotMember(r2)) {
+            const j = await autoAddAssistant(ctx);
+            if (!(j?.ok || j?.already)) return void edit(ctx, sid, errorText(j));
+            r2 = await playCall();
+          }
+          if (!r2?.ok) return void edit(ctx, sid, errorText(r2));
+          await renderResult(ctx, sid, r2);
+        })();
+        return;
       }
 
-      // Now playing → a photo card with controls (text fallback with no thumb).
-      await sendNowPlaying(ctx, status.message_id, r, em);
+      if (!r?.ok) return void edit(ctx, status.message_id, errorText(r));
+
+      // Queued behind a current track → light text card; else the now-playing card.
+      await renderResult(ctx, status.message_id, r);
     });
 
     // قائمة التشغيل — anyone can view.
