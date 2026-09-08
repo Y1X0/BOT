@@ -106,7 +106,15 @@ async function streamerAttempt(path: string, body: Record<string, unknown>, time
       signal: controller.signal,
     }).finally(() => clearTimeout(timer));
     // 5xx during a cold start returns a non-JSON page → treat as "cold" and wake.
-    if (!res.ok) return res.status >= 500 ? { cold: true } : { ok: false, error: 'bad_response' };
+    if (!res.ok) {
+      if (res.status >= 500) return { cold: true };
+      // 4xx: the streamer answered with a JSON error body (e.g. unauthorized on a
+      // token mismatch, bad_request). Surface that real error instead of a vague
+      // bad_response so the user gets an actionable message.
+      const body = (await res.json().catch(() => null)) as StreamerResult | null;
+      if (body && typeof body === 'object' && 'error' in body) return body;
+      return { ok: false, error: `http_${res.status}` };
+    }
     return (await res.json().catch(() => ({ ok: false, error: 'bad_response' }))) as StreamerResult;
   } catch (err) {
     log.warn({ err, path }, 'streamer call failed');
@@ -552,7 +560,12 @@ function errorText(r: StreamerResult | null): string {
   if (/already.?joined/i.test(e)) return 'ℹ️ المساعد عالق بكول قديم. جرّب: سكر كول ← افتح كول ← تشغيل';
   if (/GROUPCALL_INVALID/i.test(e)) return 'ℹ️ في مشكلة بالكول — تأكد إنه مفتوح.';
   if (e === 'waking') return '🔄 خدمة الكول كانت نايمة وعم تصحى (بتاخد ~دقيقة). أعِد «تشغيل» بعد شوي 🎶';
-  if (e === 'bad_response') return '🔄 خدمة الكول عم تصحى أو ردّت بشكل غير متوقّع. جرّب بعد دقيقة، وإذا استمرّت راجع سيرفر الكول.';
+  if (e === 'unauthorized' || e === 'http_401')
+    return '🔑 رمز الاتصال بين البوت وخدمة الكول غير متطابق (STREAMER_TOKEN).\nخلّي نفس القيمة بالظبط على الخدمتين بإعدادات Render، بعدها جرّب.';
+  if (e === 'http_404') return '🧭 مسار الطلب مش موجود بخدمة الكول (تحديث ناقص؟). تأكد إنها آخر نسخة وشغّالة.';
+  if (e === 'bad_request') return '⚠️ الطلب ناقص. اكتب اسم الأغنية بعد «تشغيل».';
+  if (e === 'bad_response' || /^http_4\d\d$/.test(e))
+    return '🔄 خدمة الكول ردّت بشكل غير متوقّع. جرّب بعد دقيقة، وإذا استمرّت راجع سيرفر الكول.';
   return `تعذّر التنفيذ: ${e || 'خطأ غير معروف'}`;
 }
 
