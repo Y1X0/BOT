@@ -46,10 +46,40 @@ _BASE_OPTS = {
 }
 
 
+# Resolve a cookies file once. Two ways to provide it:
+#   • YT_COOKIES         → an absolute path to a Netscape cookies.txt file
+#                          (e.g. a Render Secret File at /etc/secrets/cookies.txt)
+#   • YT_COOKIES_CONTENT → the cookies.txt CONTENT pasted directly as an env var;
+#                          written to a temp file on boot. Easiest on Render.
+# Cookies are the reliable way past YouTube's "Sign in to confirm you're not a
+# bot" wall on datacenter IPs. Use a THROWAWAY YouTube account, never your main.
+def _resolve_cookie_file() -> Optional[str]:
+    path = os.getenv("YT_COOKIES")
+    if path and os.path.exists(path):
+        return path
+    content = os.getenv("YT_COOKIES_CONTENT")
+    if content and content.strip():
+        try:
+            import tempfile
+            tmp = os.path.join(tempfile.gettempdir(), "yt-cookies.txt")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(content)
+            log.info("using YouTube cookies from YT_COOKIES_CONTENT (%d bytes)", len(content))
+            return tmp
+        except Exception as e:
+            log.warning("failed to write YT_COOKIES_CONTENT: %s", e)
+    if path:
+        log.warning("YT_COOKIES=%r set but file not found", path)
+    return None
+
+
+_COOKIE_FILE = _resolve_cookie_file()
+
+
 def _opts(prefix: str) -> dict:
     o = dict(_BASE_OPTS, default_search=prefix)
-    if os.getenv("YT_COOKIES"):
-        o["cookiefile"] = os.getenv("YT_COOKIES")
+    if _COOKIE_FILE:
+        o["cookiefile"] = _COOKIE_FILE
     return o
 
 
