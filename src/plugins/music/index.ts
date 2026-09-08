@@ -121,6 +121,13 @@ async function streamerAttempt(path: string, body: Record<string, unknown>, time
     if (!res.ok) {
       // 5xx during a cold start returns a non-JSON page → treat as "cold" and wake.
       if (res.status >= 500) return { cold: true };
+      // 429 from Render's edge means the free service is spinning up and rejecting
+      // programmatic requests during the wake window. It's not a real app error —
+      // treat it as cold so we wake gently and retry, instead of failing.
+      if (res.status === 429) {
+        log.info({ path }, 'streamer 429 (spinning up) → will wake and retry');
+        return { cold: true };
+      }
       if (parsed && typeof parsed === 'object' && 'error' in parsed) return parsed as StreamerResult;
       log.warn({ path, status: res.status, body: raw.slice(0, 300) }, 'streamer 4xx (no JSON error)');
       return { ok: false, error: `http_${res.status}` };
@@ -136,23 +143,31 @@ async function streamerAttempt(path: string, body: Record<string, unknown>, time
   }
 }
 
-let wakingInFlight = false;
+// Singleton wake: while a wake is in progress, every caller awaits the SAME
+// /health poll loop instead of starting its own. This is important on Render's
+// free tier — overlapping wake loops mean concurrent requests during spin-up,
+// which is exactly what triggers the 429s we're recovering from.
+let wakePromise: Promise<boolean> | null = null;
+function wakeStreamerOnce(): Promise<boolean> {
+  if (!wakePromise) {
+    wakePromise = wakeStreamer()
+      .catch(() => false)
+      .finally(() => {
+        wakePromise = null;
+      });
+  }
+  return wakePromise;
+}
 
 async function callStreamer(path: string, body: Record<string, unknown>): Promise<StreamerResult | null> {
   if (!STREAMER_URL) return null;
   const r = await streamerAttempt(path, body, 20_000);
   if (r && 'cold' in r) {
-    // Asleep/cold. A Render cold start takes ~30-60s — longer than the bot's
-    // 30s handler timeout — so we CAN'T wake-and-play in one request. Warm it in
-    // the background and ask the user to retry, instead of hanging the handler.
-    if (!wakingInFlight) {
-      wakingInFlight = true;
-      void wakeStreamer()
-        .catch(() => false)
-        .finally(() => {
-          wakingInFlight = false;
-        });
-    }
+    // Asleep/cold (or a spin-up 429). A Render cold start takes ~30-60s — longer
+    // than the bot's 30s handler timeout — so we can't wake-and-play in one
+    // request. Kick the shared wake in the background and return 'waking'; the
+    // /vcplay handler awaits the same loop and retries automatically once up.
+    void wakeStreamerOnce();
     return { ok: false, error: 'waking' };
   }
   return r;
@@ -655,15 +670,22 @@ export const musicPlugin: Plugin = {
         const sid = status.message_id;
         await edit(ctx, sid, '🔄 خدمة الكول كانت نايمة وعم تصحى… رح تشتغل الأغنية تلقائياً خلال ~دقيقة 🎶');
         void (async () => {
-          if (!(await wakeStreamer())) {
+          if (!(await wakeStreamerOnce())) {
             await edit(ctx, sid, '⚠️ تعذّر إيقاظ خدمة الكول. جرّب بعد شوي.');
             return;
           }
-          let r2 = await playCall();
-          if (isNotMember(r2)) {
-            const j = await autoAddAssistant(ctx);
-            if (!(j?.ok || j?.already)) return void edit(ctx, sid, errorText(j));
+          // Awake now. The very first /play can still hit a brief spin-up 429
+          // (→ 'waking'); retry a few times, re-waking gently between tries.
+          let r2: StreamerResult | null = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
             r2 = await playCall();
+            if (isNotMember(r2)) {
+              const j = await autoAddAssistant(ctx);
+              if (!(j?.ok || j?.already)) return void edit(ctx, sid, errorText(j));
+              r2 = await playCall();
+            }
+            if (r2?.ok || !(r2 && r2.error === 'waking')) break;
+            await wakeStreamerOnce(); // still spinning up → wait for a clean /health, then retry
           }
           if (!r2?.ok) return void edit(ctx, sid, errorText(r2));
           await renderResult(ctx, sid, r2);
