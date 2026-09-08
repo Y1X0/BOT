@@ -159,9 +159,13 @@ function wakeStreamerOnce(): Promise<boolean> {
   return wakePromise;
 }
 
-async function callStreamer(path: string, body: Record<string, unknown>): Promise<StreamerResult | null> {
+async function callStreamer(
+  path: string,
+  body: Record<string, unknown>,
+  timeoutMs = 20_000,
+): Promise<StreamerResult | null> {
   if (!STREAMER_URL) return null;
-  const r = await streamerAttempt(path, body, 20_000);
+  const r = await streamerAttempt(path, body, timeoutMs);
   if (r && 'cold' in r) {
     // Asleep/cold (or a spin-up 429). A Render cold start takes ~30-60s — longer
     // than the bot's 30s handler timeout — so we can't wake-and-play in one
@@ -642,18 +646,18 @@ export const musicPlugin: Plugin = {
       // Build the play call: a replied voice/audio → /playfile (direct URL, no
       // search); otherwise the normal search flow. Same response handling below.
       let status: { message_id: number };
-      let playCall: () => Promise<StreamerResult | null>;
+      let playCall: (timeoutMs?: number) => Promise<StreamerResult | null>;
       if (media) {
         status = await ctx.reply('🎧 <b>عم شغّل المقطع بالكول…</b>');
         const link = await ctx.telegram.getFileLink(media.fileId).catch(() => null);
         if (!link) return void edit(ctx, status.message_id, '⚠️ تعذّر جلب الملف (قد يكون كبيراً جداً).');
-        playCall = () =>
-          callStreamer('/playfile', { chat_id: chatId, url: link.toString(), title: media.title, duration: media.duration });
+        playCall = (timeoutMs?: number) =>
+          callStreamer('/playfile', { chat_id: chatId, url: link.toString(), title: media.title, duration: media.duration }, timeoutMs);
       } else {
         const query = parts || replied?.text || replied?.caption || '';
         if (!query) return void ctx.reply('🎵 <b>اكتب اسم الأغنية:</b>\n<code>تشغيل نانسي عجرم</code>\nأو ردّ على مقطع صوتي بـ <code>تشغيل</code>.');
         status = await ctx.reply(pickSearching());
-        playCall = () => callStreamer('/play', { chat_id: chatId, query });
+        playCall = (timeoutMs?: number) => callStreamer('/play', { chat_id: chatId, query }, timeoutMs);
       }
 
       let r = await playCall();
@@ -674,18 +678,25 @@ export const musicPlugin: Plugin = {
             await edit(ctx, sid, '⚠️ تعذّر إيقاظ خدمة الكول. جرّب بعد شوي.');
             return;
           }
-          // Awake now. The very first /play can still hit a brief spin-up 429
-          // (→ 'waking'); retry a few times, re-waking gently between tries.
-          let r2: StreamerResult | null = null;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            r2 = await playCall();
-            if (isNotMember(r2)) {
-              const j = await autoAddAssistant(ctx);
-              if (!(j?.ok || j?.already)) return void edit(ctx, sid, errorText(j));
-              r2 = await playCall();
-            }
-            if (r2?.ok || !(r2 && r2.error === 'waking')) break;
-            await wakeStreamerOnce(); // still spinning up → wait for a clean /health, then retry
+          // Awake now, but a freshly-woken free instance is slow: the first /play
+          // (yt-dlp search + download) can take well over the normal 20s. We're in
+          // a background task here (not bound by the 30s handler limit), so give it
+          // a generous 55s so we actually receive the ok:true and can post the
+          // card — instead of timing out, assuming 'waking', and leaving no card
+          // even though the song already started.
+          const PLAY_TIMEOUT = 55_000;
+          let r2 = await playCall(PLAY_TIMEOUT);
+          if (isNotMember(r2)) {
+            const j = await autoAddAssistant(ctx);
+            if (!(j?.ok || j?.already)) return void edit(ctx, sid, errorText(j));
+            r2 = await playCall(PLAY_TIMEOUT);
+          }
+          // If /play *still* didn't return a clean result (extremely slow instance),
+          // the song may already have started server-side. Read the queue instead
+          // of re-playing — that shows the card without queuing a duplicate.
+          if (r2 && !r2.ok && r2.error === 'waking') {
+            const q = await callStreamer('/queue', { chat_id: chatId }, 15_000);
+            if (q?.ok && q.active) r2 = { ok: true, title: q.active.title, duration: q.active.duration };
           }
           if (!r2?.ok) return void edit(ctx, sid, errorText(r2));
           await renderResult(ctx, sid, r2);
