@@ -26,9 +26,15 @@ _BASE_OPTS = {
     "geo_bypass": True,
     "nocheckcertificate": True,
     "cachedir": False,
-    # web_safari/web return progressive audio; android (last resort) often
-    # returns HLS manifests that stream silent — keep it last.
-    "extractor_args": {"youtube": {"player_client": ["web_safari", "web", "android"]}},
+    # Client order matters on flagged datacenter IPs (Render/Railway), where the
+    # web clients hit the "Sign in to confirm you're not a bot" wall and return
+    # nothing. `ios` bypasses that wall AND returns progressive (non-manifest)
+    # audio, so it goes first; `tv_embedded` is the next best wall-bypasser.
+    # `android` is kept last because it usually returns HLS manifests that stream
+    # silent (rejected in _track), so it's a source of "found but unplayable".
+    "extractor_args": {
+        "youtube": {"player_client": ["ios", "web_safari", "tv_embedded", "web", "android"]}
+    },
     # A normal browser UA — the previous YouTube-app UA broke SoundCloud's
     # client_id extraction. YouTube uses its own client via extractor_args.
     "http_headers": {
@@ -65,10 +71,16 @@ def _is_manifest(entry: dict) -> bool:
 
 def _track(info: dict) -> Optional[dict]:
     entries = [e for e in info["entries"] if e] if "entries" in info else [info]
+    saw_entries = False
+    saw_manifest_only = False
     for entry in entries:
-        if not entry or not entry.get("url"):
+        if not entry:
+            continue
+        saw_entries = True
+        if not entry.get("url"):
             continue
         if _is_manifest(entry):
+            saw_manifest_only = True
             log.info("skipping manifest result %r (proto=%s)", entry.get("title"), entry.get("protocol"))
             continue
         log.info(
@@ -83,6 +95,10 @@ def _track(info: dict) -> Optional[dict]:
             "thumb": entry.get("thumbnail", ""),
             "uploader": entry.get("uploader", ""),
         }
+    if saw_manifest_only:
+        log.warning("all results were HLS/DASH manifests (silent) — no progressive audio; try the ios/tv client or YT_COOKIES")
+    elif not saw_entries:
+        log.warning("search returned zero entries (likely a bot-wall / geo block on this IP)")
     return None
 
 
