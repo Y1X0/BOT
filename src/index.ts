@@ -21,6 +21,7 @@ const ALLOWED_UPDATES = [
   'chat_member',
   'my_chat_member',
   'chat_join_request',
+  'pre_checkout_query', // Telegram Stars payments (successful_payment rides on 'message')
 ] as const;
 
 async function main(): Promise<void> {

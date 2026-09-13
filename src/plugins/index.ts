@@ -70,6 +70,7 @@ import { pdfPlugin } from './pdf';
 import { petPlugin } from './pet';
 import { typeRacePlugin } from './typerace';
 import { guessMediaPlugin } from './guessmedia';
+import { monetizationPlugin } from './monetization';
 
 /**
  * Ordered plugin registry. ORDER MATTERS for passive text listeners:
@@ -151,6 +152,7 @@ allPlugins.push(
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,
+  monetizationPlugin, // premium subscriptions + referral + Stars payments
   progressionPlugin,
   scheduledPlugin,
   engagementPlugin, // passive: XP, calls next()

@@ -207,6 +207,20 @@ const envSchema = z.object({
   IMAGE_MODEL: z.string().default('gpt-image-1'),
   IMAGE_SIZE: z.string().default('1024x1024'),
   IMAGE_DAILY_LIMIT: z.coerce.number().default(30), // per chat
+
+  // Monetization: premium subscriptions + referral, paid in Telegram Stars (XTR).
+  // Stars invoices use an EMPTY provider token, so no PSP setup is needed — just
+  // flip this on. Prices/referral% are editable live from the dashboard; these
+  // are only the initial defaults. Referral commission is a percent of each paid
+  // subscription, credited to the referrer's wallet.
+  PAYMENTS_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  PREMIUM_PRICE_WEEK: z.coerce.number().default(75), // Stars
+  PREMIUM_PRICE_MONTH: z.coerce.number().default(200), // Stars
+  PREMIUM_PRICE_YEAR: z.coerce.number().default(1500), // Stars
+  REFERRAL_PERCENT: z.coerce.number().default(20), // % of a paid sub credited to referrer
 });
 
 const parsed = envSchema.safeParse(process.env);

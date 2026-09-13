@@ -135,7 +135,7 @@ function cleanName(s){ const raw=String(s??'');
   return t||raw; }
 /* Stable, legible color per user so you can track who's who at a glance. */
 function uColor(id){ let h=0; const s=String(id); for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0; return 'hsl('+(h%360)+',62%,68%)'; }
-const TABS=[['overview','الرئيسية'],['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['whispers','الهمسات'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
+const TABS=[['overview','الرئيسية'],['revenue','الإيرادات'],['groups','الجروبات'],['monitor','المراقبة'],['users','المحادثات'],['musaraha','المصارحة'],['whispers','الهمسات'],['media','الوسائط'],['logs','السجلات'],['analytics','التحليلات'],['system','النظام'],['audit','التدقيق']];
 let current=null, tab='overview', monTimer=null;
 
 async function boot(){ const me=await api('/me');
@@ -144,7 +144,7 @@ async function boot(){ const me=await api('/me');
 
 function renderNav(){ document.getElementById('nav').innerHTML=TABS.map(([k,l])=>'<button id="t-'+k+'" class="'+(k===tab?'active':'')+'" onclick="showTab(\\''+k+'\\')">'+l+'</button>').join(''); }
 function showTab(t){ tab=t; if(monTimer){clearInterval(monTimer);monTimer=null;} renderNav();
-  ({overview:loadOverview,groups:loadGroups,monitor:loadMonitor,users:loadUsers,musaraha:loadMusaraha,whispers:loadWhispers,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
+  ({overview:loadOverview,revenue:loadRevenue,groups:loadGroups,monitor:loadMonitor,users:loadUsers,musaraha:loadMusaraha,whispers:loadWhispers,media:()=>loadMedia(''),logs:loadLogsForm,analytics:loadAnalytics,system:loadSystem,audit:loadAudit}[t])(); }
 
 async function showLogin(){ document.getElementById('login').style.display='block'; const c=await api('/config');
   if(!c.botUsername){document.getElementById('loginNote').textContent='⚠️ BOT_USERNAME غير مضبوط.';return;}
@@ -190,6 +190,54 @@ async function broadcastAll(){
   if(r&&r.ok){ el.innerHTML='✅ تم الإرسال: <b>'+r.sent+'</b> نجحت، '+r.failed+' فشلت (من '+r.total+' محادثة).'; document.getElementById('bcAll').value=''; }
   else el.textContent='⚠️ تعذّر الإرسال.';
 }
+
+/* ---- Revenue / Monetization ---- */
+async function loadRevenue(){ const c=document.getElementById('content'); c.innerHTML='<p class="muted" style="padding:16px">جاري التحميل...</p>';
+  const [d,orders]=await Promise.all([api('/revenue'),api('/revenue/orders')]);
+  const s=d.summary||{}; const pr=d.prices||{};
+  const kpi=(icon,val,label)=>'<div class="box"><div class="kicon">'+icon+'</div><b>'+val+'</b><span>'+label+'</span></div>';
+  const byProd=(s.byProduct||[]).map(p=>'<tr><td>'+esc(p.product)+'</td><td>⭐'+p.stars+'</td><td>'+p.count+'</td></tr>').join('')||'<tr><td colspan="3" class="muted">لا مبيعات بعد</td></tr>';
+  const txns=(d.transactions||[]).map(t=>'<tr><td>'+t.createdAt.slice(0,10)+'</td><td>'+esc(t.product)+'</td><td>⭐'+t.stars+'</td><td><code>'+t.userId+'</code></td><td>'+(t.status==='refunded'?'↩️':'✅')+'</td><td>'+(t.status==='refunded'?'':'<button class="ghost" onclick="refundTx(\\''+t.userId+'\\',\\''+t.chargeId+'\\')">استرجاع</button>')+'</td></tr>').join('')||'<tr><td colspan="6" class="muted">لا عمليات</td></tr>';
+  const subs=(d.subscriptions||[]).map(x=>'<tr><td>'+(x.subjectType==='group'?'جروب':'مستخدم')+'</td><td><code>'+x.subjectId+'</code></td><td>'+x.planId+'</td><td>'+x.expiresAt.slice(0,10)+'</td><td>'+(x.granted?'🎁':'💳')+'</td><td><button class="ghost" onclick="revokePrem(\\''+x.subjectType+'\\',\\''+x.subjectId+'\\')">إلغاء</button></td></tr>').join('')||'<tr><td colspan="6" class="muted">لا اشتراكات فعّالة</td></tr>';
+  const refs=(d.topReferrers||[]).map((x,i)=>'<tr><td>'+(i+1)+'</td><td><code>'+x.userId+'</code></td><td>'+x.count+'</td></tr>').join('')||'<tr><td colspan="3" class="muted">لا إحالات</td></tr>';
+  const ords=(orders||[]).map(o=>'<tr><td>#'+o.id+'</td><td><code>'+o.userId+'</code>'+(o.username?' @'+esc(o.username):'')+'</td><td>⭐'+o.stars+'</td><td>'+esc(o.status)+'</td><td>'+((o.status==='delivered'||o.status==='cancelled')?'':'<button class="act" onclick="setOrder('+o.id+',\\'delivered\\')">تم</button> <button class="ghost" onclick="setOrder('+o.id+',\\'cancelled\\')">إلغاء</button>')+'</td></tr>').join('')||'<tr><td colspan="5" class="muted">لا طلبات</td></tr>';
+  c.innerHTML='<div class="kpi-grid">'
+    +kpi('⭐',s.totalStars||0,'إجمالي النجوم')
+    +kpi('🧾',s.paidCount||0,'عمليات دفع')
+    +kpi('💎',s.activeUserSubs||0,'مشترك مميّز')
+    +kpi('👥',s.activeGroupSubs||0,'جروب مميّز')
+    +kpi('🛎',s.pendingOrders||0,'طلبات نجوم')
+    +kpi('↩️',s.refundedStars||0,'نجوم مسترجعة')
+    +'</div>'
+    +'<div class="card"><h3 style="margin-top:0">💰 الأسعار والإحالة</h3>'
+    +'<p class="muted">الأسعار بنجوم تيليجرام (⭐). تُطبّق فوراً على كل البوت.</p>'
+    +'<div class="row"><label>أسبوع <input id="pWeek" type="number" value="'+(pr.week||0)+'" style="width:85px"></label>'
+    +'<label>شهر <input id="pMonth" type="number" value="'+(pr.month||0)+'" style="width:85px"></label>'
+    +'<label>سنة <input id="pYear" type="number" value="'+(pr.year||0)+'" style="width:85px"></label>'
+    +'<label>عمولة الإحالة % <input id="pRef" type="number" value="'+(d.referralPercent||0)+'" style="width:70px"></label>'
+    +'<button class="act" onclick="saveRevenueSettings()">حفظ</button></div>'
+    +'<div id="revSave" class="muted" style="margin-top:6px"></div></div>'
+    +'<div class="grid2">'
+    +'<div class="card"><h3 style="margin-top:0">💎 الاشتراكات الفعّالة</h3><table><tr><th>النوع</th><th>المعرّف</th><th>الخطة</th><th>ينتهي</th><th>مصدر</th><th></th></tr>'+subs+'</table></div>'
+    +'<div class="card"><h3 style="margin-top:0">🔗 أعلى المُحيلين</h3><table><tr><th>#</th><th>المستخدم</th><th>إحالات</th></tr>'+refs+'</table></div>'
+    +'</div>'
+    +'<div class="card"><h3 style="margin-top:0">🎁 منح اشتراك يدوي</h3><div class="row">'
+    +'<select id="gType"><option value="user">مستخدم</option><option value="group">جروب</option></select>'
+    +'<input id="gId" placeholder="المعرّف id" style="width:150px">'
+    +'<select id="gPlan"><option value="week">أسبوع</option><option value="month" selected>شهر</option><option value="year">سنة</option></select>'
+    +'<button class="act" onclick="grantPrem()">منح</button></div><div id="grantMsg" class="muted" style="margin-top:6px"></div></div>'
+    +'<div class="card"><h3 style="margin-top:0">🛎 طلبات شحن النجوم</h3><table><tr><th>#</th><th>المستخدم</th><th>الكمية</th><th>الحالة</th><th></th></tr>'+ords+'</table></div>'
+    +'<div class="card"><h3 style="margin-top:0">🧾 آخر العمليات</h3><table><tr><th>التاريخ</th><th>المنتج</th><th>النجوم</th><th>المستخدم</th><th>الحالة</th><th></th></tr>'+txns+'</table></div>'
+    +'<div class="card"><h3 style="margin-top:0">📊 المبيعات حسب المنتج</h3><table><tr><th>المنتج</th><th>نجوم</th><th>عدد</th></tr>'+byProd+'</table></div>'; }
+
+async function saveRevenueSettings(){ const b={week:+document.getElementById('pWeek').value,month:+document.getElementById('pMonth').value,year:+document.getElementById('pYear').value,referralPercent:+document.getElementById('pRef').value};
+  const r=await api('/revenue/settings',{method:'POST',body:JSON.stringify(b)}); document.getElementById('revSave').textContent=(r&&r.ok)?'✅ تم الحفظ':'⚠️ فشل الحفظ'; }
+async function grantPrem(){ const b={subjectType:document.getElementById('gType').value,subjectId:document.getElementById('gId').value.trim(),planId:document.getElementById('gPlan').value};
+  if(!b.subjectId)return alert('اكتب المعرّف'); const r=await api('/revenue/grant',{method:'POST',body:JSON.stringify(b)});
+  document.getElementById('grantMsg').textContent=(r&&r.ok)?('✅ تم حتى '+r.expiresAt.slice(0,10)):('⚠️ فشل '+((r&&r.error)||'')); if(r&&r.ok)setTimeout(loadRevenue,600); }
+async function revokePrem(type,id){ if(!confirm('إلغاء الاشتراك؟'))return; const r=await api('/revenue/revoke',{method:'POST',body:JSON.stringify({subjectType:type,subjectId:id})}); if(r&&r.ok)loadRevenue(); }
+async function refundTx(userId,chargeId){ if(!confirm('استرجاع النجوم لهذا المستخدم؟'))return; const r=await api('/revenue/refund',{method:'POST',body:JSON.stringify({userId,chargeId})}); if(r&&r.ok){loadRevenue();}else alert('فشل الاسترجاع: '+((r&&r.detail)||'')); }
+async function setOrder(id,status){ const r=await api('/revenue/orders/'+id,{method:'POST',body:JSON.stringify({status})}); if(r&&r.ok)loadRevenue(); }
 
 /* ---- Groups ---- */
 async function loadGroups(){ const chats=await api('/chats'); const c=document.getElementById('content');

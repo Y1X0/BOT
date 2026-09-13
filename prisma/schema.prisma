@@ -507,3 +507,77 @@ model SavedEmoji {
   items     String   @default("[]") // JSON array of { e: string, id: string }
   updatedAt DateTime @updatedAt
 }
+
+// ── Monetization ──────────────────────────────────────────────────────────────
+
+/// A premium subscription. `subjectType` is "user" or "group"; `subjectId` is the
+/// Telegram user id or chat id. One active row per subject (renewals extend it).
+model PremiumSubscription {
+  id          Int      @id @default(autoincrement())
+  subjectType String // "user" | "group"
+  subjectId   BigInt
+  tier        String   @default("premium")
+  planId      String // week | month | year (last plan bought)
+  expiresAt   DateTime
+  autoRenew   Boolean  @default(false)
+  grantedBy   BigInt? // owner id if granted manually, else null (paid)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([subjectType, subjectId])
+  @@index([expiresAt])
+}
+
+/// Every Telegram Stars payment, kept for accounting and refunds. `chargeId` is
+/// telegram_payment_charge_id (needed by refundStarPayment).
+model StarTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    BigInt // payer
+  chargeId  String   @unique // telegram_payment_charge_id
+  stars     Int // amount paid in Stars (XTR)
+  product   String // premium:user:month, stars_order, shop:vip, ...
+  payload   String // the invoice payload
+  chatId    BigInt? // group the purchase applies to, when relevant
+  status    String   @default("paid") // paid | refunded
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+/// A user's internal wallet: referral earnings (in Stars-equivalent credits) that
+/// can be applied to purchases or paid out manually by the owner.
+model Wallet {
+  userId      BigInt   @id
+  credits     Int      @default(0) // spendable balance
+  totalEarned Int      @default(0) // lifetime referral earnings
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+}
+
+/// Referral link attribution: who referred whom. One referrer per referred user.
+model Referral {
+  referredId BigInt   @id // the new user (referred once, ever)
+  referrerId BigInt // who invited them
+  rewarded   Int      @default(0) // total credits paid to the referrer from this referee
+  createdAt  DateTime @default(now())
+
+  @@index([referrerId])
+}
+
+/// A "buy Stars" order (Phase 2). The bot can't hand out real Stars, so the owner
+/// fulfils each order via Fragment/gift and marks it delivered from the dashboard.
+model StarOrder {
+  id        Int      @id @default(autoincrement())
+  userId    BigInt
+  username  String?
+  stars     Int // how many Stars the buyer wants
+  paidStars Int      @default(0) // Stars actually paid to the bot, if paid in-bot
+  note      String? // buyer contact / payment note
+  status    String   @default("pending") // pending | paid | delivered | cancelled
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}

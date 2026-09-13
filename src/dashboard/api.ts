@@ -15,6 +15,23 @@ import { recentWhispers } from '../services/whisper.service';
 import { youtubeQueue } from '../services/youtube/queue';
 import { recentErrors, clearErrors } from '../core/errors';
 import {
+  revenueSummary,
+  listTransactions,
+  listActiveSubscriptions,
+  topReferrers,
+  getPrices,
+  setPrices,
+  getReferralPercent,
+  setReferralPercent,
+  listStarOrders,
+  setStarOrderStatus,
+  grantPremium,
+  revokePremium,
+  markRefunded,
+  type SubjectType,
+} from '../services/monetization.service';
+import { type PlanId } from '../services/monetization-logic';
+import {
   SESSION_COOKIE,
   readCookie,
   signSession,
@@ -337,6 +354,114 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     }
     await audit(req.userId, 'broadcast_all', `target=${target ?? 'all'} sent=${sent} failed=${failed}`);
     json(res, { ok: true, sent, failed, total: targets.length });
+  });
+
+  // ── Monetization / revenue (owner-only) ────────────────────────────────
+  router.get('/revenue', async (_req, res) => {
+    const [summary, txns, subs, refs, prices, pct] = await Promise.all([
+      revenueSummary(),
+      listTransactions(50),
+      listActiveSubscriptions(100),
+      topReferrers(10),
+      getPrices(),
+      getReferralPercent(),
+    ]);
+    json(res, {
+      summary,
+      prices,
+      referralPercent: pct,
+      transactions: txns.map((t) => ({
+        id: t.id,
+        userId: t.userId.toString(),
+        chargeId: t.chargeId,
+        stars: t.stars,
+        product: t.product,
+        status: t.status,
+        chatId: t.chatId ? t.chatId.toString() : null,
+        createdAt: t.createdAt.toISOString(),
+      })),
+      subscriptions: subs.map((s) => ({
+        subjectType: s.subjectType,
+        subjectId: s.subjectId.toString(),
+        planId: s.planId,
+        expiresAt: s.expiresAt.toISOString(),
+        granted: s.grantedBy != null,
+      })),
+      topReferrers: refs,
+    });
+  });
+
+  router.post('/revenue/settings', async (req: AuthedRequest, res) => {
+    const { week, month, year, referralPercent } = (req.body ?? {}) as Record<string, unknown>;
+    const cur = await getPrices();
+    await setPrices({
+      week: Number(week) > 0 ? Number(week) : cur.week,
+      month: Number(month) > 0 ? Number(month) : cur.month,
+      year: Number(year) > 0 ? Number(year) : cur.year,
+    });
+    if (referralPercent != null && Number.isFinite(Number(referralPercent))) {
+      await setReferralPercent(Number(referralPercent));
+    }
+    await audit(req.userId, 'revenue_settings', JSON.stringify({ week, month, year, referralPercent }));
+    json(res, { ok: true });
+  });
+
+  router.get('/revenue/orders', async (req, res) => {
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const orders = await listStarOrders(status);
+    json(res, orders.map((o) => ({
+      id: o.id,
+      userId: o.userId.toString(),
+      username: o.username,
+      stars: o.stars,
+      status: o.status,
+      note: o.note,
+      createdAt: o.createdAt.toISOString(),
+    })));
+  });
+
+  router.post('/revenue/orders/:id', async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    const { status } = (req.body ?? {}) as { status?: string };
+    if (!id || !status || !['pending', 'paid', 'delivered', 'cancelled'].includes(status))
+      return json(res, { error: 'bad_input' }, 400);
+    await setStarOrderStatus(id, status);
+    await audit(req.userId, 'order_status', `#${id} → ${status}`);
+    json(res, { ok: true });
+  });
+
+  router.post('/revenue/grant', async (req: AuthedRequest, res) => {
+    const { subjectType, subjectId, planId } = (req.body ?? {}) as Record<string, string>;
+    if (!['user', 'group'].includes(subjectType) || !/^-?\d{3,20}$/.test(subjectId ?? '') || !['week', 'month', 'year'].includes(planId))
+      return json(res, { error: 'bad_input' }, 400);
+    const sub = await grantPremium(subjectType as SubjectType, BigInt(subjectId), planId as PlanId, { grantedBy: req.userId });
+    await audit(req.userId, 'grant_premium', `${subjectType}:${subjectId} ${planId}`);
+    json(res, { ok: true, expiresAt: sub.expiresAt.toISOString() });
+  });
+
+  router.post('/revenue/revoke', async (req: AuthedRequest, res) => {
+    const { subjectType, subjectId } = (req.body ?? {}) as Record<string, string>;
+    if (!['user', 'group'].includes(subjectType) || !/^-?\d{3,20}$/.test(subjectId ?? ''))
+      return json(res, { error: 'bad_input' }, 400);
+    await revokePremium(subjectType as SubjectType, BigInt(subjectId));
+    await audit(req.userId, 'revoke_premium', `${subjectType}:${subjectId}`);
+    json(res, { ok: true });
+  });
+
+  router.post('/revenue/refund', async (req: AuthedRequest, res) => {
+    const { userId, chargeId } = (req.body ?? {}) as { userId?: string; chargeId?: string };
+    if (!userId || !chargeId) return json(res, { error: 'bad_input' }, 400);
+    try {
+      await telegram.callApi('refundStarPayment' as never, {
+        user_id: Number(userId),
+        telegram_payment_charge_id: chargeId,
+      } as never);
+      await markRefunded(chargeId);
+      await audit(req.userId, 'refund', `${userId} ${chargeId}`);
+      json(res, { ok: true });
+    } catch (err) {
+      json(res, { error: 'refund_failed', detail: String(err).slice(0, 200) }, 500);
+    }
   });
 
   router.post('/system/clearcache', async (req: AuthedRequest, res) => {
