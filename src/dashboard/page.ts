@@ -200,7 +200,8 @@ async function loadRevenue(){ const c=document.getElementById('content'); c.inne
   const txns=(d.transactions||[]).map(t=>'<tr><td>'+t.createdAt.slice(0,10)+'</td><td>'+esc(t.product)+'</td><td>⭐'+t.stars+'</td><td><code>'+t.userId+'</code></td><td>'+(t.status==='refunded'?'↩️':'✅')+'</td><td>'+(t.status==='refunded'?'':'<button class="ghost" onclick="refundTx(\\''+t.userId+'\\',\\''+t.chargeId+'\\')">استرجاع</button>')+'</td></tr>').join('')||'<tr><td colspan="6" class="muted">لا عمليات</td></tr>';
   const subs=(d.subscriptions||[]).map(x=>'<tr><td>'+(x.subjectType==='group'?'جروب':'مستخدم')+'</td><td><code>'+x.subjectId+'</code></td><td>'+x.planId+'</td><td>'+x.expiresAt.slice(0,10)+'</td><td>'+(x.granted?'🎁':'💳')+'</td><td><button class="ghost" onclick="revokePrem(\\''+x.subjectType+'\\',\\''+x.subjectId+'\\')">إلغاء</button></td></tr>').join('')||'<tr><td colspan="6" class="muted">لا اشتراكات فعّالة</td></tr>';
   const refs=(d.topReferrers||[]).map((x,i)=>'<tr><td>'+(i+1)+'</td><td><code>'+x.userId+'</code></td><td>'+x.count+'</td></tr>').join('')||'<tr><td colspan="3" class="muted">لا إحالات</td></tr>';
-  const ords=(orders||[]).map(o=>'<tr><td>#'+o.id+'</td><td><code>'+o.userId+'</code>'+(o.username?' @'+esc(o.username):'')+'</td><td>⭐'+o.stars+'</td><td>'+esc(o.status)+'</td><td>'+((o.status==='delivered'||o.status==='cancelled')?'':'<button class="act" onclick="setOrder('+o.id+',\\'delivered\\')">تم</button> <button class="ghost" onclick="setOrder('+o.id+',\\'cancelled\\')">إلغاء</button>')+'</td></tr>').join('')||'<tr><td colspan="5" class="muted">لا طلبات</td></tr>';
+  const stBadge={pending:'⏳ بانتظار الدفع',paid:'💰 مدفوع',delivering:'🚀 قيد التسليم',delivered:'✅ تم',failed:'❌ فشل',cancelled:'🚫 ملغى',expired:'⌛ منتهي'};
+  const ords=(orders||[]).map(o=>{var act=''; if(o.status==='paid')act='<button class="act" onclick="retryOrder('+o.id+')">↻ تسليم تلقائي</button> <button class="ghost" onclick="setOrder('+o.id+',\\'delivered\\')">تم يدوي</button>'; else if(o.status!=='delivered'&&o.status!=='cancelled')act='<button class="ghost" onclick="setOrder('+o.id+',\\'cancelled\\')">إلغاء</button>'; return '<tr><td>#'+o.id+'</td><td>'+(o.recipient?'@'+esc(o.recipient):'<code>'+o.userId+'</code>')+'</td><td>⭐'+o.stars+'</td><td>'+(o.ton?o.ton+' TON':'-')+'</td><td>'+(stBadge[o.status]||esc(o.status))+(o.note?'<div class="muted" style="font-size:11px">'+esc(o.note)+'</div>':'')+'</td><td>'+act+'</td></tr>';}).join('')||'<tr><td colspan="6" class="muted">لا طلبات</td></tr>';
   c.innerHTML='<div class="kpi-grid">'
     +kpi('⭐',s.totalStars||0,'إجمالي النجوم')
     +kpi('🧾',s.paidCount||0,'عمليات دفع')
@@ -215,6 +216,7 @@ async function loadRevenue(){ const c=document.getElementById('content'); c.inne
     +'<label>شهر <input id="pMonth" type="number" value="'+(pr.month||0)+'" style="width:85px"></label>'
     +'<label>سنة <input id="pYear" type="number" value="'+(pr.year||0)+'" style="width:85px"></label>'
     +'<label>عمولة الإحالة % <input id="pRef" type="number" value="'+(d.referralPercent||0)+'" style="width:70px"></label>'
+    +'<label>سعر النجمة TON <input id="pStar" type="number" step="0.0001" value="'+(d.starPriceTon||0)+'" style="width:100px"></label>'
     +'<button class="act" onclick="saveRevenueSettings()">حفظ</button></div>'
     +'<div id="revSave" class="muted" style="margin-top:6px"></div></div>'
     +'<div class="grid2">'
@@ -226,12 +228,13 @@ async function loadRevenue(){ const c=document.getElementById('content'); c.inne
     +'<input id="gId" placeholder="المعرّف id" style="width:150px">'
     +'<select id="gPlan"><option value="week">أسبوع</option><option value="month" selected>شهر</option><option value="year">سنة</option></select>'
     +'<button class="act" onclick="grantPrem()">منح</button></div><div id="grantMsg" class="muted" style="margin-top:6px"></div></div>'
-    +'<div class="card"><h3 style="margin-top:0">🛎 طلبات شحن النجوم</h3><table><tr><th>#</th><th>المستخدم</th><th>الكمية</th><th>الحالة</th><th></th></tr>'+ords+'</table></div>'
+    +'<div class="card"><h3 style="margin-top:0">🛎 طلبات شحن النجوم (دفع TON)</h3><table><tr><th>#</th><th>المستلم</th><th>النجوم</th><th>المبلغ</th><th>الحالة</th><th></th></tr>'+ords+'</table></div>'
     +'<div class="card"><h3 style="margin-top:0">🧾 آخر العمليات</h3><table><tr><th>التاريخ</th><th>المنتج</th><th>النجوم</th><th>المستخدم</th><th>الحالة</th><th></th></tr>'+txns+'</table></div>'
     +'<div class="card"><h3 style="margin-top:0">📊 المبيعات حسب المنتج</h3><table><tr><th>المنتج</th><th>نجوم</th><th>عدد</th></tr>'+byProd+'</table></div>'; }
 
-async function saveRevenueSettings(){ const b={week:+document.getElementById('pWeek').value,month:+document.getElementById('pMonth').value,year:+document.getElementById('pYear').value,referralPercent:+document.getElementById('pRef').value};
+async function saveRevenueSettings(){ const b={week:+document.getElementById('pWeek').value,month:+document.getElementById('pMonth').value,year:+document.getElementById('pYear').value,referralPercent:+document.getElementById('pRef').value,starPriceTon:+document.getElementById('pStar').value};
   const r=await api('/revenue/settings',{method:'POST',body:JSON.stringify(b)}); document.getElementById('revSave').textContent=(r&&r.ok)?'✅ تم الحفظ':'⚠️ فشل الحفظ'; }
+async function retryOrder(id){ const r=await api('/revenue/orders/'+id+'/retry',{method:'POST',body:'{}'}); if(r&&r.ok){alert('تم إرسال أمر التسليم');loadRevenue();}else alert('تعذّر التسليم التلقائي — سلّمه يدوياً'); }
 async function grantPrem(){ const b={subjectType:document.getElementById('gType').value,subjectId:document.getElementById('gId').value.trim(),planId:document.getElementById('gPlan').value};
   if(!b.subjectId)return alert('اكتب المعرّف'); const r=await api('/revenue/grant',{method:'POST',body:JSON.stringify(b)});
   document.getElementById('grantMsg').textContent=(r&&r.ok)?('✅ تم حتى '+r.expiresAt.slice(0,10)):('⚠️ فشل '+((r&&r.error)||'')); if(r&&r.ok)setTimeout(loadRevenue,600); }

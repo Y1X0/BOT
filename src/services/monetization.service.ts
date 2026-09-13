@@ -260,27 +260,7 @@ export async function topReferrers(limit = 10): Promise<{ userId: string; count:
   return rows.map((r) => ({ userId: r.referrerId.toString(), count: r._count._all }));
 }
 
-// ── Buy-Stars orders (Phase 2, manual fulfilment) ─────────────────────────────
-export async function createStarOrder(input: {
-  userId: bigint | number;
-  username?: string | null;
-  stars: number;
-  note?: string | null;
-  paidStars?: number;
-  status?: string;
-}): Promise<StarOrder> {
-  return prisma.starOrder.create({
-    data: {
-      userId: BigInt(input.userId),
-      username: input.username ?? null,
-      stars: input.stars,
-      note: input.note ?? null,
-      paidStars: input.paidStars ?? 0,
-      status: input.status ?? 'pending',
-    },
-  });
-}
-
+// ── Buy-Stars orders (TON flow lives in starshop.service; these are read/admin) ─
 export async function listStarOrders(status?: string, limit = 100): Promise<StarOrder[]> {
   return prisma.starOrder.findMany({
     where: status ? { status } : undefined,

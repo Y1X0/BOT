@@ -565,18 +565,28 @@ model Referral {
   @@index([referrerId])
 }
 
-/// A "buy Stars" order (Phase 2). The bot can't hand out real Stars, so the owner
-/// fulfils each order via Fragment/gift and marks it delivered from the dashboard.
+/// A "buy Stars" order paid in TON. The buyer sends TON (with a unique comment)
+/// to the bot's wallet; the bot detects the on-chain payment, then buys the Stars
+/// from Fragment for their @username — automatically if configured, else the owner
+/// fulfils from the dashboard (money is never lost).
 model StarOrder {
-  id        Int      @id @default(autoincrement())
-  userId    BigInt
-  username  String?
-  stars     Int // how many Stars the buyer wants
-  paidStars Int      @default(0) // Stars actually paid to the bot, if paid in-bot
-  note      String? // buyer contact / payment note
-  status    String   @default("pending") // pending | paid | delivered | cancelled
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         Int       @id @default(autoincrement())
+  userId     BigInt
+  username   String? // buyer's @username (Fragment delivers Stars to a username)
+  recipient  String? // the @username Stars are delivered to (defaults to buyer)
+  stars      Int // how many Stars the buyer wants
+  nanoTon    String    @default("0") // exact TON expected, in nanotons (BigInt as string)
+  payCode    String?   @unique // unique comment the buyer must attach to the TON transfer
+  txHash     String? // detected payment transaction hash
+  fragmentRef String? // Fragment purchase reference, once bought
+  note       String? // free note / failure reason
+  // pending → paid → delivering → delivered ; also: failed | cancelled | expired
+  status     String    @default("pending")
+  paidAt     DateTime?
+  deliveredAt DateTime?
+  expiresAt  DateTime? // payment window; order auto-expires after this
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([status])
   @@index([userId])

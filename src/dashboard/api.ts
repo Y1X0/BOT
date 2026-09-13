@@ -31,6 +31,8 @@ import {
   type SubjectType,
 } from '../services/monetization.service';
 import { type PlanId } from '../services/monetization-logic';
+import { getStarPriceTon, setStarPriceTon, retryDelivery } from '../services/starshop.service';
+import { fromNanoTon } from '../services/ton.service';
 import {
   SESSION_COOKIE,
   readCookie,
@@ -366,10 +368,12 @@ export function createDashboardApi(telegram: Telegram): express.Router {
       getPrices(),
       getReferralPercent(),
     ]);
+    const starPriceTon = await getStarPriceTon();
     json(res, {
       summary,
       prices,
       referralPercent: pct,
+      starPriceTon,
       transactions: txns.map((t) => ({
         id: t.id,
         userId: t.userId.toString(),
@@ -402,7 +406,9 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     if (referralPercent != null && Number.isFinite(Number(referralPercent))) {
       await setReferralPercent(Number(referralPercent));
     }
-    await audit(req.userId, 'revenue_settings', JSON.stringify({ week, month, year, referralPercent }));
+    const { starPriceTon } = (req.body ?? {}) as Record<string, unknown>;
+    if (starPriceTon != null && Number(starPriceTon) > 0) await setStarPriceTon(Number(starPriceTon));
+    await audit(req.userId, 'revenue_settings', JSON.stringify({ week, month, year, referralPercent, starPriceTon }));
     json(res, { ok: true });
   });
 
@@ -413,9 +419,12 @@ export function createDashboardApi(telegram: Telegram): express.Router {
       id: o.id,
       userId: o.userId.toString(),
       username: o.username,
+      recipient: o.recipient,
       stars: o.stars,
+      ton: o.nanoTon && o.nanoTon !== '0' ? fromNanoTon(o.nanoTon) : null,
       status: o.status,
       note: o.note,
+      txHash: o.txHash,
       createdAt: o.createdAt.toISOString(),
     })));
   });
@@ -428,6 +437,14 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     await setStarOrderStatus(id, status);
     await audit(req.userId, 'order_status', `#${id} → ${status}`);
     json(res, { ok: true });
+  });
+
+  router.post('/revenue/orders/:id/retry', async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    if (!id) return json(res, { error: 'bad_input' }, 400);
+    const ok = await retryDelivery(id, telegram);
+    await audit(req.userId, 'order_retry', `#${id}`);
+    json(res, { ok });
   });
 
   router.post('/revenue/grant', async (req: AuthedRequest, res) => {

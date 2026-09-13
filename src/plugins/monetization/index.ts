@@ -16,7 +16,6 @@ import {
   planById,
 } from '../../services/monetization-logic';
 import {
-  createStarOrder,
   getPremium,
   getPrices,
   getReferralPercent,
@@ -30,6 +29,7 @@ import {
   setReferrer,
   type SubjectType,
 } from '../../services/monetization.service';
+import { createTonOrder, quote, tickOrders } from '../../services/starshop.service';
 
 const esc = (s: string | undefined | null): string => escapeHtml(String(s ?? ''));
 const enabled = (): boolean => env.PAYMENTS_ENABLED;
@@ -224,44 +224,72 @@ export const monetizationPlugin: Plugin = {
       );
     });
 
-    // ── /buystars — request a Stars top-up (owner fulfils manually) ─────────
+    // ── /buystars — buy Stars, paid in TON (auto-detected & auto-delivered) ─
+    const starsAvailable = (): boolean => env.STARS_SELL_ENABLED && !!env.TON_WALLET_ADDRESS;
+
     bot.command('buystars', async (ctx) => {
-      if (!enabled()) return void ctx.reply(DISABLED_MSG);
+      if (!starsAvailable()) return void ctx.reply('⭐ خدمة شراء النجوم غير مفعّلة حالياً.');
+      // A quick price hint using a sample package.
+      const q = await quote(100);
       await ctx.reply(
         [
-          '⭐ <b>شحن نجوم تيليجرام</b>',
+          '⭐ <b>شراء نجوم تيليجرام</b> (دفع بـ TON)',
           '',
-          'اختر الباقة وسيصلك المالك لإتمام الشحن:',
+          `السعر التقريبي: <b>100⭐ ≈ ${q.ton} TON</b>`,
+          'اختر الباقة، وسيظهر لك عنوان الدفع فوراً. التسليم تلقائي بعد الدفع 🚀',
+          '',
+          'ملاحظة: لازم يكون عندك <b>@username</b> عام لاستلام النجوم.',
         ].join('\n'),
         {
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback('⭐ 100', 'mon:order:100'), Markup.button.callback('⭐ 250', 'mon:order:250')],
-            [Markup.button.callback('⭐ 500', 'mon:order:500'), Markup.button.callback('⭐ 1000', 'mon:order:1000')],
+            [Markup.button.callback('⭐ 100', 'mon:stars:100'), Markup.button.callback('⭐ 150', 'mon:stars:150')],
+            [Markup.button.callback('⭐ 250', 'mon:stars:250'), Markup.button.callback('⭐ 500', 'mon:stars:500')],
+            [Markup.button.callback('⭐ 1000', 'mon:stars:1000')],
           ]),
         },
       );
     });
 
-    bot.action(/^mon:order:(\d{2,6})$/, async (ctx) => {
-      if (!enabled()) return void ctx.answerCbQuery(DISABLED_MSG, { show_alert: true }).catch(() => undefined);
+    bot.action(/^mon:stars:(\d{2,6})$/, async (ctx) => {
+      if (!starsAvailable())
+        return void ctx.answerCbQuery('الخدمة غير مفعّلة', { show_alert: true }).catch(() => undefined);
       if (!ctx.from) return;
-      const stars = parseInt(ctx.match[1], 10);
-      await createStarOrder({ userId: ctx.from.id, username: ctx.from.username ?? null, stars });
-      await ctx.answerCbQuery('تم تسجيل طلبك ✅', { show_alert: true }).catch(() => undefined);
-      await ctx
-        .reply(`✅ سجّلنا طلبك: <b>${stars}</b> نجمة. رح يتواصل معك المالك لإتمام الشحن.`, { parse_mode: 'HTML' })
-        .catch(() => undefined);
-      // Notify the owner(s).
-      for (const owner of env.OWNER_IDS) {
-        await ctx.telegram
-          .sendMessage(
-            owner.toString(),
-            `🛎 <b>طلب شحن نجوم</b>\nالمستخدم: ${mention(ctx.from)} (<code>${ctx.from.id}</code>)\nالكمية: <b>${stars}</b> نجمة`,
-            { parse_mode: 'HTML' },
-          )
+      await ctx.answerCbQuery().catch(() => undefined);
+      if (!ctx.from.username) {
+        return void ctx
+          .reply('⚠️ لازم تضبط <b>@username</b> عام لحسابك أول (إعدادات تيليجرام) عشان نقدر نوصّلك النجوم، بعدها جرّب.', {
+            parse_mode: 'HTML',
+          })
           .catch(() => undefined);
       }
+      const stars = parseInt(ctx.match[1], 10);
+      const r = await createTonOrder({ userId: ctx.from.id, username: ctx.from.username, stars });
+      if ('error' in r) {
+        const msg =
+          r.error === 'disabled'
+            ? 'الخدمة غير مفعّلة حالياً.'
+            : r.error.startsWith('range')
+              ? `الكمية لازم تكون ضمن الحدود المسموحة (${r.error.slice(6)}).`
+              : 'تعذّر إنشاء الطلب.';
+        return void ctx.reply('⚠️ ' + msg).catch(() => undefined);
+      }
+      await ctx
+        .reply(
+          [
+            `🧾 <b>طلب #${r.order.id}</b> — <b>${stars}⭐</b> لـ @${esc(ctx.from.username)}`,
+            '',
+            `1️⃣ أرسل بالضبط: <b>${r.ton} TON</b>`,
+            `2️⃣ إلى العنوان:`,
+            `<code>${esc(r.address)}</code>`,
+            `3️⃣ <b>مهم جداً</b> — ضع هذا التعليق (Comment/Memo) مع التحويل:`,
+            `<code>${esc(r.payCode)}</code>`,
+            '',
+            `⏱ لديك ${r.expiresMin} دقيقة. بعد الدفع، التسليم <b>تلقائي</b> خلال دقائق — لا تغلق شيئاً.`,
+          ].join('\n'),
+          { parse_mode: 'HTML' },
+        )
+        .catch(() => undefined);
     });
 
     // ── Owner: grant / revoke premium manually ─────────────────────────────
@@ -327,5 +355,22 @@ export const monetizationPlugin: Plugin = {
       }
       await ctx.reply('👋 أهلاً فيك! اكتب /premium لمشاهدة الاشتراك المميّز.').catch(() => undefined);
     });
+
+    // ── TON payment poller: detect paid orders and auto-deliver ────────────
+    // Runs only when the Stars shop is enabled. A single-flight guard prevents
+    // overlapping ticks; each tick is best-effort and never throws.
+    if (env.STARS_SELL_ENABLED && env.TON_WALLET_ADDRESS) {
+      let ticking = false;
+      setInterval(() => {
+        if (ticking) return;
+        ticking = true;
+        void tickOrders(bot.telegram)
+          .catch((err) => log.warn({ err }, 'tickOrders failed'))
+          .finally(() => {
+            ticking = false;
+          });
+      }, 25_000).unref?.();
+      log.info('stars-shop TON payment poller started');
+    }
   },
 };

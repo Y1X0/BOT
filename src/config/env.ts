@@ -221,6 +221,33 @@ const envSchema = z.object({
   PREMIUM_PRICE_MONTH: z.coerce.number().default(200), // Stars
   PREMIUM_PRICE_YEAR: z.coerce.number().default(1500), // Stars
   REFERRAL_PERCENT: z.coerce.number().default(20), // % of a paid sub credited to referrer
+
+  // ── Stars reseller (buy Telegram Stars, paid in TON) ──────────────────────
+  // The buyer sends TON (with a unique comment) to TON_WALLET_ADDRESS; the bot
+  // detects the on-chain payment via toncenter, then fulfils. Detection is
+  // read-only (safe). Auto-buy from Fragment is opt-in (FRAGMENT_AUTOBUY) and
+  // needs the wallet mnemonic + Fragment cookies; when off/failed the owner
+  // fulfils manually and the buyer's money is never lost.
+  STARS_SELL_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  TON_WALLET_ADDRESS: z.string().optional(), // public address that receives payments
+  TON_API_BASE: z.string().default('https://toncenter.com/api/v2'),
+  TON_API_KEY: z.string().optional(), // toncenter API key (free at @tonapibot)
+  STAR_PRICE_TON: z.coerce.number().default(0.006), // TON charged per Star (incl. your markup); editable in dashboard
+  STARS_MIN: z.coerce.number().default(50),
+  STARS_MAX: z.coerce.number().default(10000),
+  ORDER_TTL_MIN: z.coerce.number().default(30), // payment window in minutes
+
+  // Fragment auto-buy (opt-in). OFF by default — nothing risky runs until set.
+  FRAGMENT_AUTOBUY: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  FRAGMENT_COOKIES: z.string().optional(), // fragment.com session cookies (owner logged in + wallet connected)
+  TON_MNEMONIC: z.string().optional(), // 24-word wallet mnemonic used to pay Fragment (SECRET)
+  FRAGMENT_MAX_STARS: z.coerce.number().default(5000), // safety cap per auto-buy
 });
 
 const parsed = envSchema.safeParse(process.env);
