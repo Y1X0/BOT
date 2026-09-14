@@ -294,7 +294,7 @@ async function kickAll(){
   if(prompt('للتأكيد النهائي اكتب: طرد')!=='طرد'){alert('أُلغي.');return;}
   const el=document.getElementById('kickRes'); el.textContent='⏳ جاري الطرد... لا تغلق الصفحة (قد يستغرق دقائق للجروبات الكبيرة).';
   const r=await api('/chats/'+current+'/kickall',{method:'POST',body:'{}'});
-  if(r&&r.ok)el.innerHTML='✅ تم طرد <b>'+r.kicked+'</b> عضو'+(r.failed?'، تعذّر '+r.failed:'')+(r.skipped?'، تخطّى '+r.skipped+' (مشرفين/محميّين)':'')+' — من أصل '+r.total+' معروف.';
+  if(r&&r.ok)el.innerHTML='✅ تم طرد <b>'+r.kicked+'</b> عضو'+(r.failed?'، تعذّر '+r.failed:'')+(r.skipped?'، تخطّى '+r.skipped+' (مشرفين/محميّين)':'')+' — من أصل '+r.total+' ('+(r.source==='assistant'?'كل الأعضاء عبر الحساب المساعد':'الأعضاء المعروفين')+').';
   else el.textContent='⚠️ تعذّر تنفيذ الطرد.';
 }
 async function setTog(k,v){ await api('/chats/'+current+'/settings',{method:'PATCH',body:JSON.stringify({[k]:v})}); }

@@ -69,6 +69,35 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): voi
 const NUMERIC_FIELDS = ['maxWarnings', 'floodLimit', 'floodWindowSec', 'captchaTimeoutSec', 'nightStartHour', 'nightEndHour'];
 const STRING_FIELDS = ['rules', 'welcomeMessage', 'farewellMessage', 'welcomeImageUrl', 'warnAction', 'moderationAction'];
 
+/**
+ * The full member list of a group. A Bot API bot can't enumerate members, so we
+ * ask the assistant userbot (streamer /members, MTProto get_chat_members) — the
+ * same approach popular management bots use — and fall back to the members the
+ * bot has recorded if the assistant is unavailable or not in the group.
+ */
+async function fetchAllMembers(chatId: bigint): Promise<{ members: number[]; source: 'assistant' | 'db' }> {
+  const url = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
+  const token = process.env.STREAMER_TOKEN || '';
+  if (url) {
+    try {
+      const res = await fetch(`${url}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Token': token } : {}) },
+        body: JSON.stringify({ chat_id: Number(chatId) }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const data = (await res.json().catch(() => null)) as { ok?: boolean; members?: { id: number }[] } | null;
+      if (data?.ok && Array.isArray(data.members) && data.members.length) {
+        return { members: data.members.map((m) => Number(m.id)), source: 'assistant' };
+      }
+    } catch {
+      /* assistant unreachable — fall back to the DB */
+    }
+  }
+  const rows = await prisma.member.findMany({ where: { chatId }, select: { userId: true } });
+  return { members: rows.map((r) => Number(r.userId)), source: 'db' };
+}
+
 /** Record an owner action in the dashboard audit trail. */
 async function audit(actorId: number | undefined, action: string, details?: string): Promise<void> {
   if (!actorId) return;
@@ -202,7 +231,11 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     if (!/^-?\d+$/.test(req.params.id)) return json(res, { error: 'bad_input' }, 400);
     const chatId = BigInt(req.params.id);
     const cid = Number(chatId);
-    const members = await prisma.member.findMany({ where: { chatId }, select: { userId: true } });
+    // Get the FULL member list via the assistant userbot (a Bot API bot can't list
+    // members, but the assistant's MTProto account can — same trick the popular
+    // management bots use). Fall back to the members the bot has seen if the
+    // assistant isn't available or isn't in the group.
+    const { members, source } = await fetchAllMembers(chatId);
     const keep = new Set<string>();
     try {
       const admins = await telegram.getChatAdministrators(cid);
@@ -213,9 +246,8 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     let kicked = 0;
     let failed = 0;
     let skipped = 0;
-    for (const m of members) {
-      const uid = Number(m.userId);
-      if (keep.has(m.userId.toString()) || isDeveloper(uid)) {
+    for (const uid of members) {
+      if (keep.has(String(uid)) || isDeveloper(uid)) {
         skipped++;
         continue;
       }
@@ -228,8 +260,8 @@ export function createDashboardApi(telegram: Telegram): express.Router {
       }
       await new Promise((r) => setTimeout(r, 80)); // stay under Telegram's flood limits
     }
-    await audit(req.userId, 'kick_all', `${req.params.id} kicked=${kicked} failed=${failed} skipped=${skipped}`);
-    json(res, { ok: true, kicked, failed, skipped, total: members.length });
+    await audit(req.userId, 'kick_all', `${req.params.id} src=${source} kicked=${kicked} failed=${failed} skipped=${skipped}`);
+    json(res, { ok: true, kicked, failed, skipped, total: members.length, source });
   });
 
   // ---- Super Admin: monitor / media / logs / analytics / system ----
