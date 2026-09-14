@@ -85,12 +85,15 @@ async function pingHealth(timeoutMs = 8000): Promise<boolean> {
  * answers. Returns true once awake.
  */
 async function wakeStreamer(): Promise<boolean> {
-  const deadline = Date.now() + 60_000;
+  // Render holds the first request to a spun-down free service until it has cold-
+  // started (which for this heavy Python service can take 60-90s) and only then
+  // answers 200. So each /health probe uses a LONG timeout — a short one would
+  // abort the held request before the wake completes, and we'd wrongly conclude
+  // the service can't be woken. Overall budget ~2min, gentle 3s spacing.
+  const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
-    if (await pingHealth()) return true;
-    // Poll gently (every 6s ≈ 10 pings/min) so we don't add to any rate-limit
-    // pressure on the free service while it's coming up.
-    await new Promise((r) => setTimeout(r, 6000));
+    if (await pingHealth(45_000)) return true;
+    await new Promise((r) => setTimeout(r, 3000));
   }
   return false;
 }
