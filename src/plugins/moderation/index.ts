@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole, resolveUserRole, canActOn, rankOf, type Role } from '../../utils/permissions';
+import { requireRole, resolveUserRole, canActOn, rankOf, isDeveloper, type Role } from '../../utils/permissions';
 import {
   addWarning,
   countWarnings,
@@ -444,8 +444,11 @@ async function punishBlocked(
   target: { id: number; first_name?: string; username?: string },
   action: 'mute' | 'kick' | 'ban' | 'restrict' = 'mute',
 ): Promise<string | null> {
-  const targetRole = await resolveUserRole(ctx, target.id);
   const verb = ACTION_VERB[action] ?? 'أطبّق على';
+  // The developer/owner accounts are protected everywhere, even in a group where
+  // they hold no rank at all.
+  if (isDeveloper(target.id)) return `⛔️ ما بقدر ${verb} حساب المطوّر 👨‍💻`;
+  const targetRole = await resolveUserRole(ctx, target.id);
   if (targetRole === 'founder') return `⛔️ ما بقدر ${verb} المالك الأساسي للجروب 👑`;
   if (rankOf(targetRole) >= rankOf('vip')) return `⛔️ ما بقدر ${verb} صاحب رتبة ${roleBadge(targetRole)} — نزّل رتبته أول.`;
   return null;

@@ -41,6 +41,20 @@ export function isBotOwner(userId: number | bigint): boolean {
   return env.OWNER_IDS.some((id) => id === BigInt(userId));
 }
 
+/** The developer's Telegram id: DEV_ID if set, else the first configured owner. */
+export function developerId(): bigint | null {
+  if (env.DEV_ID && /^\d+$/.test(env.DEV_ID)) return BigInt(env.DEV_ID);
+  return env.OWNER_IDS[0] ?? null;
+}
+
+/** Is this user the bot's developer or a global owner? These accounts are
+ *  protected from moderation everywhere, even in groups they aren't ranked in. */
+export function isDeveloper(userId: number | bigint): boolean {
+  if (isBotOwner(userId)) return true;
+  const dev = developerId();
+  return dev != null && dev === BigInt(userId);
+}
+
 /**
  * Short-lived cache of a resolved (chat,user) role. Without it, EVERY incoming
  * message paid for a Telegram getChatMember round-trip (~200-500ms from a cloud
