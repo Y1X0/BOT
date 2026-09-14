@@ -4,7 +4,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { formatTime, formatDate, formatDay } from '../../utils/time';
-import { resolveTarget, displayName, pickRandom } from '../../utils/format';
+import { resolveTarget, resolveTargetUser, displayName, mention, pickRandom } from '../../utils/format';
 import { escapeHtml } from '../../locales';
 import { BIO_QUOTES } from './bios';
 import { getSettings, setIdCard, setIdCardImage, setIdCardTheme } from '../../services/settings.service';
@@ -40,6 +40,7 @@ export const infoPlugin: Plugin = {
     { command: 'weather', description: '🌤 حالة الطقس' },
     { command: 'id', description: '🆔 معلوماتك (صورة، بايو، آيدي)' },
     { command: 'info', description: '👤 معلومات عضو (بالرد عليه)' },
+    { command: 'avatar', description: '📸 صورة البروفايل (افتاري / افتار @شخص)' },
     { command: 'idcardhelp', description: '🎨 كيف تخصّص بطاقة الايدي' },
     { command: 'setidcard', description: '🖌 ضبط بطاقة ايدي مخصّصة (بالرد)', staffOnly: true },
     { command: 'setidcardall', description: '🌐 ضبط بطاقة ايدي لكل القروبات (المالك)', staffOnly: true },
@@ -77,6 +78,31 @@ export const infoPlugin: Plugin = {
     };
     bot.command('id', infoHandler);
     bot.command('info', infoHandler);
+
+    // افتاري / افتار → send a profile photo at full size. Defaults to the sender;
+    // with a reply/@mention, sends that person's avatar.
+    bot.command('avatar', async (ctx) => {
+      if (!ctx.from) return;
+      const target = (await resolveTargetUser(ctx)) ?? ctx.from;
+      const isSelf = target.id === ctx.from.id;
+      try {
+        const photos = await ctx.telegram.getUserProfilePhotos(target.id, 0, 1);
+        const sizes = photos.photos?.[0];
+        if (!sizes || !sizes.length) {
+          return void ctx.reply(
+            isSelf ? '📷 ما عندك صورة بروفايل ظاهرة.' : '📷 هالشخص ما عنده صورة بروفايل ظاهرة (أو مخفيّة بالخصوصية).',
+          );
+        }
+        const fileId = sizes[sizes.length - 1].file_id; // largest available size
+        await ctx.replyWithPhoto(fileId, {
+          caption: `📸 صورة ${mention(target)}`,
+          parse_mode: 'HTML',
+        } as never);
+      } catch (err) {
+        log.warn({ err }, 'avatar fetch failed');
+        await ctx.reply('⚠️ تعذّر جلب صورة البروفايل، جرّب لاحقاً.');
+      }
+    });
 
     // /idping — admin diagnostic: run the real id-card pipeline for the caller
     // and report how many ms each stage took, so we can see the actual
