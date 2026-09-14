@@ -19,7 +19,7 @@ import {
   liftRestrictions,
   applyWarnAction,
 } from '../../utils/moderation-actions';
-import { mention, resolveTargetUser, cleanName } from '../../utils/format';
+import { mention, resolveTargetUser } from '../../utils/format';
 import { parseDuration, formatDuration } from '../../utils/duration';
 import {
   recordRestriction,
@@ -115,7 +115,7 @@ export const moderationPlugin: Plugin = {
     bot.command('tmute', requireRole('admin'), async (ctx) => {
       const target = await resolveTargetUser(ctx);
       if (!target) return void ctx.reply(NEED_TARGET);
-      { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
+      { const blocked = await punishBlocked(ctx, target, 'mute'); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
       const until = Math.floor(Date.now() / 1000) + secs;
@@ -139,7 +139,7 @@ export const moderationPlugin: Plugin = {
       const t = ctx.state.t!;
       const target = await resolveTargetUser(ctx);
       if (!target) return void ctx.reply(NEED_TARGET);
-      { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
+      { const blocked = await punishBlocked(ctx, target, 'ban'); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
       const until = Math.floor(Date.now() / 1000) + secs;
@@ -214,7 +214,7 @@ export const moderationPlugin: Plugin = {
     bot.command('restrict', requireRole('admin'), async (ctx) => {
       const target = await resolveTargetUser(ctx);
       if (!target) return void ctx.reply(NEED_TARGET);
-      { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
+      { const blocked = await punishBlocked(ctx, target, 'restrict'); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       const until = secs ? Math.floor(Date.now() / 1000) + secs : undefined;
       const ok = await ctx.telegram
@@ -310,7 +310,7 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
     // Punishment shield — mute/kick/ban only ever hit plain members; any
     // rank-holder is immune (un-actions unmute/unban are exempt from the shield).
     if (kind === 'mute' || kind === 'kick' || kind === 'ban') {
-      const blocked = await punishBlocked(ctx, target);
+      const blocked = await punishBlocked(ctx, target, kind);
       if (blocked) return void ctx.reply(blocked);
     }
 
@@ -416,8 +416,6 @@ const ROLE_BADGE: Record<string, string> = {
   member: '👤 عضو',
 };
 const roleBadge = (r: string): string => ROLE_BADGE[r] ?? r;
-const targetName = (u: { first_name?: string; username?: string }): string =>
-  (u.first_name ? cleanName(u.first_name) : '') || (u.username ? `@${u.username}` : 'الشخص');
 
 /** True if the sender may NOT act on the target: nobody can moderate someone of
  *  equal or higher rank (a Telegram admin counts as 🛡 أدمن, the creator as مالك أساسي). */
@@ -434,19 +432,22 @@ async function isProtected(ctx: BotContext, userId: number): Promise<boolean> {
  * a rank-holder you must lower their rank first. Returns a rejection message, or
  * null if the target may be punished.
  */
+const ACTION_VERB: Record<string, string> = {
+  mute: 'أكتم',
+  kick: 'أطرد',
+  ban: 'أحظر',
+  restrict: 'أقيّد',
+};
+
 async function punishBlocked(
   ctx: BotContext,
   target: { id: number; first_name?: string; username?: string },
+  action: 'mute' | 'kick' | 'ban' | 'restrict' = 'mute',
 ): Promise<string | null> {
   const targetRole = await resolveUserRole(ctx, target.id);
-  if (rankOf(targetRole) >= rankOf('vip')) {
-    return (
-      `🛡 <b>ما يصير تطبّق الإجراء</b>\n\n` +
-      `العضو <b>${targetName(target)}</b> صاحب رتبة ${roleBadge(targetRole)}،\n` +
-      `وأصحاب الرتب محميّين — ما بينكتموا ولا بينطردوا ولا بينحظروا.\n\n` +
-      `➊ نزّل رتبته أول، ➋ بعدها طبّق الإجراء.`
-    );
-  }
+  const verb = ACTION_VERB[action] ?? 'أطبّق على';
+  if (targetRole === 'founder') return `⛔️ ما بقدر ${verb} المالك الأساسي للجروب 👑`;
+  if (rankOf(targetRole) >= rankOf('vip')) return `⛔️ ما بقدر ${verb} صاحب رتبة ${roleBadge(targetRole)} — نزّل رتبته أول.`;
   return null;
 }
 
