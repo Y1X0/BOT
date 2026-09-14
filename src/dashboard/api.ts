@@ -3,7 +3,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import type { Telegram } from 'telegraf';
 import { prisma } from '../core/database';
 import { env, isProd } from '../config/env';
-import { isBotOwner, invalidateRole } from '../utils/permissions';
+import { isBotOwner, isDeveloper, invalidateRole } from '../utils/permissions';
 import { memberCount, totalMessages, topByMessages } from '../services/member.service';
 import { addReply, deleteReply, listReplies } from '../services/replies.service';
 import { addFilter, deleteFilter, listFilters } from '../services/filters.service';
@@ -193,6 +193,43 @@ export function createDashboardApi(telegram: Telegram): express.Router {
     invalidateRole(BigInt(req.params.id), BigInt(uid));
     await audit(req.userId, 'remove_role', req.params.id + ':' + uid);
     json(res, { ok });
+  });
+
+  // ⚠️ Kick EVERY known member of a group (destructive). Telegram can't list all
+  // members, so this kicks everyone the bot has recorded, skipping admins/creator
+  // and the developer/owner (which can't be kicked anyway). Kicked users may rejoin.
+  router.post('/chats/:id/kickall', async (req: AuthedRequest, res) => {
+    if (!/^-?\d+$/.test(req.params.id)) return json(res, { error: 'bad_input' }, 400);
+    const chatId = BigInt(req.params.id);
+    const cid = Number(chatId);
+    const members = await prisma.member.findMany({ where: { chatId }, select: { userId: true } });
+    const keep = new Set<string>();
+    try {
+      const admins = await telegram.getChatAdministrators(cid);
+      for (const a of admins) keep.add(String(a.user.id));
+    } catch {
+      /* couldn't fetch admins — admin kicks will simply fail and be counted */
+    }
+    let kicked = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const m of members) {
+      const uid = Number(m.userId);
+      if (keep.has(m.userId.toString()) || isDeveloper(uid)) {
+        skipped++;
+        continue;
+      }
+      try {
+        await telegram.banChatMember(cid, uid);
+        await telegram.unbanChatMember(cid, uid); // unban so they CAN rejoin (kick, not ban)
+        kicked++;
+      } catch {
+        failed++;
+      }
+      await new Promise((r) => setTimeout(r, 80)); // stay under Telegram's flood limits
+    }
+    await audit(req.userId, 'kick_all', `${req.params.id} kicked=${kicked} failed=${failed} skipped=${skipped}`);
+    json(res, { ok: true, kicked, failed, skipped, total: members.length });
   });
 
   // ---- Super Admin: monitor / media / logs / analytics / system ----

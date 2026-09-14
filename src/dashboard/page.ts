@@ -284,7 +284,19 @@ async function groupSettings(id){ current=id; gtab(false);
    +'<h3>🚫 الكلمات الممنوعة</h3>'+fl+'<div class="row"><input id="fw" placeholder="كلمة"><button class="act" onclick="addFil()">+</button></div>'
    +'<h3>🛡 صلاحيات الأدمن (الرتب)</h3>'+rolesHtml
    +'<div class="row"><input id="ruid" placeholder="آيدي العضو (User ID)"><input id="rname" placeholder="الاسم (اختياري)"><select id="rsel">'+roleOpts+'</select><button class="act" onclick="addRole()">رفع</button></div>'
-   +'<p class="muted">💡 كل رتبة تقدر تستخدم أوامر رتبتها وما تحتها. آيدي العضو بتلاقيه بتبويب «المراقبة» أو «السجلات».</p>'; }
+   +'<p class="muted">💡 كل رتبة تقدر تستخدم أوامر رتبتها وما تحتها. آيدي العضو بتلاقيه بتبويب «المراقبة» أو «السجلات».</p>'
+   +'<h3 style="color:#e53935">🚨 منطقة خطر</h3>'
+   +'<p class="muted">طرد كل الأعضاء المعروفين من الجروب (يتخطّى المشرفين والمالك والمطوّر). المطرودين يقدروا يرجعوا برابط دعوة. <b>ما في تراجع.</b></p>'
+   +'<button class="del" style="background:#e53935;color:#fff;padding:8px 14px;border-radius:8px" onclick="kickAll()">🚨 طرد جميع الأعضاء</button>'
+   +'<div id="kickRes" class="muted" style="margin-top:6px"></div>'; }
+async function kickAll(){
+  if(!confirm('⚠️ متأكد إنك بدك تطرد جميع الأعضاء المعروفين من هذا الجروب؟\\nالمشرفون والمالك والمطوّر ما بينطردوا.'))return;
+  if(prompt('للتأكيد النهائي اكتب: طرد')!=='طرد'){alert('أُلغي.');return;}
+  const el=document.getElementById('kickRes'); el.textContent='⏳ جاري الطرد... لا تغلق الصفحة (قد يستغرق دقائق للجروبات الكبيرة).';
+  const r=await api('/chats/'+current+'/kickall',{method:'POST',body:'{}'});
+  if(r&&r.ok)el.innerHTML='✅ تم طرد <b>'+r.kicked+'</b> عضو'+(r.failed?'، تعذّر '+r.failed:'')+(r.skipped?'، تخطّى '+r.skipped+' (مشرفين/محميّين)':'')+' — من أصل '+r.total+' معروف.';
+  else el.textContent='⚠️ تعذّر تنفيذ الطرد.';
+}
 async function setTog(k,v){ await api('/chats/'+current+'/settings',{method:'PATCH',body:JSON.stringify({[k]:v})}); }
 async function saveRules(){ await api('/chats/'+current+'/settings',{method:'PATCH',body:JSON.stringify({rules:document.getElementById('rules').value})}); alert('تم'); }
 async function broadcast(){ const t=document.getElementById('bc').value.trim(); if(!t)return; const r=await api('/chats/'+current+'/broadcast',{method:'POST',body:JSON.stringify({text:t})}); alert(r.ok?'تم الإرسال':'فشل'); document.getElementById('bc').value=''; }
