@@ -19,7 +19,7 @@ import {
   liftRestrictions,
   applyWarnAction,
 } from '../../utils/moderation-actions';
-import { mention, resolveTargetUser } from '../../utils/format';
+import { mention, resolveTargetUser, cleanName } from '../../utils/format';
 import { parseDuration, formatDuration } from '../../utils/duration';
 import {
   recordRestriction,
@@ -417,7 +417,7 @@ const ROLE_BADGE: Record<string, string> = {
 };
 const roleBadge = (r: string): string => ROLE_BADGE[r] ?? r;
 const targetName = (u: { first_name?: string; username?: string }): string =>
-  u.first_name || (u.username ? `@${u.username}` : 'الشخص');
+  (u.first_name ? cleanName(u.first_name) : '') || (u.username ? `@${u.username}` : 'الشخص');
 
 /** True if the sender may NOT act on the target: nobody can moderate someone of
  *  equal or higher rank (a Telegram admin counts as 🛡 أدمن, the creator as مالك أساسي). */
