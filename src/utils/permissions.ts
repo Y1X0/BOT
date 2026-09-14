@@ -105,7 +105,9 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
   const chat = ctx.chat;
   if (!userId || !chat) return 'member';
 
-  if (isBotOwner(userId)) return 'founder';
+  // The bot owner AND developer get top rank everywhere — so they can moderate
+  // (mute/kick/ban…) in any group even without a Telegram admin badge there.
+  if (isDeveloper(userId)) return 'founder';
 
   if (chat.type === 'private') return 'member';
 
@@ -184,7 +186,7 @@ export async function resolveRole(ctx: BotContext): Promise<Role> {
 export async function resolveUserRole(ctx: BotContext, userId: number | bigint): Promise<Role> {
   const chat = ctx.chat;
   if (!chat || chat.type === 'private') return 'member';
-  if (isBotOwner(userId)) return 'founder';
+  if (isDeveloper(userId)) return 'founder';
 
   let tgRole: Role = 'member';
   try {
