@@ -440,7 +440,12 @@ async function punishBlocked(
 ): Promise<string | null> {
   const targetRole = await resolveUserRole(ctx, target.id);
   if (rankOf(targetRole) >= rankOf('vip')) {
-    return `🛡 ${targetName(target)} محمي برتبته (${roleBadge(targetRole)}) — أصحاب الرتب ما بينكتموا/بينطردوا/بينحظروا. نزّل رتبته الأول لو لازم.`;
+    return (
+      `🛡 <b>ما يصير تطبّق الإجراء</b>\n\n` +
+      `العضو <b>${targetName(target)}</b> صاحب رتبة ${roleBadge(targetRole)}،\n` +
+      `وأصحاب الرتب محميّين — ما بينكتموا ولا بينطردوا ولا بينحظروا.\n\n` +
+      `➊ نزّل رتبته أول، ➋ بعدها طبّق الإجراء.`
+    );
   }
   return null;
 }
