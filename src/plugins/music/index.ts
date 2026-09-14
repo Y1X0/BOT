@@ -637,6 +637,21 @@ export const musicPlugin: Plugin = {
     const groupOnly = (ctx: BotContext): boolean =>
       Boolean(ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup'));
 
+    // Keep the streamer warm so «تشغيل» is instant and never waits on a cold
+    // start. Render spins a free service down after ~15min idle, so a /health
+    // ping every 12min keeps it up. Opt-in via STREAMER_KEEPALIVE=true (it keeps
+    // the streamer running ~24/7, which uses more instance-hours).
+    if (STREAMER_URL && process.env.STREAMER_KEEPALIVE === 'true') {
+      const keepWarm = (): void => {
+        void pingHealth(20_000).then((ok) => {
+          if (!ok) void wakeStreamerOnce();
+        });
+      };
+      setInterval(keepWarm, 12 * 60_000).unref?.();
+      keepWarm(); // warm it once at startup too
+      log.info('streamer keep-warm pinger started (every 12min)');
+    }
+
     // تشغيل <اسم الأغنية> — anyone can queue a song.
     bot.command('vcplay', async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
