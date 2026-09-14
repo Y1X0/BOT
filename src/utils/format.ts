@@ -1,5 +1,6 @@
 import type { BotContext } from '../core/context';
 import { Html } from '../locales';
+import { prisma } from '../core/database';
 
 /** Escape text for Telegram MarkdownV2. */
 export function escapeMd(text: string): string {
@@ -61,16 +62,81 @@ export function senderIdentity(ctx: BotContext): { id: number; name: string } | 
   return null;
 }
 
+type TargetUser = { id: number; first_name?: string; username?: string };
+interface TargetEnt { type: string; offset: number; length: number; user?: TargetUser }
+interface TargetMsg {
+  text?: string;
+  caption?: string;
+  reply_to_message?: { from?: TargetUser };
+  entities?: TargetEnt[];
+  caption_entities?: TargetEnt[];
+}
+
 /**
- * Resolve the target user of a moderation command:
- * the replied-to user, or a mentioned/id argument.
+ * Resolve the target of a moderation command WITHOUT any async lookup:
+ *   1. the replied-to user,
+ *   2. a text_mention (mention-by-name of a user who has no @username — the
+ *      entity carries the full user object, so we get the id directly),
+ *   3. a raw numeric id argument (e.g. «كتم 123456789»).
+ * A bare «@username» needs a lookup — use resolveTargetUser for that.
  */
-export function resolveTarget(ctx: BotContext):
-  | { id: number; first_name?: string; username?: string }
-  | null {
-  const msg = ctx.message as { reply_to_message?: { from?: { id: number; first_name?: string; username?: string } } } | undefined;
-  const replied = msg?.reply_to_message?.from;
+export function resolveTarget(ctx: BotContext): TargetUser | null {
+  const msg = ctx.message as TargetMsg | undefined;
+  if (!msg) return null;
+  const replied = msg.reply_to_message?.from;
   if (replied) return replied;
+  const ents = msg.entities || msg.caption_entities || [];
+  for (const e of ents) {
+    if (e.type === 'text_mention' && e.user?.id) return e.user;
+  }
+  const text = msg.text || msg.caption || '';
+  const m = text.match(/(?:^|\s)(\d{5,20})(?:\s|$)/);
+  if (m) return { id: Number(m[1]) };
+  return null;
+}
+
+/** Extract a bare @username target (from a `mention` entity or the raw text). */
+function usernameTarget(msg: TargetMsg): string | null {
+  const text = msg.text || msg.caption || '';
+  const ents = msg.entities || msg.caption_entities || [];
+  for (const e of ents) {
+    if (e.type === 'mention') return text.slice(e.offset + 1, e.offset + e.length);
+  }
+  const m = text.match(/@([A-Za-z0-9_]{4,32})/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Full target resolution for moderation, including «@username»: falls back to the
+ * synchronous forms first, then resolves a username via this chat's Member table
+ * (no API call, and we get the display name), and finally via Telegram itself.
+ */
+export async function resolveTargetUser(ctx: BotContext): Promise<TargetUser | null> {
+  const sync = resolveTarget(ctx);
+  if (sync) return sync;
+  const msg = ctx.message as TargetMsg | undefined;
+  if (!msg || !ctx.chat) return null;
+  const username = usernameTarget(msg);
+  if (!username) return null;
+  const member = await prisma.member
+    .findFirst({
+      where: { chatId: BigInt(ctx.chat.id), username },
+      select: { userId: true, firstName: true, username: true },
+    })
+    .catch(() => null);
+  if (member)
+    return { id: Number(member.userId), first_name: member.firstName ?? undefined, username: member.username ?? undefined };
+  try {
+    const chat = (await ctx.telegram.getChat('@' + username)) as {
+      id: number;
+      type: string;
+      first_name?: string;
+      username?: string;
+    };
+    if (chat?.id && chat.type === 'private') return { id: chat.id, first_name: chat.first_name, username: chat.username };
+  } catch {
+    /* unknown username */
+  }
   return null;
 }
 

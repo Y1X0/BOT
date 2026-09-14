@@ -565,6 +565,24 @@ model Referral {
   @@index([referrerId])
 }
 
+/// Active mute/restrict tracking. Telegram can't list restricted members, so the
+/// bot records each one it mutes/restricts here — enabling «المكتومين»/«المقيدين»
+/// (list) and «مسح المكتومين»/«مسح المقيدين» (lift all). Removed on unmute/unrestrict.
+model Restriction {
+  id        Int       @id @default(autoincrement())
+  chatId    BigInt
+  userId    BigInt
+  kind      String // "mute" | "restrict"
+  name      String?
+  username  String?
+  until     DateTime? // set for timed mutes; null = indefinite
+  createdBy BigInt?
+  createdAt DateTime  @default(now())
+
+  @@unique([chatId, userId])
+  @@index([chatId, kind])
+}
+
 /// A "buy Stars" order paid in TON. The buyer sends TON (with a unique comment)
 /// to the bot's wallet; the bot detects the on-chain payment, then buys the Stars
 /// from Fragment for their @username — automatically if configured, else the owner

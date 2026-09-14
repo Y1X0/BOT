@@ -126,12 +126,16 @@ const ALIASES: Alias[] = [
   { command: 'residcard', triggers: ['رجع بطاقة ايدي', 'ايدي افتراضي', 'استرجاع الايدي'] },
   { command: 'idcardhelp', triggers: ['مساعدة الايدي', 'كيف اخصص الايدي', 'شرح بطاقة الايدي'] },
   { command: 'mute', triggers: ['كتم', 'اكتم', 'كتمه'] },
-  { command: 'unmute', triggers: ['الغاء كتم', 'فك كتم', 'رفع كتم', 'الغاء الكتم'] },
+  { command: 'unmute', triggers: ['الغاء كتم', 'فك كتم', 'رفع كتم', 'الغاء الكتم', 'رفع الكتم', 'فك الكتم', 'مسح الكتم', 'شيل الكتم'] },
   { command: 'warn', triggers: ['تحذير', 'انذار', 'حذره', 'نبهه'] },
   { command: 'unwarn', triggers: ['الغاء تحذير', 'فك تحذير', 'شيل تحذير', 'حذف تحذير'] },
   { command: 'warns', triggers: ['تحذيراته', 'تحذيرات العضو', 'كم تحذير'] },
   { command: 'restrict', triggers: ['تقييد', 'قيد', 'قيده'] },
-  { command: 'unrestrict', triggers: ['الغاء تقييد', 'فك تقييد', 'رفع تقييد', 'الغاء التقييد'] },
+  { command: 'unrestrict', triggers: ['الغاء تقييد', 'فك تقييد', 'رفع تقييد', 'الغاء التقييد', 'رفع القيود', 'رفع التقييد', 'فك القيود', 'فك التقييد', 'رفع قيود'] },
+  { command: 'muted', triggers: ['المكتومين', 'قائمة المكتومين', 'المكتومون', 'المكتومه', 'عرض المكتومين'] },
+  { command: 'restricted', triggers: ['المقيدين', 'قائمة المقيدين', 'المقيدون', 'عرض المقيدين'] },
+  { command: 'clearmuted', triggers: ['مسح المكتومين', 'فك كل الكتم', 'رفع كل الكتم', 'الغاء كل الكتم', 'فك المكتومين'] },
+  { command: 'clearrestricted', triggers: ['مسح المقيدين', 'فك كل القيود', 'رفع كل القيود', 'فك كل التقييد', 'فك المقيدين'] },
   { command: 'ban', triggers: ['حظر', 'احظر', 'حظره'] },
   { command: 'unban', triggers: ['الغاء حظر', 'فك حظر', 'رفع حظر', 'الغاء الحظر'] },
   { command: 'kick', triggers: ['طرد', 'اطرد', 'طرده'] },
@@ -330,27 +334,32 @@ export const aliasesPlugin: Plugin = {
       const rewritten = cached !== undefined ? cached : matchAlias(ctx.message.text);
       if (rewritten) {
         const commandText = rewritten.split(' ')[0]; // e.g. "/joke"
+        type Ent = { type: string; offset: number; length: number; custom_emoji_id?: string; user?: unknown };
+        const msg = ctx.message as { text: string; reply_to_message?: unknown; entities?: Ent[] };
         // Reply-only moderation triggers (كتم/حظر/طرد/تقييد…) are common Arabic
-        // words. Only rewrite them when the message is an actual reply, so a
-        // casual mention in chat never fires a staff action or a denial notice.
-        const isReply = Boolean((ctx.message as { reply_to_message?: unknown }).reply_to_message);
-        if (REPLY_ONLY_COMMANDS.has(commandText) && !isReply) return next();
+        // words. Rewrite them only when there's an actual TARGET — a reply, a
+        // mention (@user or a tapped name), or a numeric id — so a casual word in
+        // chat never fires a staff action, while «كتم @فلان» works without a reply.
+        const isReply = Boolean(msg.reply_to_message);
+        const hasMention = (msg.entities || []).some((e) => e.type === 'mention' || e.type === 'text_mention');
+        const argsForTarget = rewritten.slice(commandText.length + 1);
+        const hasIdArg = /(?:^|\s)\d{5,20}(?:\s|$)/.test(argsForTarget);
+        if (REPLY_ONLY_COMMANDS.has(commandText) && !isReply && !hasMention && !hasIdArg) return next();
         // Rewrite message so Telegraf's command handlers match it.
-        type Ent = { type: string; offset: number; length: number; custom_emoji_id?: string };
-        const msg = ctx.message as { text: string; entities?: Ent[] };
         const original = msg.text;
-        const customEmoji = (msg.entities || []).filter((e) => e.type === 'custom_emoji');
+        // Preserve custom (premium) emoji AND mention/text_mention entities in the
+        // args — the rewrite replaces the whole entity list, which would otherwise
+        // drop the target's identity (a text_mention carries the user's id).
+        const carry = (msg.entities || []).filter(
+          (e) => e.type === 'custom_emoji' || e.type === 'mention' || e.type === 'text_mention',
+        );
         msg.text = rewritten;
         const entities: Ent[] = [{ type: 'bot_command', offset: 0, length: commandText.length }];
-        // Preserve custom (premium) emoji in the args so commands like /vccard
-        // can rebuild them — the rewrite replaces the whole entity list, which
-        // would otherwise drop them. Offsets shift because the command word
-        // differs in length from the Arabic trigger.
         const newArgsStart = commandText.length + 1; // after "/cmd "
         const argsStr = rewritten.slice(newArgsStart);
-        if (argsStr && customEmoji.length && original.endsWith(argsStr)) {
+        if (argsStr && carry.length && original.endsWith(argsStr)) {
           const delta = newArgsStart - (original.length - argsStr.length);
-          for (const e of customEmoji) entities.push({ ...e, offset: e.offset + delta });
+          for (const e of carry) entities.push({ ...e, offset: e.offset + delta });
         }
         msg.entities = entities;
       }

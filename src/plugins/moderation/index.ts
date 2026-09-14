@@ -16,24 +16,21 @@ import {
   kickUser,
   banUser,
   unbanUser,
+  liftRestrictions,
   applyWarnAction,
 } from '../../utils/moderation-actions';
-import { mention, resolveTarget } from '../../utils/format';
+import { mention, resolveTargetUser } from '../../utils/format';
 import { parseDuration, formatDuration } from '../../utils/duration';
+import {
+  recordRestriction,
+  clearRestriction,
+  listRestrictions,
+  clearAllRestrictions,
+  type RestrictionKind,
+} from '../../services/restrictions.service';
 
-/** Full send permissions — used to lift a /restrict. */
-const FULL_SEND_PERMS = {
-  can_send_messages: true,
-  can_send_audios: true,
-  can_send_documents: true,
-  can_send_photos: true,
-  can_send_videos: true,
-  can_send_video_notes: true,
-  can_send_voice_notes: true,
-  can_send_polls: true,
-  can_send_other_messages: true,
-  can_add_web_page_previews: true,
-};
+const NEED_TARGET =
+  '🎯 حدّد الشخص: <b>ردّ على رسالته</b>، أو اكتب الأمر و<b>منشن</b> اسمه (مثال: <code>كتم @اسم</code>)، أو ضع الآيدي.';
 
 export const moderationPlugin: Plugin = {
   name: 'moderation',
@@ -42,17 +39,21 @@ export const moderationPlugin: Plugin = {
     { command: 'warn', description: '⚠️ تحذير عضو (بالرد)', staffOnly: true },
     { command: 'unwarn', description: '✅ إزالة تحذير (بالرد)', staffOnly: true },
     { command: 'warns', description: '📊 عرض تحذيرات عضو (بالرد)', staffOnly: true },
-    { command: 'mute', description: '🔇 كتم عضو (بالرد)', staffOnly: true },
-    { command: 'tmute', description: '⏳ كتم مؤقت: /tmute 30m (بالرد)', staffOnly: true },
-    { command: 'unmute', description: '🔊 إلغاء كتم (بالرد)', staffOnly: true },
-    { command: 'kick', description: '👢 طرد عضو (بالرد)', staffOnly: true },
-    { command: 'ban', description: '🚫 حظر عضو (بالرد)', staffOnly: true },
-    { command: 'tban', description: '⏳ حظر مؤقت: /tban 2h (بالرد)', staffOnly: true },
-    { command: 'unban', description: '✅ إلغاء حظر (بالرد)', staffOnly: true },
+    { command: 'mute', description: '🔇 كتم عضو (بالرد أو منشن)', staffOnly: true },
+    { command: 'tmute', description: '⏳ كتم مؤقت: كتم 30m (بالرد/منشن)', staffOnly: true },
+    { command: 'unmute', description: '🔊 رفع الكتم (بالرد أو منشن)', staffOnly: true },
+    { command: 'muted', description: '📋 قائمة المكتومين', staffOnly: true },
+    { command: 'clearmuted', description: '🧹 مسح كل الكتم (رفع الكتم عن الكل)', staffOnly: true },
+    { command: 'kick', description: '👢 طرد عضو (بالرد أو منشن)', staffOnly: true },
+    { command: 'ban', description: '🚫 حظر عضو (بالرد أو منشن)', staffOnly: true },
+    { command: 'tban', description: '⏳ حظر مؤقت: حظر 2h (بالرد/منشن)', staffOnly: true },
+    { command: 'unban', description: '✅ إلغاء حظر (بالرد أو منشن)', staffOnly: true },
     { command: 'promote', description: '⬆️ ترقية عضو لمشرف (بالرد)', staffOnly: true },
     { command: 'demote', description: '⬇️ تنزيل مشرف (بالرد)', staffOnly: true },
-    { command: 'restrict', description: '🔗 تقييد كامل (منع كل شيء، بالرد)', staffOnly: true },
-    { command: 'unrestrict', description: '✅ رفع التقييد (بالرد)', staffOnly: true },
+    { command: 'restrict', description: '🔗 تقييد كامل (بالرد أو منشن)', staffOnly: true },
+    { command: 'unrestrict', description: '✅ رفع كل القيود (بالرد أو منشن)', staffOnly: true },
+    { command: 'restricted', description: '📋 قائمة المقيّدين', staffOnly: true },
+    { command: 'clearrestricted', description: '🧹 مسح كل التقييد (رفع القيود عن الكل)', staffOnly: true },
     { command: 'addfilter', description: '🚫 إضافة كلمة ممنوعة', staffOnly: true },
     { command: 'delfilter', description: '➖ حذف كلمة ممنوعة', staffOnly: true },
     { command: 'filters', description: '📋 عرض الكلمات الممنوعة', staffOnly: true },
@@ -62,8 +63,8 @@ export const moderationPlugin: Plugin = {
     // /warn (reply) [reason]
     bot.command('warn', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply(t('mod.warn_usage'));
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
       if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
 
       const reason = ctx.message.text.split(' ').slice(1).join(' ').trim() || t('mod.warn_reason_default');
@@ -87,15 +88,15 @@ export const moderationPlugin: Plugin = {
 
     bot.command('unwarn', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply(t('mod.need_reply'));
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
       const count = await removeWarning(ctx.chat.id, target.id);
       await ctx.reply(t('mod.unwarn_done', { name: mention(target), count }));
     });
 
     bot.command('warns', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
-      const target = resolveTarget(ctx) ?? ctx.from;
+      const target = (await resolveTargetUser(ctx)) ?? ctx.from;
       const count = await countWarnings(ctx.chat.id, target.id);
       if (count === 0) return void ctx.reply(t('mod.warns_none', { name: mention(target) }));
       await ctx.reply(
@@ -112,15 +113,23 @@ export const moderationPlugin: Plugin = {
 
     // ⏳ Timed mute: /tmute 30m (reply). Auto-unmutes when the duration elapses.
     bot.command('tmute', requireRole('admin'), async (ctx) => {
-      const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply('⏳ ردّ على العضو واكتب المدة. مثال: /tmute 30m');
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
       { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
       const until = Math.floor(Date.now() / 1000) + secs;
       const ok = await muteUser(ctx, target.id, until);
-      if (!ok) return void ctx.reply(t('errors.generic'));
+      if (!ok) return void ctx.reply(await botFailureReason(ctx));
+      await recordRestriction({
+        chatId: ctx.chat.id,
+        userId: target.id,
+        kind: 'mute',
+        name: target.first_name,
+        username: target.username,
+        until: new Date(until * 1000),
+        createdBy: ctx.from.id,
+      });
       await logAction(ctx.chat.id, 'tmute', ctx.from.id, target.id, `${secs}s`);
       await ctx.reply(`🔇 تم كتم ${mention(target)} لمدة ${formatDuration(secs)}.`);
     });
@@ -128,8 +137,8 @@ export const moderationPlugin: Plugin = {
     // ⏳ Timed ban: /tban 2h (reply). Telegram auto-unbans when it elapses.
     bot.command('tban', requireRole('admin'), async (ctx) => {
       const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply('⏳ ردّ على العضو واكتب المدة. مثال: /tban 2h');
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
       { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       if (!secs) return void ctx.reply('⏳ مدة غير صحيحة. أمثلة: 30m / 2h / 1d');
@@ -147,8 +156,8 @@ export const moderationPlugin: Plugin = {
     // /promote اللقب (reply).
     bot.command('promote', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply(t('mod.need_reply'));
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
       if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
       try {
         await ctx.telegram.promoteChatMember(ctx.chat.id, target.id, {
@@ -179,8 +188,8 @@ export const moderationPlugin: Plugin = {
     // Demote an admin back to a regular member (owner/admin only).
     bot.command('demote', requireRole('manager'), async (ctx) => {
       const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply(t('mod.need_reply'));
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
       if (await isProtected(ctx, target.id)) return void ctx.reply(t('mod.cant_target_admin'));
       try {
         await ctx.telegram.promoteChatMember(ctx.chat.id, target.id, {
@@ -203,9 +212,8 @@ export const moderationPlugin: Plugin = {
     // Fully restrict a member — nothing at all can be sent (text included).
     // Optional duration: /restrict 2h (reply).
     bot.command('restrict', requireRole('admin'), async (ctx) => {
-      const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply('🔗 ردّ على العضو الذي تريد تقييده.');
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
       { const blocked = await punishBlocked(ctx, target); if (blocked) return void ctx.reply(blocked); }
       const secs = parseDuration(ctx.message.text.split(/\s+/)[1]);
       const until = secs ? Math.floor(Date.now() / 1000) + secs : undefined;
@@ -222,31 +230,47 @@ export const moderationPlugin: Plugin = {
             can_send_polls: false,
             can_send_other_messages: false,
             can_add_web_page_previews: false,
+            can_invite_users: false,
+            can_pin_messages: false,
+            can_change_info: false,
+            can_manage_topics: false,
           },
           until_date: until,
         })
         .then(() => true)
         .catch(() => false);
-      if (!ok) return void ctx.reply(t('errors.generic'));
+      if (!ok) return void ctx.reply(await botFailureReason(ctx));
+      await recordRestriction({
+        chatId: ctx.chat.id,
+        userId: target.id,
+        kind: 'restrict',
+        name: target.first_name,
+        username: target.username,
+        until: until ? new Date(until * 1000) : null,
+        createdBy: ctx.from.id,
+      });
       await logAction(ctx.chat.id, 'restrict', ctx.from.id, target.id, secs ? `${secs}s` : undefined);
       await ctx.reply(
         `🔗 تم تقييد ${mention(target)} تقييداً كاملاً (ممنوع الكتابة أو إرسال أي شيء)${secs ? ` لمدة ${formatDuration(secs)}` : ''}.`,
       );
     });
 
-    // Remove restrictions — restore full sending permissions.
+    // Remove ALL restrictions — restore the member to normal.
     bot.command('unrestrict', requireRole('admin'), async (ctx) => {
-      const t = ctx.state.t!;
-      const target = resolveTarget(ctx);
-      if (!target) return void ctx.reply(t('mod.need_reply'));
-      const ok = await ctx.telegram
-        .restrictChatMember(ctx.chat.id, target.id, { permissions: FULL_SEND_PERMS })
-        .then(() => true)
-        .catch(() => false);
-      if (!ok) return void ctx.reply(t('errors.generic'));
+      const target = await resolveTargetUser(ctx);
+      if (!target) return void ctx.reply(NEED_TARGET);
+      const ok = await liftRestrictions(ctx, target.id);
+      if (!ok) return void ctx.reply(await botFailureReason(ctx));
+      await clearRestriction(ctx.chat.id, target.id);
       await logAction(ctx.chat.id, 'unrestrict', ctx.from.id, target.id);
-      await ctx.reply(`✅ تم رفع التقييد عن ${mention(target)}.`);
+      await ctx.reply(`✅ تم رفع كل القيود عن ${mention(target)}.`);
     });
+
+    // 📋 List / bulk-lift muted & restricted members.
+    bot.command('muted', requireRole('admin'), listRestrictionsCmd('mute'));
+    bot.command('restricted', requireRole('admin'), listRestrictionsCmd('restrict'));
+    bot.command('clearmuted', requireRole('admin'), clearRestrictionsCmd('mute'));
+    bot.command('clearrestricted', requireRole('admin'), clearRestrictionsCmd('restrict'));
 
     // Word filters
     bot.command('addfilter', requireRole('manager'), async (ctx) => {
@@ -279,8 +303,9 @@ export const moderationPlugin: Plugin = {
 function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
   return async (ctx: BotContext) => {
     const t = ctx.state.t!;
-    const target = resolveTarget(ctx);
-    if (!target) return void ctx.reply(t('mod.need_reply'));
+    // Target by reply, @mention, mention-by-name, or numeric id.
+    const target = await resolveTargetUser(ctx);
+    if (!target) return void ctx.reply(NEED_TARGET);
 
     // Punishment shield — mute/kick/ban only ever hit plain members; any
     // rank-holder is immune (un-actions unmute/unban are exempt from the shield).
@@ -297,6 +322,18 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
     else if (kind === 'unban') ok = await unbanUser(ctx, target.id);
 
     if (ok && ctx.chat && ctx.from) {
+      // Keep the muted-users list in sync.
+      if (kind === 'mute')
+        await recordRestriction({
+          chatId: ctx.chat.id,
+          userId: target.id,
+          kind: 'mute',
+          name: target.first_name,
+          username: target.username,
+          createdBy: ctx.from.id,
+        });
+      else if (kind === 'unmute') await clearRestriction(ctx.chat.id, target.id);
+
       const replyKey: Record<typeof kind, string> = {
         mute: 'mod.muted',
         unmute: 'mod.unmuted',
@@ -311,6 +348,61 @@ function moderationAction(kind: 'mute' | 'unmute' | 'kick' | 'ban' | 'unban') {
       // admin, or lacks the "ban/restrict members" right).
       await ctx.reply(await botFailureReason(ctx));
     }
+  };
+}
+
+/** «المكتومين» / «المقيدين» — list who is currently muted/restricted. */
+function listRestrictionsCmd(kind: RestrictionKind) {
+  return async (ctx: BotContext) => {
+    if (!ctx.chat) return;
+    const rows = await listRestrictions(ctx.chat.id, kind);
+    const label = kind === 'mute' ? 'المكتومين' : 'المقيّدين';
+    if (!rows.length) return void ctx.reply(`✅ ما في حدا ${kind === 'mute' ? 'مكتوم' : 'مقيّد'} حالياً.`);
+    const lines = rows.map((r, i) => {
+      const name = mention({
+        id: Number(r.userId),
+        first_name: r.name ?? undefined,
+        username: r.username ?? undefined,
+      });
+      const timed = r.until ? ` ⏳ ${r.until.toISOString().slice(0, 16).replace('T', ' ')}` : '';
+      return `${i + 1}. ${name}${timed}`;
+    });
+    await ctx.reply(
+      `🔇 <b>قائمة ${label}</b> (${rows.length}):\n${lines.join('\n')}\n\n💡 لمسح الكل: <code>${kind === 'mute' ? 'مسح المكتومين' : 'مسح المقيدين'}</code>`,
+    );
+  };
+}
+
+/** «مسح المكتومين» / «مسح المقيدين» — lift the restriction off everyone at once. */
+function clearRestrictionsCmd(kind: RestrictionKind) {
+  return async (ctx: BotContext) => {
+    if (!ctx.chat || !ctx.from) return;
+    const rows = await listRestrictions(ctx.chat.id, kind);
+    if (!rows.length) return void ctx.reply(`✅ ما في ${kind === 'mute' ? 'مكتومين' : 'مقيّدين'} للمسح.`);
+    const status = await ctx.reply(`⏳ عم ارفع ${kind === 'mute' ? 'الكتم' : 'التقييد'} عن ${rows.length}…`);
+    let done = 0;
+    let fail = 0;
+    for (const r of rows) {
+      const ok = await liftRestrictions(ctx, Number(r.userId));
+      if (ok) {
+        await clearRestriction(ctx.chat.id, r.userId);
+        done++;
+      } else {
+        fail++;
+      }
+      await new Promise((res) => setTimeout(res, 60)); // stay under Telegram's flood limit
+    }
+    await clearAllRestrictions(ctx.chat.id, kind); // drop any leftovers
+    await logAction(ctx.chat.id, kind === 'mute' ? 'clear_muted' : 'clear_restricted', ctx.from.id, ctx.from.id, `${done}/${rows.length}`);
+    await ctx.telegram
+      .editMessageText(
+        ctx.chat.id,
+        status.message_id,
+        undefined,
+        `✅ تم رفع ${kind === 'mute' ? 'الكتم' : 'التقييد'} عن <b>${done}</b>${fail ? ` (تعذّر ${fail} — غالباً غادروا الجروب)` : ''}.`,
+        { parse_mode: 'HTML' } as never,
+      )
+      .catch(() => undefined);
   };
 }
 
