@@ -641,6 +641,11 @@ export const musicPlugin: Plugin = {
     bot.command('vcplay', async (ctx) => {
       if (!groupOnly(ctx) || !ctx.chat) return;
       if (!STREAMER_URL) return void ctx.reply(NOT_CONFIGURED);
+      // Eager wake: the instant ANYONE types «تشغيل», start pinging /health in the
+      // background so a spun-down streamer begins cold-starting immediately —
+      // ~20s sooner than waiting for the first /play to time out. It's a shared
+      // singleton, so if the service is already awake this is a single quick ping.
+      void wakeStreamerOnce();
       const chatId = ctx.chat.id;
       const parts = ctx.message.text.split(' ').slice(1).join(' ').trim();
       const replied = (ctx.message as { reply_to_message?: RepliedForPlay }).reply_to_message;
