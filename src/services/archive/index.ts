@@ -127,6 +127,15 @@ export async function archiveCount(): Promise<number> {
   return prisma.audioArchive.count().catch(() => 0);
 }
 
+/** The most-recently-added N archive entries, WITH their file_ids — for re-posting
+ *  (e.g. publishing to another channel). Newest first. */
+export async function archiveRecent(limit: number): Promise<ArchiveHit[]> {
+  const rows = await prisma.audioArchive
+    .findMany({ take: Math.min(Math.max(1, limit), 500), orderBy: { id: 'desc' } })
+    .catch(() => []);
+  return rows.map((r) => ({ fileId: r.fileId, title: r.title, duration: r.duration, kind: (r.kind as AudioKind) ?? 'audio' }));
+}
+
 export interface ArchiveEntry {
   title: string;
   artist: string | null;

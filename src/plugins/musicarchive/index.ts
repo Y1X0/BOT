@@ -3,7 +3,8 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { requireRole } from '../../utils/permissions';
-import { indexAudio, archiveCount, archiveList } from '../../services/archive';
+import { indexAudio, archiveCount, archiveList, archiveRecent } from '../../services/archive';
+import { escapeHtml } from '../../locales';
 import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:musicarchive');
@@ -52,6 +53,7 @@ export const musicArchivePlugin: Plugin = {
     { command: 'archivecount', description: '🗂 عدد الأغاني بالأرشيف (مالك)', staffOnly: true },
     { command: 'archivelist', description: '🔍 تصفّح/ابحث بالأرشيف: /archivelist [اسم] (مالك)', staffOnly: true },
     { command: 'archivediag', description: '🔧 تشخيص الأرشيف والإصدار (مالك)', staffOnly: true },
+    { command: 'publisharchive', description: '📤 نشر آخر أصوات الأرشيف لقناة ببصمة البوت (مالك)', staffOnly: true },
     { command: 'import', description: '📥 استيراد أغاني من قناة للأرشيف (مالك)', staffOnly: true },
     { command: 'importstop', description: '🛑 إيقاف الاستيراد (مالك)', staffOnly: true },
   ],
@@ -135,6 +137,74 @@ export const musicArchivePlugin: Plugin = {
         ? `🔍 نتائج «${q}» (${list.length}):`
         : `🗂 آخر ${list.length} أغنية (المجموع ${total}):`;
       await ctx.reply(`${header}\n${lines.join('\n')}`);
+    });
+
+    // Re-publish the latest N archived audios into another channel, each stamped
+    // with the surah/title and a CLICKABLE bot link (like a username).
+    // Usage: /publisharchive -100xxxxxxxxxx [count]   (default 114)
+    bot.command('publisharchive', requireRole('founder'), async (ctx) => {
+      const parts = ctx.message.text.split(/\s+/).slice(1);
+      const target = parts[0];
+      if (!target || !/^-100\d{5,}$/.test(target))
+        return void ctx.reply('الاستخدام:\n<code>/publisharchive -100xxxxxxxxxx [العدد]</code>\nمثال: <code>/publisharchive -1001234567890 114</code>');
+      const count = Math.min(Math.max(1, parseInt(parts[1] || '114', 10) || 114), 500);
+      const channelId = Number(target);
+
+      const me = await ctx.telegram.getMe();
+      const uname = me.username;
+      const botName = me.first_name || uname || 'البوت';
+      const brand = uname
+        ? `<a href="https://t.me/${uname}">🎧 ${escapeHtml(botName)}</a> · @${uname}`
+        : `🎧 ${escapeHtml(botName)}`;
+
+      const items = await archiveRecent(count);
+      if (!items.length) return void ctx.reply('🗂 الأرشيف فاضي.');
+      items.reverse(); // publish oldest-of-the-batch first, so the channel reads in order
+
+      const status = await ctx.reply(`⏳ عم أنشر ${items.length} صوت للقناة… (بياخد شوي، لا تستعجل)`);
+      const sid = status.message_id;
+      const homeChat = ctx.chat!.id;
+
+      // Detached: posting dozens of files takes minutes — don't block the handler.
+      void (async () => {
+        let sent = 0;
+        let failed = 0;
+        for (const it of items) {
+          const caption = `📖 <b>${escapeHtml(it.title)}</b>\n\n${brand}`;
+          try {
+            if (it.kind === 'document') {
+              await ctx.telegram.sendDocument(channelId, it.fileId, { caption, parse_mode: 'HTML' } as never);
+            } else {
+              await ctx.telegram.sendAudio(channelId, it.fileId, {
+                caption,
+                parse_mode: 'HTML',
+                title: it.title,
+                performer: botName,
+              } as never);
+            }
+            sent++;
+          } catch (err) {
+            failed++;
+            log.warn({ err, title: it.title }, 'publisharchive send failed');
+            // A "chat not found"/"not admin" error will fail every item — bail early.
+            if (sent === 0 && failed >= 3) {
+              await ctx.telegram
+                .editMessageText(homeChat, sid, undefined, '❌ تعذّر النشر. تأكد إنّ البوت أدمن بالقناة وإنّ الآيدي صحيح.')
+                .catch(() => undefined);
+              return;
+            }
+          }
+          if (sent % 10 === 0 && sent > 0) {
+            await ctx.telegram.editMessageText(homeChat, sid, undefined, `⏳ نُشر ${sent}/${items.length}…`).catch(() => undefined);
+          }
+          await new Promise((r) => setTimeout(r, 1500)); // ~1 msg/1.5s — safe for channels
+        }
+        await ctx.telegram
+          .editMessageText(homeChat, sid, undefined, `✅ تم نشر <b>${sent}</b> صوت للقناة${failed ? ` (تعذّر ${failed})` : ''}.`, {
+            parse_mode: 'HTML',
+          } as never)
+          .catch(() => undefined);
+      })();
     });
 
     // Bulk-import audio from a source channel via the assistant account. The
