@@ -167,42 +167,63 @@ export const musicArchivePlugin: Plugin = {
 
       // Detached: posting dozens of files takes minutes — don't block the handler.
       void (async () => {
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        const floodWait = (err: unknown): number => {
+          const e = err as { parameters?: { retry_after?: number }; response?: { parameters?: { retry_after?: number } } };
+          return e?.parameters?.retry_after ?? e?.response?.parameters?.retry_after ?? 0;
+        };
+        const sendOne = async (it: (typeof items)[number]): Promise<void> => {
+          const caption = `📖 <b>${escapeHtml(it.title)}</b>\n\n${brand}`;
+          if (it.kind === 'document') {
+            await ctx.telegram.sendDocument(channelId, it.fileId, { caption, parse_mode: 'HTML' } as never);
+          } else {
+            await ctx.telegram.sendAudio(channelId, it.fileId, { caption, parse_mode: 'HTML', title: it.title, performer: botName } as never);
+          }
+        };
+
         let sent = 0;
         let failed = 0;
+        const reasons = new Map<string, number>();
         for (const it of items) {
-          const caption = `📖 <b>${escapeHtml(it.title)}</b>\n\n${brand}`;
-          try {
-            if (it.kind === 'document') {
-              await ctx.telegram.sendDocument(channelId, it.fileId, { caption, parse_mode: 'HTML' } as never);
-            } else {
-              await ctx.telegram.sendAudio(channelId, it.fileId, {
-                caption,
-                parse_mode: 'HTML',
-                title: it.title,
-                performer: botName,
-              } as never);
-            }
-            sent++;
-          } catch (err) {
-            failed++;
-            log.warn({ err, title: it.title }, 'publisharchive send failed');
-            // A "chat not found"/"not admin" error will fail every item — bail early.
-            if (sent === 0 && failed >= 3) {
-              await ctx.telegram
-                .editMessageText(homeChat, sid, undefined, '❌ تعذّر النشر. تأكد إنّ البوت أدمن بالقناة وإنّ الآيدي صحيح.')
-                .catch(() => undefined);
-              return;
+          let ok = false;
+          for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+            try {
+              await sendOne(it);
+              ok = true;
+            } catch (err) {
+              const wait = floodWait(err);
+              if (wait > 0 && attempt === 0) {
+                await sleep((wait + 1) * 1000); // Telegram flood — wait it out and retry once
+                continue;
+              }
+              const msg = String((err as Error)?.message || err).slice(0, 60);
+              reasons.set(msg, (reasons.get(msg) ?? 0) + 1);
+              log.warn({ err, title: it.title }, 'publisharchive send failed');
             }
           }
-          if (sent % 10 === 0 && sent > 0) {
-            await ctx.telegram.editMessageText(homeChat, sid, undefined, `⏳ نُشر ${sent}/${items.length}…`).catch(() => undefined);
+          if (ok) sent++;
+          else failed++;
+          // If nothing sends at all early on, it's a config error — bail.
+          if (sent === 0 && failed >= 3) {
+            await ctx.telegram
+              .editMessageText(homeChat, sid, undefined, '❌ تعذّر النشر. تأكد إنّ البوت أدمن بالقناة وإنّ الآيدي صحيح.')
+              .catch(() => undefined);
+            return;
           }
-          await new Promise((r) => setTimeout(r, 1500)); // ~1 msg/1.5s — safe for channels
+          if ((sent + failed) % 10 === 0) {
+            await ctx.telegram.editMessageText(homeChat, sid, undefined, `⏳ ${sent + failed}/${items.length} (نُشر ${sent})…`).catch(() => undefined);
+          }
+          await sleep(2000); // ~1 msg/2s — safe for channel posting
         }
+        const breakdown = [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, n]) => `• ${n}× ${escapeHtml(m)}`).join('\n');
         await ctx.telegram
-          .editMessageText(homeChat, sid, undefined, `✅ تم نشر <b>${sent}</b> صوت للقناة${failed ? ` (تعذّر ${failed})` : ''}.`, {
-            parse_mode: 'HTML',
-          } as never)
+          .editMessageText(
+            homeChat,
+            sid,
+            undefined,
+            `✅ تم نشر <b>${sent}</b> صوت${failed ? ` (تعذّر ${failed})` : ''}.` + (breakdown ? `\n\nأسباب الفشل:\n${breakdown}` : ''),
+            { parse_mode: 'HTML' } as never,
+          )
           .catch(() => undefined);
       })();
     });
