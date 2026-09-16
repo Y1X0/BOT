@@ -1,7 +1,7 @@
 import type { Telegraf } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
-import { requireRole, invalidateRole, resolveUserRole, canActOn, hasRole, type Role } from '../../utils/permissions';
+import { requireRole, invalidateRole, resolveRole, resolveUserRole, canActOn, hasRole, type Role } from '../../utils/permissions';
 import { resolveTarget, displayName, mention } from '../../utils/format';
 import { setChatRole, removeChatRole, listChatRoles, getChatRole, type AssignableRole } from '../../services/roles.service';
 import { prisma } from '../../core/database';
@@ -35,6 +35,7 @@ export const botRolesPlugin: Plugin = {
     { command: 'radmin', description: '🛡 رفع أدمن (بالرد)', staffOnly: true },
     { command: 'rvip', description: '💎 رفع مميّز (بالرد)', staffOnly: true },
     { command: 'unrank', description: '🗑 تنزيل الرتبة (بالرد)', staffOnly: true },
+    { command: 'demoterank', description: '📉 تنزيل رتبة معيّنة أو الكل: «تنزيل مالك» / «تنزيل الكل»', staffOnly: true },
     { command: 'roles', description: '📋 مين المشرفين والرتب بالجروب' },
   ],
 
@@ -84,6 +85,70 @@ export const botRolesPlugin: Plugin = {
         removed
           ? `✦ 🗑 تم تنزيل ${men} من رتبته ✦`
           : `ℹ️ ${men} ما عنده رتبة بوت أصلاً.`,
+      );
+    });
+
+    // «تنزيل مالك/مدير/ادمن/مميز» → strip that tier; «تنزيل الكل» → strip every
+    // tier. With a reply, only the replied user; otherwise everyone in the group.
+    // You can only strip tiers strictly below your own.
+    const RANK_WORD: Record<string, AssignableRole> = {
+      مالك: 'owner', owner: 'owner',
+      مدير: 'manager', manager: 'manager',
+      ادمن: 'admin', admin: 'admin',
+      مميز: 'vip', vip: 'vip',
+    };
+    const normArg = (s: string): string =>
+      s.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/^ال/, '').replace(/ين$|ون$/, '').trim();
+    const parseFilter = (raw: string): AssignableRole | 'all' | null => {
+      const n = normArg(raw);
+      if (/^(كل|جميع|الكل)$/.test(n) || n === 'all') return 'all';
+      return RANK_WORD[n] ?? null;
+    };
+
+    bot.command('demoterank', async (ctx) => {
+      if (!isGroup(ctx) || !ctx.chat || !ctx.from) return;
+      const raw = ctx.message.text.split(/\s+/).slice(1).join(' ').trim();
+      const filter = parseFilter(raw);
+      if (!filter) {
+        if (!raw) await ctx.reply('📉 <b>الاستخدام:</b>\n«تنزيل مالك / مدير / ادمن / مميز» أو «تنزيل الكل»\nبالرد على شخص = عنه فقط، وبدون رد = عن كل الجروب.');
+        return; // "تنزيل <شي مش رتبة>" → تجاهل بصمت
+      }
+      const actor = await resolveRole(ctx);
+      if (!hasRole(actor, 'manager')) return void ctx.reply('⛔️ هذا الأمر للمدير فأعلى.');
+
+      const label = filter === 'all' ? 'كل الرتب' : BADGE[filter];
+      const matches = (stored: string): boolean => filter === 'all' || stored === filter;
+
+      // Reply → only that person.
+      const target = resolveTarget(ctx);
+      if (target) {
+        const stored = await getChatRole(ctx.chat.id, target.id);
+        const men = mention({ id: target.id, first_name: displayName(target) }).toString();
+        if (!stored) return void ctx.reply(`ℹ️ ${men} ما عنده رتبة بوت أصلاً.`);
+        if (!matches(stored)) return void ctx.reply(`ℹ️ رتبة ${men} هي ${BADGE[stored]} — مش «${label}».`);
+        if (!canActOn(actor, stored as Role)) return void ctx.reply(`⛔️ ما بتقدر تنزّل ${BADGE[stored]} — لازم تكون أعلى منها.`);
+        await removeChatRole(ctx.chat.id, target.id);
+        invalidateRole(ctx.chat.id, target.id);
+        return void ctx.reply(`✦ 🗑 تم تنزيل ${men} من رتبته (${BADGE[stored]}) ✦`);
+      }
+
+      // No reply → everyone in the group (that the actor may act on).
+      const roles = await listChatRoles(ctx.chat.id);
+      let removed = 0;
+      let skipped = 0;
+      for (const r of roles) {
+        if (!matches(r.role)) continue;
+        if (!canActOn(actor, r.role as Role)) {
+          skipped++;
+          continue;
+        }
+        await removeChatRole(ctx.chat.id, BigInt(r.userId));
+        invalidateRole(ctx.chat.id, BigInt(r.userId));
+        removed++;
+      }
+      if (!removed && !skipped) return void ctx.reply(`ℹ️ ما في حدا رتبته «${label}» بالجروب.`);
+      await ctx.reply(
+        `✅ تم تنزيل <b>${removed}</b> (${label})${skipped ? `\n⛔️ تخطّيت ${skipped} — رتبتهم مساوية أو أعلى منك` : ''}.`,
       );
     });
 

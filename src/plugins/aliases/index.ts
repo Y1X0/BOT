@@ -110,6 +110,9 @@ const ALIASES: Alias[] = [
   // now belong to the bot-rank system below).
   { command: 'promote', triggers: ['ترقيه', 'ترقية', 'رفع تيليجرام'] },
   { command: 'demote', triggers: ['تنزيل تيليجرام', 'تنزيل ترقية'] },
+  // «تنزيل مالك/مدير/ادمن/مميز/الكل» — bare «تنزيل» captures the rank as an arg;
+  // the longer «تنزيل تيليجرام/ترقية» above win by longest-match.
+  { command: 'demoterank', triggers: ['تنزيل'] },
   // In-bot ranks — "رفع <رتبة>" (by reply). The rank word decides.
   { command: 'rvip', triggers: ['رفع مميز', 'رتبة مميز', 'رتبه مميز'] },
   { command: 'radmin', triggers: ['رفع ادمن', 'رفع ادمن بوت', 'رتبة ادمن', 'رتبه ادمن', 'رفع مشرف', 'رفع مشرف بوت', 'رتبة مشرف', 'رتبه مشرف'] },
