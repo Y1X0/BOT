@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm, readdir, stat } from 'node:fs/promises';
+import { existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, extname } from 'node:path';
 import { env } from '../config/env';
@@ -8,6 +9,30 @@ import { createLogger } from '../core/logger';
 import { cobaltConfigured, cobaltDownload } from './cobalt';
 
 const log = createLogger('downloader');
+
+// Resolve a cookies file once. DL_COOKIES points at a file; DL_COOKIES_CONTENT
+// carries the cookies.txt content directly (written to a temp file). Passed to
+// yt-dlp so login-gated sites (Instagram, private posts) work. yt-dlp scopes each
+// cookie to its own domain, so it's safe to attach for every download.
+let _cookieFile: string | null | undefined;
+function cookieArgs(): string[] {
+  if (_cookieFile === undefined) {
+    _cookieFile = null;
+    try {
+      if (env.DL_COOKIES && existsSync(env.DL_COOKIES)) _cookieFile = env.DL_COOKIES;
+      else if (env.DL_COOKIES_CONTENT && env.DL_COOKIES_CONTENT.trim()) {
+        const p = join(tmpdir(), 'dl-cookies.txt');
+        writeFileSync(p, env.DL_COOKIES_CONTENT, 'utf8');
+        _cookieFile = p;
+        log.info('using download cookies from DL_COOKIES_CONTENT');
+      }
+    } catch (err) {
+      log.warn({ err }, 'failed to prepare download cookies');
+      _cookieFile = null;
+    }
+  }
+  return _cookieFile ? ['--cookies', _cookieFile] : [];
+}
 
 const TIMEOUT_MS = 300_000; // 5 min
 const VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv'];
@@ -87,6 +112,7 @@ async function ytDlpDownload(
     '--no-progress',
     '--no-playlist',
     '--geo-bypass',
+    ...cookieArgs(),
     ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
     '--max-filesize',
     `${maxMb}M`,

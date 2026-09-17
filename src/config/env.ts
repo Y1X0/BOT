@@ -152,6 +152,11 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v !== 'false'),
   DL_MAX_SIZE_MB: z.coerce.number().default(50),
+  // Cookies for login-gated downloads (Instagram, private/age-gated posts). Paste
+  // a Netscape cookies.txt as DL_COOKIES_CONTENT, or point DL_COOKIES at a file.
+  // Use a THROWAWAY account. yt-dlp only sends each cookie to its own domain.
+  DL_COOKIES: z.string().optional(),
+  DL_COOKIES_CONTENT: z.string().optional(),
 
   // Web dashboard (opt-in). Login via Telegram widget, owner-only.
   DASHBOARD_ENABLED: z
