@@ -837,10 +837,12 @@ async def _on_stream_end(_, update) -> None:
             pass
         return
     try:
-        await calls.play(chat_id, _audio(nxt["url"]))
+        # Use _play_now (retries + AlreadyJoined recovery + archive/liveness) rather
+        # than a single calls.play, so a transient hiccup between tracks doesn't
+        # lose the song and stall the whole queue.
+        await _play_now(chat_id, nxt)
         log.info("auto-advanced in %s → %s", chat_id, nxt.get("title"))
         await _notify_now_playing(chat_id, nxt)
-        _spawn(_archive_bg(nxt))  # detached archive-on-play
     except Exception as e:
         log.warning("auto-advance failed in %s: %s", chat_id, e)
 
