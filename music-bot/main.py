@@ -251,8 +251,20 @@ async def _require_open_call(chat_id: int) -> Optional[web.Response]:
 
 
 @routes.get("/")
+async def root(_: web.Request) -> web.Response:
+    # Always 200 — platform port-detection / uptime probes just need the port open.
+    return web.json_response({"ok": True})
+
+
 @routes.get("/health")
 async def health(_: web.Request) -> web.Response:
+    # Report NOT-READY (503) until the assistant account is actually connected.
+    # The management bot wakes a spun-down instance by polling /health, then plays
+    # the moment it goes green — if we returned 200 while _ready is still False,
+    # the bot would fire /play too early (the aiohttp server comes up ~25-40s
+    # before the assistant finishes connecting) and playback would fail.
+    if not _ready:
+        return web.json_response({"ok": False, "starting": True}, status=503)
     return web.json_response({"ok": True})
 
 
