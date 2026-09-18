@@ -524,6 +524,11 @@ async def startvc(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
+    # Fresh call → fresh queue. If a previous call was ended from Telegram directly
+    # (not via /stopvc), its old active/queued tracks would otherwise linger and
+    # new songs would wrongly queue behind a phantom "now playing".
+    qm.clear(chat_id)
+    _recent_play.pop(chat_id, None)
     try:
         await start_call(assistant, chat_id)
         return web.json_response({"ok": True})
