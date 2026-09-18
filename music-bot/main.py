@@ -62,6 +62,13 @@ _ready = False
 _JOIN_COOLDOWN = 60.0
 _last_join = 0.0
 
+# De-dup identical /play requests per chat within a short window. The management
+# bot may re-send /play after its own client-side timeout even though the first
+# request already succeeded here (a slow search/download), which would otherwise
+# play the same song twice. chat_id -> (query, monotonic_ts).
+_recent_play: dict[int, tuple[str, float]] = {}
+_DEDUP_S = 30.0
+
 # The assistant's own Telegram user id (set once at startup) — the management
 # bot needs it to promote the assistant to admin after it joins.
 _assistant_id = 0
@@ -286,6 +293,16 @@ async def play(request: web.Request) -> web.Response:
     guard = await _require_open_call(chat_id)
     if guard is not None:
         return guard
+
+    # Ignore a duplicate re-send of the same request (bot timed out and retried).
+    now = time.monotonic()
+    prev = _recent_play.get(chat_id)
+    if prev and prev[0] == query and (now - prev[1]) < _DEDUP_S:
+        log.info("duplicate /play for %s (%r) — ignoring re-send", chat_id, query)
+        return web.json_response({"ok": True, "queued": False, "duplicate": True, "title": query})
+    _recent_play[chat_id] = (query, now)
+    if len(_recent_play) > 500:
+        _recent_play.clear()
 
     track = await search(query)
     if not track or not track.get("url"):
