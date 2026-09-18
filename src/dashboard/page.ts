@@ -285,10 +285,25 @@ async function groupSettings(id){ current=id; gtab(false);
    +'<h3>🛡 صلاحيات الأدمن (الرتب)</h3>'+rolesHtml
    +'<div class="row"><input id="ruid" placeholder="آيدي العضو (User ID)"><input id="rname" placeholder="الاسم (اختياري)"><select id="rsel">'+roleOpts+'</select><button class="act" onclick="addRole()">رفع</button></div>'
    +'<p class="muted">💡 كل رتبة تقدر تستخدم أوامر رتبتها وما تحتها. آيدي العضو بتلاقيه بتبويب «المراقبة» أو «السجلات».</p>'
+   +'<h3>👢 طرد / حظر عضو محدّد</h3>'
+   +'<p class="muted">اكتب آيدي العضو (بتلاقيه بتبويب «المراقبة» أو «السجلات»). الطرد = يقدر يرجع، الحظر = ما يقدر يرجع.</p>'
+   +'<div class="row"><input id="kuid" placeholder="آيدي العضو (User ID)"><button class="act" onclick="kickOne(\\'kick\\')">👢 طرد</button><button class="del" onclick="kickOne(\\'ban\\')">🚫 حظر</button></div>'
+   +'<div id="kickOneRes" class="muted" style="margin-top:6px"></div>'
    +'<h3 style="color:#e53935">🚨 منطقة خطر</h3>'
    +'<p class="muted">طرد كل الأعضاء المعروفين من الجروب (يتخطّى المشرفين والمالك والمطوّر). المطرودين يقدروا يرجعوا برابط دعوة. <b>ما في تراجع.</b></p>'
    +'<button class="del" style="background:#e53935;color:#fff;padding:8px 14px;border-radius:8px" onclick="kickAll()">🚨 طرد جميع الأعضاء</button>'
    +'<div id="kickRes" class="muted" style="margin-top:6px"></div>'; }
+async function kickOne(mode){
+  const uid=document.getElementById('kuid').value.trim();
+  if(!/^\d{3,20}$/.test(uid))return alert('اكتب آيدي رقمي صحيح.');
+  const verb=mode==='ban'?'حظر':'طرد';
+  if(!confirm(verb+' العضو '+uid+' من الجروب؟'))return;
+  const el=document.getElementById('kickOneRes'); el.textContent='⏳ جاري '+verb+'...';
+  const r=await api('/chats/'+current+'/kick',{method:'POST',body:JSON.stringify({userId:uid,mode})});
+  if(r&&r.ok){el.innerHTML='✅ تم '+verb+' العضو <code>'+uid+'</code>.'; document.getElementById('kuid').value='';}
+  else if(r&&r.error==='protected')el.textContent='⛔️ ما بينفع — هذا حساب المطوّر/المالك (محمي).';
+  else el.textContent='⚠️ تعذّر '+verb+' العضو (تأكد إنّ البوت أدمن وإنّ الآيدي صحيح).';
+}
 async function kickAll(){
   if(!confirm('⚠️ متأكد إنك بدك تطرد جميع الأعضاء المعروفين من هذا الجروب؟\\nالمشرفون والمالك والمطوّر ما بينطردوا.'))return;
   if(prompt('للتأكيد النهائي اكتب: طرد')!=='طرد'){alert('أُلغي.');return;}
