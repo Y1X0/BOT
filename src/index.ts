@@ -58,6 +58,30 @@ async function main(): Promise<void> {
   const app = createServer(bot);
   const server: Server = await startServer(app);
 
+  // Self keep-alive: on Render's free tier the web service hibernates after
+  // ~15 min without inbound HTTP, which also freezes the bot's long polling.
+  // Ping our own public URL periodically so the service (bot + dashboard) stays
+  // awake around the clock. RENDER_EXTERNAL_URL is injected by Render.
+  if (env.KEEPALIVE_ENABLED) {
+    const base = env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+    if (base) {
+      const url = `${base.replace(/\/$/, '')}/health`;
+      const intervalMs = Math.max(60, env.KEEPALIVE_INTERVAL_SEC) * 1000;
+      const ping = async (): Promise<void> => {
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+          logger.debug({ status: res.status }, 'keep-alive ping');
+        } catch (err) {
+          logger.warn({ err }, 'keep-alive ping failed');
+        }
+      };
+      setInterval(() => void ping(), intervalMs).unref();
+      logger.info({ url, intervalSec: env.KEEPALIVE_INTERVAL_SEC }, 'Self keep-alive enabled');
+    } else {
+      logger.warn('KEEPALIVE_ENABLED but no RENDER_EXTERNAL_URL/KEEPALIVE_URL — skipping');
+    }
+  }
+
   await publishCommands(bot, plugins);
 
   // Flush buffered command-usage counts to the DB periodically.

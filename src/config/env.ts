@@ -158,6 +158,19 @@ const envSchema = z.object({
   DL_COOKIES: z.string().optional(),
   DL_COOKIES_CONTENT: z.string().optional(),
 
+  // Self keep-alive. Render's free web service hibernates after ~15 min with no
+  // inbound HTTP — and while asleep the bot's long polling stops, so it goes
+  // unresponsive until something wakes it. The bot pings its own public URL on
+  // an interval to stay awake 24/7. Render injects RENDER_EXTERNAL_URL
+  // automatically; KEEPALIVE_URL overrides it. On by default; set false to
+  // disable (e.g. on a paid always-on plan, or to save free instance-hours).
+  KEEPALIVE_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  KEEPALIVE_URL: z.string().optional(),
+  KEEPALIVE_INTERVAL_SEC: z.coerce.number().default(600), // 10 min (< Render's 15-min idle window)
+
   // Web dashboard (opt-in). Login via Telegram widget, owner-only.
   DASHBOARD_ENABLED: z
     .string()
