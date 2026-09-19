@@ -39,6 +39,7 @@ RUN apt-get update -y \
 COPY package*.json ./
 COPY prisma ./prisma
 COPY scripts ./scripts
+RUN chmod +x scripts/start.sh
 # Only production deps in the final image.
 RUN npm ci --omit=dev && node scripts/set-db-provider.mjs && npx prisma generate && npm cache clean --force
 
@@ -50,6 +51,8 @@ COPY assets ./assets
 RUN mkdir -p /app/data
 EXPOSE 3000
 
-# On start: set provider from env, (re)generate client for that provider,
-# sync the schema (creates missing tables — idempotent), then launch.
-CMD ["sh", "-c", "node scripts/set-db-provider.mjs && npx prisma generate && npx prisma db push --accept-data-loss --skip-generate && node dist/index.js"]
+# On start: set provider from env, (re)generate client, sync the schema
+# (retried to ride out a Neon cold start), then launch. See scripts/start.sh —
+# it starts the bot even if the DB is briefly unreachable, so a Neon hiccup
+# can't turn into a crash loop that takes the whole bot offline.
+CMD ["sh", "scripts/start.sh"]

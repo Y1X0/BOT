@@ -22,8 +22,31 @@ if (!isProd) {
 }
 
 export async function connectDatabase(): Promise<void> {
-  await prisma.$connect();
-  logger.info({ provider: env.DATABASE_PROVIDER }, 'Database connected');
+  // The DB (Neon free tier) can be briefly unreachable — its compute suspends
+  // when idle and takes a few seconds to wake. Retry with backoff to ride that
+  // out. If it still can't connect, DON'T throw: let the bot start anyway.
+  // Prisma connects lazily per query, so the process stays alive and recovers
+  // on its own once the DB is back — far better than a boot crash loop that
+  // takes the whole bot offline.
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await prisma.$connect();
+      logger.info({ provider: env.DATABASE_PROVIDER }, 'Database connected');
+      return;
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        logger.error(
+          { err },
+          'Database unreachable after retries — starting anyway; will connect lazily once it recovers',
+        );
+        return;
+      }
+      const waitMs = attempt * 3000;
+      logger.warn({ err, attempt, waitMs }, 'Database connect failed, retrying');
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
 }
 
 /**
