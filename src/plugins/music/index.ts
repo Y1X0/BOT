@@ -90,7 +90,7 @@ async function wakeStreamer(): Promise<boolean> {
   // answers 200. So each /health probe uses a LONG timeout — a short one would
   // abort the held request before the wake completes, and we'd wrongly conclude
   // the service can't be woken. Overall budget ~2min, gentle 3s spacing.
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
     if (await pingHealth(45_000)) return true;
     await new Promise((r) => setTimeout(r, 3000));
