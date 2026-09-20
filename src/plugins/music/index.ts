@@ -151,7 +151,7 @@ async function streamerAttempt(path: string, body: Record<string, unknown>, time
 // free tier — overlapping wake loops mean concurrent requests during spin-up,
 // which is exactly what triggers the 429s we're recovering from.
 let wakePromise: Promise<boolean> | null = null;
-function wakeStreamerOnce(): Promise<boolean> {
+export function wakeStreamerOnce(): Promise<boolean> {
   if (!wakePromise) {
     wakePromise = wakeStreamer()
       .catch(() => false)

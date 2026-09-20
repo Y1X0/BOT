@@ -7,6 +7,7 @@ import { env } from '../../config/env';
 import { requireRole, hasRole } from '../../utils/permissions';
 import { displayName } from '../../utils/format';
 import { createLogger } from '../../core/logger';
+import { wakeStreamerOnce } from '../music';
 
 const log = createLogger('plugin:management');
 
@@ -69,8 +70,21 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
   }
 
   // Prefer the assistant's complete member list; fall back to members the bot
-  // has recorded from activity.
-  const viaAssistant = await fetchMembersViaAssistant(chatId);
+  // has recorded from activity. The assistant (streamer) sleeps on Render's free
+  // tier, so a first call while it's cold usually times out — wake it and retry
+  // before falling back, otherwise «الكل» silently tags only registered members.
+  let viaAssistant = await fetchMembersViaAssistant(chatId);
+  if (!viaAssistant && STREAMER_URL) {
+    const notice = await ctx.reply('⏳ جاري إيقاظ المساعد وإحضار كل الأعضاء… (بياخد لـ دقيقة أول مرة)').catch(() => null);
+    const awoke = await wakeStreamerOnce().catch(() => false);
+    if (awoke) {
+      for (let i = 0; i < 2 && !viaAssistant; i++) {
+        viaAssistant = await fetchMembersViaAssistant(chatId);
+        if (!viaAssistant) await sleep(2500);
+      }
+    }
+    if (notice) await ctx.telegram.deleteMessage(chatId, notice.message_id).catch(() => undefined);
+  }
   let people: { id: bigint | number; name: string }[];
   if (viaAssistant) {
     people = viaAssistant.map((m) => ({ id: m.id, name: m.name }));
@@ -168,7 +182,12 @@ export const managementPlugin: Plugin = {
       if (!STREAMER_URL) {
         assistant = '❌ غير مهيّأ (STREAMER_URL فاضي)';
       } else {
-        const r = await fetchMembersViaAssistant(ctx.chat.id);
+        await wakeStreamerOnce().catch(() => false); // wake before testing so a sleeping service isn't misreported
+        let r = await fetchMembersViaAssistant(ctx.chat.id);
+        if (!r) {
+          await sleep(2500);
+          r = await fetchMembersViaAssistant(ctx.chat.id);
+        }
         assistant = r ? `✅ يعمل — رجّع <b>${r.length}</b> عضو` : '❌ فشل (المساعد مش بالجروب، أو الخدمة موقّفة)';
       }
       const lines = [
