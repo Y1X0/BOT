@@ -31,6 +31,11 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const ALL_COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
 const allLastUsed = new Map<number, number>();
 
+// A live mention-all run per chat, so «وقف المنشن» can cancel it mid-way. The
+// batch loop checks token.cancelled between sends (each await yields, letting the
+// stop command run). Present in the map ⇒ a run is in progress.
+const activeMention = new Map<number, { cancelled: boolean }>();
+
 const STREAMER_URL = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
 const STREAMER_TOKEN = process.env.STREAMER_TOKEN || '';
 
@@ -126,12 +131,22 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
     : full
       ? `📢 نداء للجميع (${mentions.length}):\n\n`
       : `📢 نداء (${mentions.length} عضو مسجّل):\n\n`;
-  // 8 mentions per message; pause between batches so Telegram doesn't rate-limit
-  // and silently drop the later ones.
-  for (let i = 0; i < mentions.length; i += 8) {
-    const chunk = mentions.slice(i, i + 8).join(' ');
-    await ctx.reply((i === 0 ? header : '') + chunk, { parse_mode: 'HTML' }).catch(() => undefined);
-    if (i + 8 < mentions.length) await sleep(700);
+  // Register this run so «وقف المنشن» can stop it. 8 mentions per message; pause
+  // between batches so Telegram doesn't rate-limit and silently drop the later ones.
+  const token = { cancelled: false };
+  activeMention.set(chatId, token);
+  try {
+    for (let i = 0; i < mentions.length; i += 8) {
+      if (token.cancelled) {
+        await ctx.reply('🛑 تم إيقاف النداء.').catch(() => undefined);
+        return;
+      }
+      const chunk = mentions.slice(i, i + 8).join(' ');
+      await ctx.reply((i === 0 ? header : '') + chunk, { parse_mode: 'HTML' }).catch(() => undefined);
+      if (i + 8 < mentions.length) await sleep(700);
+    }
+  } finally {
+    activeMention.delete(chatId);
   }
 
   // When we couldn't get the FULL list, tell the admin why the count looks small.
@@ -150,6 +165,7 @@ export const managementPlugin: Plugin = {
   commands: [
     { command: 'nightmode', description: '🌙 وضع الليل: /nightmode on 23 6', staffOnly: true },
     { command: 'all', description: '📢 منشن كل الأعضاء', staffOnly: true },
+    { command: 'stopall', description: '🛑 إيقاف النداء الجاري', staffOnly: true },
     { command: 'admins', description: '👮 قائمة الأدمن' },
     { command: 'checkup', description: '🩺 فحص صلاحيات البوت وإعداداته', staffOnly: true },
   ],
@@ -189,6 +205,29 @@ export const managementPlugin: Plugin = {
       if (!m) return next();
       if (!ctx.state.isStaff) return next(); // silently ignore for non-staff
       await mentionAll(ctx, text.slice(m[0].length).trim());
+      return; // consumed
+    });
+
+    // --- Stop a running mention-all ---
+    const stopMention = async (ctx: BotContext): Promise<void> => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      const token = activeMention.get(ctx.chat.id);
+      if (token) {
+        token.cancelled = true;
+        await ctx.reply('🛑 جاري إيقاف النداء…').catch(() => undefined);
+      } else {
+        await ctx.reply('ℹ️ ما في نداء شغّال حالياً.').catch(() => undefined);
+      }
+    };
+
+    bot.command('stopall', requireRole('admin'), async (ctx) => stopMention(ctx));
+
+    // Bare Arabic triggers: «وقف المنشن» / «ايقاف المنشن» / «وقف النداء» … (staff only).
+    bot.on(message('text'), async (ctx, next) => {
+      const text = ctx.message.text.trim();
+      if (!/^(وقف|إيقاف|ايقاف|الغاء|إلغاء)\s*(ال)?(منشن|نداء|الكل)/.test(text)) return next();
+      if (!ctx.state.isStaff) return next();
+      await stopMention(ctx);
       return; // consumed
     });
 
