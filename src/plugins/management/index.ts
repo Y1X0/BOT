@@ -34,22 +34,52 @@ const allLastUsed = new Map<number, number>();
 const STREAMER_URL = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
 const STREAMER_TOKEN = process.env.STREAMER_TOKEN || '';
 
-/** Ask the assistant user account for the group's FULL member list (a bot can't
- *  list members, but a real account can). Returns null if unavailable. */
-async function fetchMembersViaAssistant(chatId: number): Promise<{ id: number; name: string }[] | null> {
+/** Fetch a group's FULL member list from the streamer. `path` is /members_bot
+ *  (the bot itself, via MTProto — works in every group the bot admins) or
+ *  /members (the assistant account). Returns null if unavailable. */
+async function fetchMembers(path: '/members_bot' | '/members', chatId: number): Promise<{ id: number; name: string }[] | null> {
   if (!STREAMER_URL) return null;
   try {
-    const res = await fetch(`${STREAMER_URL}/members`, {
+    const res = await fetch(`${STREAMER_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(STREAMER_TOKEN ? { 'X-Token': STREAMER_TOKEN } : {}) },
       body: JSON.stringify({ chat_id: chatId }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(45_000),
     });
     const data = (await res.json().catch(() => null)) as { ok?: boolean; members?: { id: number; name: string }[] } | null;
     return data?.ok && Array.isArray(data.members) && data.members.length ? data.members : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Full member list. Prefer the BOT itself (/members_bot) — it works in EVERY
+ * group the bot administers, so no assistant account needs to be added. Falls
+ * back to the assistant account, and wakes the sleeping streamer once (Render
+ * free tier) before giving up. Returns null if neither path yields members.
+ */
+async function fetchAllGroupMembers(
+  ctx: BotContext,
+  chatId: number,
+): Promise<{ list: { id: number; name: string }[]; source: 'bot' | 'assistant' } | null> {
+  let list = await fetchMembers('/members_bot', chatId);
+  if (list) return { list, source: 'bot' };
+  if (!STREAMER_URL) return null;
+  // Streamer is likely cold — tell the user, wake it, and retry (bot, then assistant).
+  const notice = await ctx.reply('⏳ جاري إحضار كل الأعضاء… (بياخد لـ دقيقة أول مرة)').catch(() => null);
+  await wakeStreamerOnce().catch(() => false);
+  let source: 'bot' | 'assistant' = 'bot';
+  for (let i = 0; i < 2 && !list; i++) {
+    list = await fetchMembers('/members_bot', chatId);
+    if (!list) await sleep(2500);
+  }
+  if (!list) {
+    list = await fetchMembers('/members', chatId);
+    source = 'assistant';
+  }
+  if (notice) await ctx.telegram.deleteMessage(chatId, notice.message_id).catch(() => undefined);
+  return list ? { list, source } : null;
 }
 
 /**
@@ -69,25 +99,13 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
     return void ctx.reply(`⏳ تم النداء مؤخراً. ضل <b>${leftMin}</b> دقيقة قبل نداء جديد.`);
   }
 
-  // Prefer the assistant's complete member list; fall back to members the bot
-  // has recorded from activity. The assistant (streamer) sleeps on Render's free
-  // tier, so a first call while it's cold usually times out — wake it and retry
-  // before falling back, otherwise «الكل» silently tags only registered members.
-  let viaAssistant = await fetchMembersViaAssistant(chatId);
-  if (!viaAssistant && STREAMER_URL) {
-    const notice = await ctx.reply('⏳ جاري إيقاظ المساعد وإحضار كل الأعضاء… (بياخد لـ دقيقة أول مرة)').catch(() => null);
-    const awoke = await wakeStreamerOnce().catch(() => false);
-    if (awoke) {
-      for (let i = 0; i < 2 && !viaAssistant; i++) {
-        viaAssistant = await fetchMembersViaAssistant(chatId);
-        if (!viaAssistant) await sleep(2500);
-      }
-    }
-    if (notice) await ctx.telegram.deleteMessage(chatId, notice.message_id).catch(() => undefined);
-  }
+  // Prefer the FULL member list (the bot itself via MTProto, then the assistant);
+  // fall back to members the bot has recorded from activity only if both fail.
+  const got = await fetchAllGroupMembers(ctx, chatId);
+  const full = !!got;
   let people: { id: bigint | number; name: string }[];
-  if (viaAssistant) {
-    people = viaAssistant.map((m) => ({ id: m.id, name: m.name }));
+  if (got) {
+    people = got.list.map((m) => ({ id: m.id, name: m.name }));
   } else {
     const members = await prisma.member.findMany({
       where: { chatId: BigInt(chatId) },
@@ -100,10 +118,12 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
 
   allLastUsed.set(chatId, Date.now()); // start the cooldown now
 
+  // A tg://user?id= link is a real mention entity — it pings the member and
+  // works even when they have no @username. Names are HTML-escaped.
   const mentions = people.map((m) => `<a href="tg://user?id=${m.id}">${escapeHtml(m.name)}</a>`);
   const header = note
     ? `📢 ${escapeHtml(note)}\n\n`
-    : viaAssistant
+    : full
       ? `📢 نداء للجميع (${mentions.length}):\n\n`
       : `📢 نداء (${mentions.length} عضو مسجّل):\n\n`;
   // 8 mentions per message; pause between batches so Telegram doesn't rate-limit
@@ -114,12 +134,11 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
     if (i + 8 < mentions.length) await sleep(700);
   }
 
-  // When we couldn't get the FULL list (no assistant), tell the admin why the
-  // count looks small and how to reach everyone.
-  if (!viaAssistant) {
+  // When we couldn't get the FULL list, tell the admin why the count looks small.
+  if (!full) {
     await ctx
       .reply(
-        'ℹ️ البوت وحده ما بيقدر يشوف إلا الأعضاء اللي حكوا. لتنشين <b>كل</b> أعضاء القروب لازم يكون حساب المساعد (userbot) مفعّل وموجود بالجروب.',
+        'ℹ️ تعذّر جلب كل الأعضاء الآن (خدمة العضويات موقّفة مؤقتاً) — منشنت المسجّلين فقط. جرّب بعد شوي.',
       )
       .catch(() => undefined);
   }
@@ -178,24 +197,29 @@ export const managementPlugin: Plugin = {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       if (!hasRole(ctx.state.role ?? 'member', 'founder')) return;
       const dbCount = await prisma.member.count({ where: { chatId: BigInt(ctx.chat.id) } }).catch(() => -1);
+      let botLine: string;
       let assistant: string;
       if (!STREAMER_URL) {
-        assistant = '❌ غير مهيّأ (STREAMER_URL فاضي)';
+        botLine = '❌ غير مهيّأ (STREAMER_URL فاضي)';
+        assistant = '❌ غير مهيّأ';
       } else {
         await wakeStreamerOnce().catch(() => false); // wake before testing so a sleeping service isn't misreported
-        let r = await fetchMembersViaAssistant(ctx.chat.id);
-        if (!r) {
+        let b = await fetchMembers('/members_bot', ctx.chat.id);
+        if (!b) {
           await sleep(2500);
-          r = await fetchMembersViaAssistant(ctx.chat.id);
+          b = await fetchMembers('/members_bot', ctx.chat.id);
         }
-        assistant = r ? `✅ يعمل — رجّع <b>${r.length}</b> عضو` : '❌ فشل (المساعد مش بالجروب، أو الخدمة موقّفة)';
+        botLine = b ? `✅ يعمل — رجّع <b>${b.length}</b> عضو` : '❌ فشل (البوت مش أدمن، أو BOT_TOKEN ناقص، أو الخدمة موقّفة)';
+        const r = await fetchMembers('/members', ctx.chat.id);
+        assistant = r ? `✅ يعمل — رجّع <b>${r.length}</b> عضو` : '➖ غير متاح (اختياري الآن)';
       }
       const lines = [
         '🩺 <b>تشخيص «الكل»</b>',
         `• أعضاء مسجّلين بالبوت: <b>${dbCount}</b>`,
-        `• حساب المساعد (userbot): ${assistant}`,
+        `• البوت مباشرة (MTProto): ${botLine}`,
+        `• حساب المساعد (احتياطي): ${assistant}`,
         '',
-        'ℹ️ لو المساعد ما بيشتغل، البوت بيمنشن بس الأعضاء المسجّلين (اللي حكوا). لتنشين الكل: فعّل المساعد وخلّيه عضو بالجروب.',
+        'ℹ️ «الكل» بيعتمد على البوت مباشرة — لازم يكون البوت أدمن بالجروب فقط، بدون أي حساب مساعد.',
       ];
       await ctx.reply(lines.join('\n')).catch(() => undefined);
     });
@@ -220,10 +244,10 @@ export const managementPlugin: Plugin = {
           signal: AbortSignal.timeout(60_000),
         });
         const data = (await res.json().catch(() => null)) as
-          | { ok?: boolean; count?: number; capped?: boolean; sample?: { id: number; name: string }[]; error?: string }
+          | { ok?: boolean; count?: number; capped?: boolean; members?: { id: number; name: string }[]; error?: string }
           | null;
         if (data?.ok) {
-          const sample = (data.sample ?? []).map((s) => `• ${escapeHtml(s.name)} (<code>${s.id}</code>)`).join('\n');
+          const sample = (data.members ?? []).slice(0, 20).map((s) => `• ${escapeHtml(s.name)} (<code>${s.id}</code>)`).join('\n');
           out = [
             '✅ <b>SUCCESS</b> — البوت قدر يجيب الأعضاء عبر MTProto!',
             `• العدد: <b>${data.count}</b>${data.capped ? ' (متوقّف عند الحد ٥٠٠٠)' : ''}`,

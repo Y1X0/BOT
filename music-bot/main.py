@@ -505,9 +505,10 @@ async def _get_bot_client() -> Optional[Client]:
 
 @routes.post("/members_bot")
 async def members_bot(request: web.Request) -> web.Response:
-    """Definitive test: try to list a group's members using the BOT token over
-    MTProto (channels.getParticipants). Returns the real count + a small sample,
-    or the exact exception name/message so we know precisely why it failed."""
+    """List a group's members using the BOT token over MTProto
+    (channels.getParticipants). The bot must be an admin of the group. Returns
+    the full {id, name} list — this is what powers mention-all without needing an
+    assistant account. On failure returns the exact exception name/message."""
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     chat_id = int((await _body(request)).get("chat_id") or 0)
@@ -519,23 +520,20 @@ async def members_bot(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": f"login_failed: {type(e).__name__}: {e}"[:200]})
     if client is None:
         return web.json_response({"ok": False, "error": "no_bot_token"})
-    ids: list[int] = []
-    sample: list[dict] = []
+    out: list[dict] = []
     capped = False
     try:
         async for m in client.get_chat_members(chat_id):
             u = getattr(m, "user", None)
-            if not u:
+            if not u or getattr(u, "is_bot", False) or getattr(u, "is_deleted", False):
                 continue
-            ids.append(u.id)
-            if len(sample) < 20:
-                sample.append({"id": u.id, "name": (u.first_name or u.username or "?")})
-            if len(ids) >= 5000:
+            out.append({"id": u.id, "name": (u.first_name or u.username or "عضو")})
+            if len(out) >= 5000:  # safety cap for very large groups
                 capped = True
                 break
     except Exception as e:
         return web.json_response({"ok": False, "error": f"{type(e).__name__}: {e}"[:250]})
-    return web.json_response({"ok": True, "count": len(ids), "capped": capped, "sample": sample})
+    return web.json_response({"ok": True, "members": out, "count": len(out), "capped": capped})
 
 
 @routes.post("/join")
