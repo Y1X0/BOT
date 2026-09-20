@@ -29,6 +29,12 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 # REQUIRED — the service has a public URL, so requests must be authenticated.
 STREAMER_TOKEN = os.getenv("STREAMER_TOKEN", "")
 
+# The management bot's token. OPTIONAL — only needed for the bot-MTProto member
+# enumeration experiment (/members_bot): a Pyrogram client logs in with this bot
+# token (using the same API_ID/API_HASH above) to test whether a BOT can list a
+# group's members directly, so no assistant account is needed for mention-all.
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+
 # HTTP port the control API listens on.
 PORT = _int("PORT", 8080)
 

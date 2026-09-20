@@ -37,6 +37,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 from aiohttp import web
+from pyrogram import Client
 from pytgcalls import filters as call_filters
 from pytgcalls.types import MediaStream
 
@@ -465,6 +466,71 @@ async def members(request: web.Request) -> web.Response:
         log.info("get_chat_members failed for %s: %s", chat_id, e)
         return web.json_response({"ok": False, "error": str(e)[:120]})
     return web.json_response({"ok": True, "members": out, "count": len(out)})
+
+
+# --- Experiment: can a BOT (not the assistant) enumerate group members? ---
+# A Pyrogram client logged in with the bot token, sharing the same API_ID/HASH.
+# Created lazily on first use so it never affects normal streamer operation.
+_bot_client: Optional[Client] = None
+_bot_client_lock = asyncio.Lock()
+
+
+async def _get_bot_client() -> Optional[Client]:
+    global _bot_client
+    if _bot_client is not None:
+        return _bot_client
+    async with _bot_client_lock:
+        if _bot_client is not None:
+            return _bot_client
+        if not config.BOT_TOKEN:
+            return None
+        c = Client(
+            "botclient",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            bot_token=config.BOT_TOKEN,
+            in_memory=True,
+        )
+        await c.start()
+        me = await c.get_me()
+        log.info("bot MTProto client started: @%s (is_bot=%s)", me.username, me.is_bot)
+        _bot_client = c
+        return _bot_client
+
+
+@routes.post("/members_bot")
+async def members_bot(request: web.Request) -> web.Response:
+    """Definitive test: try to list a group's members using the BOT token over
+    MTProto (channels.getParticipants). Returns the real count + a small sample,
+    or the exact exception name/message so we know precisely why it failed."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    chat_id = int((await _body(request)).get("chat_id") or 0)
+    if not chat_id:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+    try:
+        client = await _get_bot_client()
+    except Exception as e:
+        return web.json_response({"ok": False, "error": f"login_failed: {type(e).__name__}: {e}"[:200]})
+    if client is None:
+        return web.json_response({"ok": False, "error": "no_bot_token"})
+    ids: list[int] = []
+    sample: list[dict] = []
+    capped = False
+    try:
+        async for m in client.get_chat_members(chat_id):
+            u = getattr(m, "user", None)
+            if not u:
+                continue
+            ids.append(u.id)
+            if len(sample) < 20:
+                sample.append({"id": u.id, "name": (u.first_name or u.username or "?")})
+            if len(ids) >= 5000:
+                capped = True
+                break
+    except Exception as e:
+        return web.json_response({"ok": False, "error": f"{type(e).__name__}: {e}"[:250]})
+    return web.json_response({"ok": True, "count": len(ids), "capped": capped, "sample": sample})
 
 
 @routes.post("/join")

@@ -200,6 +200,47 @@ export const managementPlugin: Plugin = {
       await ctx.reply(lines.join('\n')).catch(() => undefined);
     });
 
+    // --- Experiment: can the BOT itself enumerate members via MTProto? ---
+    // Founder-only. Wakes the streamer, then asks it to run channels.getParticipants
+    // with the BOT token (not the assistant) and reports the exact result/error.
+    bot.command('mtprototest', async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      if (!hasRole(ctx.state.role ?? 'member', 'founder')) return;
+      if (!STREAMER_URL) return void ctx.reply('❌ STREAMER_URL غير مهيّأ.');
+      const arg = ctx.message.text.split(/\s+/).slice(1)[0];
+      const chatId = arg ? Number(arg) : ctx.chat.id;
+      const notice = await ctx.reply('⏳ جاري إيقاظ الخدمة وتجربة جلب الأعضاء بتوكن البوت…').catch(() => null);
+      await wakeStreamerOnce().catch(() => false);
+      let out = '❌ فشل الاتصال بالخدمة.';
+      try {
+        const res = await fetch(`${STREAMER_URL}/members_bot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(STREAMER_TOKEN ? { 'X-Token': STREAMER_TOKEN } : {}) },
+          body: JSON.stringify({ chat_id: chatId }),
+          signal: AbortSignal.timeout(60_000),
+        });
+        const data = (await res.json().catch(() => null)) as
+          | { ok?: boolean; count?: number; capped?: boolean; sample?: { id: number; name: string }[]; error?: string }
+          | null;
+        if (data?.ok) {
+          const sample = (data.sample ?? []).map((s) => `• ${escapeHtml(s.name)} (<code>${s.id}</code>)`).join('\n');
+          out = [
+            '✅ <b>SUCCESS</b> — البوت قدر يجيب الأعضاء عبر MTProto!',
+            `• العدد: <b>${data.count}</b>${data.capped ? ' (متوقّف عند الحد ٥٠٠٠)' : ''}`,
+            sample ? `\nعيّنة:\n${sample}` : '',
+          ].join('\n');
+        } else if (data?.error === 'no_bot_token') {
+          out = '⚠️ لازم تضيف <code>BOT_TOKEN</code> لمتغيّرات خدمة الكول أول (شوف التعليمات).';
+        } else {
+          out = `❌ <b>FAILED</b>\n<code>${escapeHtml(data?.error ?? 'unknown')}</code>`;
+        }
+      } catch (err) {
+        out = `❌ خطأ بالطلب: <code>${escapeHtml(String(err).slice(0, 150))}</code>`;
+      }
+      if (notice) await ctx.telegram.deleteMessage(ctx.chat.id, notice.message_id).catch(() => undefined);
+      await ctx.reply(out).catch(() => undefined);
+    });
+
     // --- Admins list ---
     bot.command('admins', async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
