@@ -26,6 +26,7 @@ const ERRORS: Record<DlError, string> = {
   unsupported: '❌ هذا الرابط غير مدعوم.',
   toolarge: '❌ الملف أكبر من حد تيليجرام (50MB).',
   private: '🔒 المحتوى خاص أو يحتاج تسجيل دخول.',
+  botwall: '❌ المنصّة رفضت التنزيل مؤقتاً. جرّب رابط ثاني أو حاول لاحقاً.',
   failed: '⚠️ تعذّر التنزيل، تأكد أن الرابط صحيح.',
   timeout: '⌛ انتهى وقت التنزيل، حاول مرة ثانية.',
 };
@@ -113,7 +114,10 @@ async function runDownload(telegram: Telegram, chatId: number, url: string, mode
           if (statusId) await telegram.deleteMessage(chatId, statusId).catch(() => undefined);
           return;
         }
-        await editStatus(ERRORS[result.error] + (result.reason ? `\n📄 ${result.reason}` : ''));
+        // Show ONLY the clean Arabic message. yt-dlp's raw error (which can carry
+        // GitHub links, cookie/auth hints, and internal details) is never sent to
+        // users — it stays in the server logs (see downloader.ts) for debugging.
+        await editStatus(ERRORS[result.error]);
         return;
       }
       try {

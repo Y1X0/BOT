@@ -37,7 +37,7 @@ function cookieArgs(): string[] {
 const TIMEOUT_MS = 300_000; // 5 min
 const VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv'];
 
-export type DlError = 'notinstalled' | 'unsupported' | 'toolarge' | 'private' | 'failed' | 'timeout';
+export type DlError = 'notinstalled' | 'unsupported' | 'toolarge' | 'private' | 'botwall' | 'failed' | 'timeout';
 
 export interface DlResult {
   filePath: string;
@@ -171,6 +171,8 @@ async function ytDlpDownload(
       const reason = extractReason(stderr);
       if (code === null) finish({ error: 'timeout' });
       else if (/max-filesize|larger than/i.test(stderr)) finish({ error: 'toolarge' });
+      else if (/sign in to confirm|not a bot|confirm you.?re not a bot/i.test(stderr))
+        finish({ error: 'botwall', reason });
       else if (/login required|login to|private|not available|age-restricted|rate-limit/i.test(stderr))
         finish({ error: 'private', reason });
       else if (/Unsupported URL|is not a valid URL/i.test(stderr)) finish({ error: 'unsupported', reason });
