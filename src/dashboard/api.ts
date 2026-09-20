@@ -70,29 +70,33 @@ const NUMERIC_FIELDS = ['maxWarnings', 'floodLimit', 'floodWindowSec', 'captchaT
 const STRING_FIELDS = ['rules', 'welcomeMessage', 'farewellMessage', 'welcomeImageUrl', 'warnAction', 'moderationAction'];
 
 /**
- * The full member list of a group. A Bot API bot can't enumerate members, so we
- * ask the assistant userbot (streamer /members, MTProto get_chat_members) — the
- * same approach popular management bots use — and fall back to the members the
- * bot has recorded if the assistant is unavailable or not in the group.
+ * The full member list of a group. The Bot API can't enumerate members, but the
+ * bot CAN over MTProto (streamer /members_bot, channels.getParticipants) since
+ * it's an admin — so we try that first, fall back to the assistant account
+ * (/members), and finally to the members the bot has recorded from activity.
  */
-async function fetchAllMembers(chatId: bigint): Promise<{ members: number[]; source: 'assistant' | 'db' }> {
+async function fetchAllMembers(chatId: bigint): Promise<{ members: number[]; source: 'bot' | 'assistant' | 'db' }> {
   const url = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
   const token = process.env.STREAMER_TOKEN || '';
   if (url) {
-    try {
-      const res = await fetch(`${url}/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Token': token } : {}) },
-        body: JSON.stringify({ chat_id: Number(chatId) }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      const data = (await res.json().catch(() => null)) as { ok?: boolean; members?: { id: number }[] } | null;
-      if (data?.ok && Array.isArray(data.members) && data.members.length) {
-        return { members: data.members.map((m) => Number(m.id)), source: 'assistant' };
+    const tryPath = async (path: string): Promise<number[] | null> => {
+      try {
+        const res = await fetch(`${url}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Token': token } : {}) },
+          body: JSON.stringify({ chat_id: Number(chatId) }),
+          signal: AbortSignal.timeout(45_000),
+        });
+        const data = (await res.json().catch(() => null)) as { ok?: boolean; members?: { id: number }[] } | null;
+        return data?.ok && Array.isArray(data.members) && data.members.length ? data.members.map((m) => Number(m.id)) : null;
+      } catch {
+        return null;
       }
-    } catch {
-      /* assistant unreachable — fall back to the DB */
-    }
+    };
+    const viaBot = await tryPath('/members_bot');
+    if (viaBot) return { members: viaBot, source: 'bot' };
+    const viaAssistant = await tryPath('/members');
+    if (viaAssistant) return { members: viaAssistant, source: 'assistant' };
   }
   const rows = await prisma.member.findMany({ where: { chatId }, select: { userId: true } });
   return { members: rows.map((r) => Number(r.userId)), source: 'db' };
