@@ -484,12 +484,17 @@ async def _get_bot_client() -> Optional[Client]:
             return _bot_client
         if not config.BOT_TOKEN:
             return None
+        # no_updates=True is REQUIRED: without it this bot client would run its own
+        # getUpdates loop and collide with the main bot's long polling (Telegram
+        # kills one with a 409 "terminated by other getUpdates"). We only make API
+        # calls here, never receive updates, so disable the updates dispatcher.
         c = Client(
             "botclient",
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             bot_token=config.BOT_TOKEN,
             in_memory=True,
+            no_updates=True,
         )
         await c.start()
         me = await c.get_me()
