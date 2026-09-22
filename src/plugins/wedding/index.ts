@@ -9,11 +9,22 @@ import { createLogger } from '../../core/logger';
 
 const log = createLogger('plugin:wedding');
 
-const isGroup = (ctx: BotContext) => ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup');
-
 interface Person {
   id: number;
   name: string;
+}
+
+/** Parse two free-typed names from the command text (for private chat / custom
+ *  names). Accepts separators: newline, «+», «&», «،», «,», or « و ». */
+function parseTwoNames(arg: string): [string, string] | null {
+  const raw = arg.trim();
+  if (!raw) return null;
+  let parts = raw.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (parts.length < 2) parts = raw.split(/\s*[+&،,]\s*/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length < 2) parts = raw.split(/\s+و\s+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const clean = (s: string) => s.slice(0, 40).trim();
+  return [clean(parts[0]), clean(parts[1])];
 }
 
 type PhotoSize = { file_id: string; width: number };
@@ -110,25 +121,47 @@ export const weddingPlugin: Plugin = {
 
   register(bot: Telegraf<BotContext>) {
     bot.command('wedding', async (ctx) => {
-      if (!isGroup(ctx)) return void ctx.reply('💍 هذا الأمر للجروبات فقط.');
+      const argText = (ctx.message.text || '').split(/\s+/).slice(1).join(' ');
+
+      // Resolve the couple. In a group with a reply/mention we use the real
+      // members (with their avatars). Otherwise — including in the bot's private
+      // chat — we take two names the user typed («زفاف الأول و الثاني»), so a
+      // card can be made for anyone, no members needed.
+      let aName: string;
+      let bName: string;
+      let aId: number | undefined;
+      let bId: number | undefined;
       const couple = await resolveCouple(ctx);
-      if ('error' in couple) return void ctx.reply(couple.error);
-      const [a, b] = couple;
+      if (!('error' in couple)) {
+        [aId, bId] = [couple[0].id, couple[1].id];
+        [aName, bName] = [couple[0].name, couple[1].name];
+      } else {
+        const names = parseTwoNames(argText);
+        if (!names) {
+          return void ctx.reply(
+            '💍 اكتب اسمين:\n«زفاف محمد و سارة»\nأو بالرد على شخص، أو «زفاف @الأول @الثاني».',
+          );
+        }
+        [aName, bName] = names;
+      }
 
       await ctx.sendChatAction('upload_video').catch(() => undefined);
 
-      const [aAvatar, bAvatar] = await Promise.all([fetchAvatar(ctx, a.id), fetchAvatar(ctx, b.id)]);
+      const [aAvatar, bAvatar] = await Promise.all([
+        aId ? fetchAvatar(ctx, aId) : Promise.resolve(undefined),
+        bId ? fetchAvatar(ctx, bId) : Promise.resolve(undefined),
+      ]);
       const data: WeddingCardData = {
-        aName: a.name,
-        bName: b.name,
+        aName,
+        bName,
         aAvatarDataUri: aAvatar,
         bAvatarDataUri: bAvatar,
-        aInitial: (a.name.trim()[0] || '?').toUpperCase(),
-        bInitial: (b.name.trim()[0] || '?').toUpperCase(),
+        aInitial: (aName.trim()[0] || '?').toUpperCase(),
+        bInitial: (bName.trim()[0] || '?').toUpperCase(),
         note: 'بالرفاء والبنين 🎉',
       };
 
-      const cap = `💍 مبروك الزواج 💍\n${a.name} ❤️ ${b.name}`;
+      const cap = `💍 مبروك الزواج 💍\n${aName} ❤️ ${bName}`;
       try {
         const vid = await renderWeddingCardVideo(data).catch(() => null);
         if (vid) {
@@ -141,7 +174,7 @@ export const weddingPlugin: Plugin = {
         await ctx.replyWithPhoto(Input.fromBuffer(png, 'wedding.jpg'), { caption: cap }).catch(() => undefined);
       } catch (err) {
         log.warn({ err }, 'wedding card render failed');
-        await ctx.reply(`💍 ${a.name} ❤️ ${b.name}\nمبروك الزواج 🎉`).catch(() => undefined);
+        await ctx.reply(`💍 ${aName} ❤️ ${bName}\nمبروك الزواج 🎉`).catch(() => undefined);
       }
     });
   },
