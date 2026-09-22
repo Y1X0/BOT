@@ -190,6 +190,7 @@ const ALIASES: Alias[] = [
   { command: 'divorce', triggers: ['طلاق', 'طلقني', 'انفصال'] },
   { command: 'marriage', triggers: ['زواجي', 'حالتي الاجتماعيه', 'شريكي'] },
   { command: 'couples', triggers: ['الازواج', 'ازواج الجروب', 'المتزوجين'] },
+  { command: 'wedding', triggers: ['زفاف', 'عرس', 'كرت عرس', 'بطاقة زفاف', 'كرت زفاف'] },
   // Reputation
   { command: 'rep', triggers: ['سمعه', 'احترام', 'نقطه احترام'] },
   { command: 'myrep', triggers: ['سمعتي', 'احترامي'] },

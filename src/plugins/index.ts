@@ -46,6 +46,7 @@ import { socialPlugin } from './social';
 import { birthdayPlugin } from './birthday';
 import { reportsPlugin } from './reports';
 import { marriagePlugin } from './marriage';
+import { weddingPlugin } from './wedding';
 import { reputationPlugin } from './reputation';
 import { ticketsPlugin } from './tickets';
 import { ranksPlugin } from './ranks';
@@ -123,6 +124,7 @@ allPlugins.push(
   birthdayPlugin,
   reportsPlugin,
   marriagePlugin,
+  weddingPlugin,
   reputationPlugin, // passive: thanks → rep, calls next()
   ticketsPlugin,
   ranksPlugin,
