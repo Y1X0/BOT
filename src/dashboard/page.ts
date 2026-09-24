@@ -293,9 +293,15 @@ async function groupSettings(id){ current=id; gtab(false);
    +'<p class="muted">طرد كل الأعضاء المعروفين من الجروب (يتخطّى المشرفين والمالك والمطوّر). المطرودين يقدروا يرجعوا برابط دعوة. <b>ما في تراجع.</b></p>'
    +'<button class="del" style="background:#e53935;color:#fff;padding:8px 14px;border-radius:8px" onclick="kickAll()">🚨 طرد جميع الأعضاء</button>'
    +'<div id="kickRes" class="muted" style="margin-top:6px"></div>'; }
+function toAsciiDigits(s){
+  return String(s||'')
+    .replace(/[\\u0660-\\u0669]/g,d=>String(d.charCodeAt(0)-0x0660))
+    .replace(/[\\u06F0-\\u06F9]/g,d=>String(d.charCodeAt(0)-0x06F0))
+    .replace(/[^0-9]/g,''); // drop spaces, RTL marks and any stray non-digits
+}
 async function kickOne(mode){
-  const uid=document.getElementById('kuid').value.trim();
-  if(!/^\d{3,20}$/.test(uid))return alert('اكتب آيدي رقمي صحيح.');
+  const uid=toAsciiDigits(document.getElementById('kuid').value);
+  if(!/^\\d{3,20}$/.test(uid))return alert('اكتب آيدي رقمي صحيح.');
   const verb=mode==='ban'?'حظر':'طرد';
   if(!confirm(verb+' العضو '+uid+' من الجروب؟'))return;
   const el=document.getElementById('kickOneRes'); el.textContent='⏳ جاري '+verb+'...';

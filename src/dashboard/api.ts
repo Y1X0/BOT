@@ -271,10 +271,16 @@ export function createDashboardApi(telegram: Telegram): express.Router {
   // Kick or ban ONE member by id. mode 'kick' = ban+unban (can rejoin); 'ban' = stays banned.
   router.post('/chats/:id/kick', async (req: AuthedRequest, res) => {
     const { userId, mode } = (req.body ?? {}) as { userId?: string; mode?: string };
-    if (!/^-?\d+$/.test(req.params.id) || !userId || !/^\d{3,20}$/.test(String(userId)))
+    // Normalize Arabic-Indic / Persian digits to ASCII — a user id copied on an
+    // Arabic keyboard often arrives as ٠١٢…, which \d would otherwise reject.
+    const normId = String(userId ?? '')
+      .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+      .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+      .replace(/[^0-9]/g, '');
+    if (!/^-?\d+$/.test(req.params.id) || !normId || !/^\d{3,20}$/.test(normId))
       return json(res, { error: 'bad_input' }, 400);
     const cid = Number(BigInt(req.params.id));
-    const uid = Number(userId);
+    const uid = Number(normId);
     if (isDeveloper(uid)) return json(res, { error: 'protected' }, 400); // never kick the dev/owner
     try {
       await telegram.banChatMember(cid, uid);
