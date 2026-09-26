@@ -9,6 +9,7 @@ import { displayName } from '../../utils/format';
 import { createLogger } from '../../core/logger';
 import { wakeStreamerOnce } from '../music';
 import { getGlobal, setGlobal } from '../../services/global.service';
+import { fetchChatMembersViaBot, mtprotoConfigured, getLastMtprotoError } from '../../services/mtproto/members';
 
 const log = createLogger('plugin:management');
 
@@ -108,24 +109,31 @@ async function wakeAndRefreshRoster(chatId: number): Promise<Member[] | null> {
  * Returns null only when we truly have nothing (→ caller falls back to the DB).
  */
 async function fetchAllGroupMembers(ctx: BotContext, chatId: number): Promise<Member[] | null> {
+  // 1) The BOT itself via MTProto — always awake, no streamer, no "first time"
+  //    wait, and independent of who has talked. This is the main path.
+  if (mtprotoConfigured()) {
+    const viaBot = await fetchChatMembersViaBot(chatId);
+    if (viaBot) {
+      await saveRoster(chatId, viaBot);
+      return viaBot;
+    }
+  }
+  // 2) Cached roster — instant, covers a transient MTProto hiccup.
+  const cached = await loadRoster(chatId);
+  if (cached) return cached;
+  // 3) Legacy fallback: the streamer's bot-MTProto (may be asleep on free tier).
   if (STREAMER_URL) {
     const quick = await fetchMembers('/members_bot', chatId, 12_000);
     if (quick) {
       await saveRoster(chatId, quick);
       return quick;
     }
+    const notice = await ctx.reply('⏳ جاري إحضار كل الأعضاء…').catch(() => null);
+    const seeded = await wakeAndRefreshRoster(chatId);
+    if (notice) await ctx.telegram.deleteMessage(chatId, notice.message_id).catch(() => undefined);
+    return seeded;
   }
-  const cached = await loadRoster(chatId);
-  if (cached) {
-    if (STREAMER_URL) void wakeAndRefreshRoster(chatId).catch(() => undefined); // refresh for next time, don't block
-    return cached;
-  }
-  if (!STREAMER_URL) return null;
-  // First time ever for this chat — seed the roster (this one call may take ~1min).
-  const notice = await ctx.reply('⏳ أول مرة — جاري إحضار كل الأعضاء (بياخد لـ دقيقة)…').catch(() => null);
-  const seeded = await wakeAndRefreshRoster(chatId);
-  if (notice) await ctx.telegram.deleteMessage(chatId, notice.message_id).catch(() => undefined);
-  return seeded;
+  return null;
 }
 
 /**
@@ -278,29 +286,22 @@ export const managementPlugin: Plugin = {
       if (!ctx.chat || ctx.chat.type === 'private') return;
       if (!hasRole(ctx.state.role ?? 'member', 'founder')) return;
       const dbCount = await prisma.member.count({ where: { chatId: BigInt(ctx.chat.id) } }).catch(() => -1);
-      let botLine: string;
-      let assistant: string;
-      if (!STREAMER_URL) {
-        botLine = '❌ غير مهيّأ (STREAMER_URL فاضي)';
-        assistant = '❌ غير مهيّأ';
+      // Primary path: the bot itself via MTProto (gramjs) — always awake.
+      let inBot: string;
+      if (!mtprotoConfigured()) {
+        inBot = '⚠️ غير مهيّأ — ضيف API_ID و API_HASH لمتغيّرات البوت';
       } else {
-        await wakeStreamerOnce().catch(() => false); // wake before testing so a sleeping service isn't misreported
-        let b = await fetchMembers('/members_bot', ctx.chat.id);
-        if (!b) {
-          await sleep(2500);
-          b = await fetchMembers('/members_bot', ctx.chat.id);
-        }
-        botLine = b ? `✅ يعمل — رجّع <b>${b.length}</b> عضو` : '❌ فشل (البوت مش أدمن، أو BOT_TOKEN ناقص، أو الخدمة موقّفة)';
-        const r = await fetchMembers('/members', ctx.chat.id);
-        assistant = r ? `✅ يعمل — رجّع <b>${r.length}</b> عضو` : '➖ غير متاح (اختياري الآن)';
+        const m = await fetchChatMembersViaBot(ctx.chat.id);
+        inBot = m ? `✅ يعمل — رجّع <b>${m.length}</b> عضو` : `❌ فشل: <code>${escapeHtml(getLastMtprotoError())}</code>`;
       }
+      const cached = await loadRoster(ctx.chat.id);
       const lines = [
         '🩺 <b>تشخيص «الكل»</b>',
-        `• أعضاء مسجّلين بالبوت: <b>${dbCount}</b>`,
-        `• البوت مباشرة (MTProto): ${botLine}`,
-        `• حساب المساعد (احتياطي): ${assistant}`,
+        `• البوت مباشرة (MTProto): ${inBot}`,
+        `• قائمة محفوظة (cache): ${cached ? `✅ <b>${cached.length}</b> عضو` : '➖ لا يوجد بعد'}`,
+        `• أعضاء مسجّلين (احتياطي أخير): <b>${dbCount}</b>`,
         '',
-        'ℹ️ «الكل» بيعتمد على البوت مباشرة — لازم يكون البوت أدمن بالجروب فقط، بدون أي حساب مساعد.',
+        'ℹ️ «الكل» صار يعتمد على البوت مباشرة (بدون خدمة المول). يكفي البوت أدمن بالجروب.',
       ];
       await ctx.reply(lines.join('\n')).catch(() => undefined);
     });

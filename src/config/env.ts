@@ -158,6 +158,14 @@ const envSchema = z.object({
   DL_COOKIES: z.string().optional(),
   DL_COOKIES_CONTENT: z.string().optional(),
 
+  // MTProto (gramjs) credentials so the BOT itself can list a group's full
+  // members (channels.getParticipants) — no assistant/streamer needed. Same
+  // API_ID/API_HASH from my.telegram.org used by the streamer; the bot logs in
+  // with its own BOT_TOKEN. When unset, mention-all falls back to the cached
+  // roster / streamer / recorded members.
+  API_ID: z.coerce.number().optional(),
+  API_HASH: z.string().optional(),
+
   // Self keep-alive. Render's free web service hibernates after ~15 min with no
   // inbound HTTP — and while asleep the bot's long polling stops, so it goes
   // unresponsive until something wakes it. The bot pings its own public URL on
