@@ -8,6 +8,7 @@ import { requireRole, hasRole } from '../../utils/permissions';
 import { displayName } from '../../utils/format';
 import { createLogger } from '../../core/logger';
 import { wakeStreamerOnce } from '../music';
+import { getGlobal, setGlobal } from '../../services/global.service';
 
 const log = createLogger('plugin:management');
 
@@ -42,14 +43,18 @@ const STREAMER_TOKEN = process.env.STREAMER_TOKEN || '';
 /** Fetch a group's FULL member list from the streamer. `path` is /members_bot
  *  (the bot itself, via MTProto — works in every group the bot admins) or
  *  /members (the assistant account). Returns null if unavailable. */
-async function fetchMembers(path: '/members_bot' | '/members', chatId: number): Promise<{ id: number; name: string }[] | null> {
+async function fetchMembers(
+  path: '/members_bot' | '/members',
+  chatId: number,
+  timeoutMs = 45_000,
+): Promise<{ id: number; name: string }[] | null> {
   if (!STREAMER_URL) return null;
   try {
     const res = await fetch(`${STREAMER_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(STREAMER_TOKEN ? { 'X-Token': STREAMER_TOKEN } : {}) },
       body: JSON.stringify({ chat_id: chatId }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const data = (await res.json().catch(() => null)) as { ok?: boolean; members?: { id: number; name: string }[] } | null;
     return data?.ok && Array.isArray(data.members) && data.members.length ? data.members : null;
@@ -58,33 +63,69 @@ async function fetchMembers(path: '/members_bot' | '/members', chatId: number): 
   }
 }
 
-/**
- * Full member list. Prefer the BOT itself (/members_bot) — it works in EVERY
- * group the bot administers, so no assistant account needs to be added. Falls
- * back to the assistant account, and wakes the sleeping streamer once (Render
- * free tier) before giving up. Returns null if neither path yields members.
- */
-async function fetchAllGroupMembers(
-  ctx: BotContext,
-  chatId: number,
-): Promise<{ list: { id: number; name: string }[]; source: 'bot' | 'assistant' } | null> {
-  let list = await fetchMembers('/members_bot', chatId);
-  if (list) return { list, source: 'bot' };
-  if (!STREAMER_URL) return null;
-  // Streamer is likely cold — tell the user, wake it, and retry (bot, then assistant).
-  const notice = await ctx.reply('⏳ جاري إحضار كل الأعضاء… (بياخد لـ دقيقة أول مرة)').catch(() => null);
+type Member = { id: number; name: string };
+
+// The full roster is cached per chat so mention-all responds INSTANTLY even when
+// the streamer (which hosts the bot-MTProto member lookup) is asleep on Render's
+// free tier. The streamer is only needed to (re)build the cache, in the
+// background — never on the hot path once a roster exists.
+const rosterKey = (chatId: number): string => `roster:${chatId}`;
+
+async function loadRoster(chatId: number): Promise<Member[] | null> {
+  const raw = await getGlobal(rosterKey(chatId));
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw) as { members?: Member[] };
+    return Array.isArray(p.members) && p.members.length ? p.members : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveRoster(chatId: number, members: Member[]): Promise<void> {
+  if (!members.length) return;
+  await setGlobal(rosterKey(chatId), JSON.stringify({ at: Date.now(), members: members.slice(0, 5000) })).catch(
+    () => undefined,
+  );
+}
+
+/** Wake the streamer (up to ~3min) and rebuild the roster — no user reply. Used
+ *  for a first-time seed and for background refreshes. */
+async function wakeAndRefreshRoster(chatId: number): Promise<Member[] | null> {
   await wakeStreamerOnce().catch(() => false);
-  let source: 'bot' | 'assistant' = 'bot';
-  for (let i = 0; i < 2 && !list; i++) {
-    list = await fetchMembers('/members_bot', chatId);
-    if (!list) await sleep(2500);
+  let list = await fetchMembers('/members_bot', chatId);
+  if (!list) list = await fetchMembers('/members', chatId);
+  if (list) await saveRoster(chatId, list);
+  return list;
+}
+
+/**
+ * Acquire the full member list for mention-all without blocking on a sleeping
+ * streamer:
+ *  1) a quick /members_bot try (streamer already awake) → use + refresh cache;
+ *  2) else the cached roster (instant) + a background wake to refresh it;
+ *  3) else (never fetched) a one-time blocking wake to seed it.
+ * Returns null only when we truly have nothing (→ caller falls back to the DB).
+ */
+async function fetchAllGroupMembers(ctx: BotContext, chatId: number): Promise<Member[] | null> {
+  if (STREAMER_URL) {
+    const quick = await fetchMembers('/members_bot', chatId, 12_000);
+    if (quick) {
+      await saveRoster(chatId, quick);
+      return quick;
+    }
   }
-  if (!list) {
-    list = await fetchMembers('/members', chatId);
-    source = 'assistant';
+  const cached = await loadRoster(chatId);
+  if (cached) {
+    if (STREAMER_URL) void wakeAndRefreshRoster(chatId).catch(() => undefined); // refresh for next time, don't block
+    return cached;
   }
+  if (!STREAMER_URL) return null;
+  // First time ever for this chat — seed the roster (this one call may take ~1min).
+  const notice = await ctx.reply('⏳ أول مرة — جاري إحضار كل الأعضاء (بياخد لـ دقيقة)…').catch(() => null);
+  const seeded = await wakeAndRefreshRoster(chatId);
   if (notice) await ctx.telegram.deleteMessage(chatId, notice.message_id).catch(() => undefined);
-  return list ? { list, source } : null;
+  return seeded;
 }
 
 /**
@@ -104,13 +145,14 @@ async function mentionAll(ctx: BotContext, note: string): Promise<void> {
     return void ctx.reply(`⏳ تم النداء مؤخراً. ضل <b>${leftMin}</b> دقيقة قبل نداء جديد.`);
   }
 
-  // Prefer the FULL member list (the bot itself via MTProto, then the assistant);
-  // fall back to members the bot has recorded from activity only if both fail.
+  // Prefer the FULL member list (cached roster, refreshed via the bot's MTProto
+  // lookup); fall back to members the bot has recorded from activity only if we
+  // have never managed to fetch a roster for this chat.
   const got = await fetchAllGroupMembers(ctx, chatId);
   const full = !!got;
   let people: { id: bigint | number; name: string }[];
   if (got) {
-    people = got.list.map((m) => ({ id: m.id, name: m.name }));
+    people = got.map((m) => ({ id: m.id, name: m.name }));
   } else {
     const members = await prisma.member.findMany({
       where: { chatId: BigInt(chatId) },
