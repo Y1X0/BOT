@@ -59,7 +59,7 @@ if [ "$EMBED_STREAMER" = "true" ] && [ -n "$SESSION_STRING" ]; then
     cd music-bot || exit 0
     while true; do
       echo "[streamer] starting (port ${PORT_STREAMER})"
-      PORT="$PORT_STREAMER" /opt/streamer-venv/bin/python main.py || true
+      PORT="$PORT_STREAMER" PYTHONUNBUFFERED=1 /opt/streamer-venv/bin/python main.py || true
       echo "[streamer] exited — restarting in 5s"
       sleep 5
     done

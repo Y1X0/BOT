@@ -276,6 +276,21 @@ async def health(_: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+@routes.post("/udptest")
+async def udptest(request: web.Request) -> web.Response:
+    """Run the outbound-UDP (STUN) check on demand and report. Voice/WebRTC can
+    only work when UDP is open, so this is the definitive 'can the كول play here?'
+    probe — surfaced to the owner via a bot command."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    try:
+        from udptest import check
+        udp = await asyncio.get_event_loop().run_in_executor(None, check)
+    except Exception as e:  # pragma: no cover
+        return web.json_response({"ok": True, "udp": False, "error": str(e)[:120]})
+    return web.json_response({"ok": True, "udp": bool(udp), "ready": _ready})
+
+
 @routes.post("/play")
 async def play(request: web.Request) -> web.Response:
     if not _authorized(request):

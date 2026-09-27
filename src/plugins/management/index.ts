@@ -347,6 +347,37 @@ export const managementPlugin: Plugin = {
       await ctx.reply(out).catch(() => undefined);
     });
 
+    // --- Check the (embedded) voice streamer: alive? assistant connected? UDP? ---
+    // Founder-only. UDP is what decides whether voice/WebRTC can work on this host.
+    bot.command('streamercheck', async (ctx) => {
+      if (!ctx.chat || ctx.chat.type === 'private') return;
+      if (!hasRole(ctx.state.role ?? 'member', 'founder')) return;
+      if (!STREAMER_URL) return void ctx.reply('❌ STREAMER_URL غير مهيّأ.');
+      const hdr = { 'Content-Type': 'application/json', ...(STREAMER_TOKEN ? { 'X-Token': STREAMER_TOKEN } : {}) };
+      // Health (is it up + assistant connected?).
+      let health = '❌ لا يرد';
+      try {
+        const r = await fetch(`${STREAMER_URL}/health`, { signal: AbortSignal.timeout(10_000) });
+        health = r.ok ? '✅ صاحي (المساعد متصل)' : `⏳ يشتغل (${r.status})`;
+      } catch {
+        health = '❌ لا يرد (متوقّف)';
+      }
+      // UDP verdict (can voice/WebRTC work here at all?).
+      let udpLine = '❓ غير معروف';
+      try {
+        const r = await fetch(`${STREAMER_URL}/udptest`, { method: 'POST', headers: hdr, body: '{}', signal: AbortSignal.timeout(20_000) });
+        const d = (await r.json().catch(() => null)) as { udp?: boolean } | null;
+        udpLine = d?.udp
+          ? '✅ يعمل — الصوت ممكن يشتغل هون'
+          : '❌ محجوب — Render ما بيسمح UDP، فالمكالمة الصوتية ما رح تشتغل على هالاستضافة';
+      } catch {
+        udpLine = '❓ تعذّر الفحص';
+      }
+      await ctx
+        .reply(['🎙 <b>فحص الكول</b>', `• الخدمة: ${health}`, `• UDP (الصوت): ${udpLine}`].join('\n'))
+        .catch(() => undefined);
+    });
+
     // --- Admins list ---
     bot.command('admins', async (ctx) => {
       if (!ctx.chat || ctx.chat.type === 'private') return;
