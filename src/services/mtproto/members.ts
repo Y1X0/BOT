@@ -71,11 +71,22 @@ export async function fetchChatMembersViaBot(chatId: number): Promise<Member[] |
       if (typeof sess === 'string' && sess) await setGlobal(SESSION_KEY, sess).catch(() => undefined);
     }
 
-    // Raw channels.getParticipants with accessHash=0 — Telegram lets a BOT that
-    // is a member resolve the channel this way (the same behavior that makes the
-    // Pyrogram path work). Avoids gramjs entity resolution, which needs a dialog
-    // cache a bot doesn't have. Paginate in pages of 200.
-    const channel = new Api.InputChannel({ channelId, accessHash: bigInt(0) });
+    // Resolve the channel's real access_hash first. A BOT that is a member may
+    // pass accessHash=0 to channels.getChannels (a "min" ref); Telegram returns
+    // the channel with a usable access_hash. getParticipants itself rejects
+    // accessHash=0 (CHANNEL_INVALID), so we must do this step. No dialog cache
+    // needed — which a bot doesn't have.
+    let accessHash = bigInt(0);
+    try {
+      const chans = (await client.invoke(
+        new Api.channels.GetChannels({ id: [new Api.InputChannel({ channelId, accessHash: bigInt(0) })] }),
+      )) as unknown as { chats?: { accessHash?: unknown }[] };
+      const ah = chans.chats?.[0]?.accessHash;
+      if (ah != null) accessHash = bigInt(String(ah));
+    } catch {
+      /* fall through — getParticipants will error and we return null */
+    }
+    const channel = new Api.InputChannel({ channelId, accessHash });
     const seen = new Set<number>();
     const out: Member[] = [];
     let offset = 0;
