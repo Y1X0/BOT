@@ -45,5 +45,28 @@ if [ "$pushed" -ne 1 ]; then
   echo "[start] ⚠️ starting the bot anyway — it will connect once the DB is back."
 fi
 
+# Embedded voice-chat streamer (opt-in). When EMBED_STREAMER=true and the
+# assistant SESSION_STRING is present, run the Python streamer beside the bot in
+# this same always-on container — so «الكول» is always ready with no separate
+# service and no cold start. A watchdog restarts it if it dies; the bot stays the
+# container's main process, so its health/keepalive keeps the whole thing awake.
+if [ "$EMBED_STREAMER" = "true" ] && [ -n "$SESSION_STRING" ]; then
+  echo "[start] EMBED_STREAMER=true → launching embedded voice streamer"
+  # The bot talks to it on localhost; keep these consistent with the bot's env.
+  export PORT_STREAMER="${PORT_STREAMER:-8080}"
+  export STREAMER_START_DELAY="${STREAMER_START_DELAY:-0}"
+  (
+    cd music-bot || exit 0
+    while true; do
+      echo "[streamer] starting (port ${PORT_STREAMER})"
+      PORT="$PORT_STREAMER" /opt/streamer-venv/bin/python main.py || true
+      echo "[streamer] exited — restarting in 5s"
+      sleep 5
+    done
+  ) &
+elif [ "$EMBED_STREAMER" = "true" ]; then
+  echo "[start] ⚠️ EMBED_STREAMER=true but SESSION_STRING is empty — streamer NOT started"
+fi
+
 echo "[start] launching bot"
 exec node dist/index.js

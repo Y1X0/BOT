@@ -32,6 +32,7 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
 RUN apt-get update -y \
     && apt-get install -y openssl ffmpeg ca-certificates wget \
        chromium fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core \
+       python3 python3-venv \
     && wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux -O /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
@@ -46,6 +47,15 @@ RUN npm ci --omit=dev && node scripts/set-db-provider.mjs && npx prisma generate
 COPY --from=builder /app/dist ./dist
 # Bundled fonts (color-emoji) — registered at runtime by the id-card renderer.
 COPY assets ./assets
+
+# ---- Embedded voice-chat streamer (optional) ------------------------------
+# The Python streamer lives in the SAME image so, when EMBED_STREAMER=true, it
+# runs beside the bot in one always-on service (no separate service to spin up,
+# no cold start). Its deps go in an isolated venv so they never touch Node. When
+# the flag is off, none of this runs — the bot behaves exactly as before.
+COPY music-bot ./music-bot
+RUN python3 -m venv /opt/streamer-venv \
+    && /opt/streamer-venv/bin/pip install --no-cache-dir -r music-bot/requirements.txt
 
 # Persist SQLite data (mount a volume here in production if using SQLite).
 RUN mkdir -p /app/data
