@@ -226,4 +226,9 @@ const QUICK_TARGETS: Record<string, { key: ToggleableSetting; name: string }> = 
   الكلمات: { key: 'filtersEnabled', name: 'فلتر الكلمات' },
   غارات: { key: 'antiRaidEnabled', name: 'مكافحة الغارات' },
   الغارات: { key: 'antiRaidEnabled', name: 'مكافحة الغارات' },
+  ايدي: { key: 'idCardEnabled', name: 'بطاقة الآيدي' },
+  الايدي: { key: 'idCardEnabled', name: 'بطاقة الآيدي' },
+  الايديات: { key: 'idCardEnabled', name: 'بطاقة الآيدي' },
+  البطاقه: { key: 'idCardEnabled', name: 'بطاقة الآيدي' },
+  البطاقة: { key: 'idCardEnabled', name: 'بطاقة الآيدي' },
 };

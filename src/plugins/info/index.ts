@@ -72,6 +72,8 @@ export const infoPlugin: Plugin = {
     // /id and /info → rich profile card (photo + bio + username + id).
     // With a reply, shows the replied user's info; otherwise the sender's.
     const infoHandler = async (ctx: BotContext) => {
+      // Respect the per-group toggle: «تعطيل الايدي» disables the card.
+      if (ctx.state.settings && ctx.state.settings.idCardEnabled === false) return;
       const target = resolveTarget(ctx) ?? ctx.from;
       if (!target) return;
       await sendUserInfo(ctx, target);

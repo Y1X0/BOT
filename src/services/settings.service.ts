@@ -114,6 +114,7 @@ export const TOGGLEABLE_SETTINGS = [
   'economyEnabled',
   'xpEnabled',
   'musicBlocked',
+  'idCardEnabled',
   'aiEnabled',
   'cleanServiceEnabled',
   'moderationEnabled',
