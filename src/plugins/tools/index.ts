@@ -1,10 +1,36 @@
-import type { Telegraf } from 'telegraf';
+import type { Telegraf, Telegram } from 'telegraf';
 import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { requireRole } from '../../utils/permissions';
 import { logAction } from '../../services/moderation.service';
 
 const MAX_PURGE = 100;
+
+/**
+ * Delete many message ids FAST. One bulk `deleteMessages` call wipes up to 100
+ * at once; if Telegram rejects the batch (an id is too old / not found), fall
+ * back to parallel per-message deletes. This replaces the old sequential loop
+ * that fired one awaited call per message and stalled on flood limits — which
+ * is what made «مسح N» delete a few then appear to hang. Returns the count.
+ */
+async function purgeIds(telegram: Telegram, chatId: number, ids: number[]): Promise<number> {
+  if (!ids.length) return 0;
+  try {
+    await telegram.deleteMessages(chatId, ids);
+    return ids.length;
+  } catch {
+    let deleted = 0;
+    const CONCURRENCY = 20;
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      const batch = ids.slice(i, i + CONCURRENCY);
+      const res = await Promise.all(
+        batch.map((id) => telegram.deleteMessage(chatId, id).then(() => true).catch(() => false)),
+      );
+      deleted += res.filter(Boolean).length;
+    }
+    return deleted;
+  }
+}
 
 /**
  * Group utility tools: polls plus common admin housekeeping commands
@@ -101,14 +127,9 @@ export const toolsPlugin: Plugin = {
         await ctx.reply(`🧹 الحد الأقصى ${MAX_PURGE} رسالة في المرة.`);
         return;
       }
-      let deleted = 0;
-      for (let id = from; id <= to; id++) {
-        const ok = await ctx.telegram
-          .deleteMessage(ctx.chat.id, id)
-          .then(() => true)
-          .catch(() => false);
-        if (ok) deleted++;
-      }
+      const ids: number[] = [];
+      for (let id = from; id <= to; id++) ids.push(id);
+      const deleted = await purgeIds(ctx.telegram, ctx.chat.id, ids);
       await logAction(ctx.chat.id, 'purge', ctx.from.id, undefined, `${deleted} msgs`);
       const note = await ctx.reply(`🧹 تم حذف ${deleted} رسالة.`);
       // Auto-remove the confirmation after a few seconds.
@@ -136,11 +157,9 @@ export const toolsPlugin: Plugin = {
         const ascii = numStr.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
         const n = Math.min(Math.max(parseInt(ascii, 10) || 0, 1), MAX_PURGE);
         await ctx.deleteMessage().catch(() => undefined); // the «مسح N» command itself
-        let deleted = 0;
-        for (let id = cmdId - 1; id >= cmdId - n && id > 0; id--) {
-          const ok = await ctx.telegram.deleteMessage(chatId, id).then(() => true).catch(() => false);
-          if (ok) deleted++;
-        }
+        const ids: number[] = [];
+        for (let id = cmdId - 1; id >= cmdId - n && id > 0; id--) ids.push(id);
+        const deleted = await purgeIds(ctx.telegram, chatId, ids);
         await logAction(chatId, 'purge', ctx.from!.id, undefined, `${deleted} msgs`);
         if (deleted === 0) return void ctx.reply(noRights).catch(() => undefined);
         const note = await ctx.reply(`🧹 تم حذف <b>${deleted}</b> رسالة.`).catch(() => undefined);
