@@ -69,6 +69,20 @@ model ChatSettings {
   xpEnabled           Boolean  @default(true)
   musicBlocked        Boolean  @default(false) // lock يوت/اغنيه song search & download
 
+  // Content locks: when true, that message type is deleted from non-staff.
+  // Toggled by «قفل/تعطيل الصور» … / «فتح/تفعيل الصور» … (see the locks plugin).
+  lockPhoto           Boolean  @default(false)
+  lockVideo           Boolean  @default(false)
+  lockVoice           Boolean  @default(false)
+  lockAudio           Boolean  @default(false)
+  lockSticker         Boolean  @default(false)
+  lockGif             Boolean  @default(false)
+  lockDocument        Boolean  @default(false)
+  lockContact         Boolean  @default(false)
+  lockLocation        Boolean  @default(false)
+  lockPoll            Boolean  @default(false)
+  lockVideoNote       Boolean  @default(false)
+
   // AI
   aiEnabled           Boolean  @default(false)
 

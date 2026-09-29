@@ -13,6 +13,7 @@ import { channelPlugin } from './channel';
 import { adminPlugin } from './admin';
 import { moderationPlugin } from './moderation';
 import { protectionPlugin } from './protection';
+import { locksPlugin } from './locks';
 import { welcomePlugin } from './welcome';
 import { engagementPlugin } from './engagement';
 import { gamesPlugin } from './games';
@@ -101,6 +102,7 @@ allPlugins.push(
   moderationPlugin,
   botRolesPlugin, // custom in-bot ranks (admin/moderator/vip)
   protectionPlugin, // anti-raid: must run before welcome on new_chat_members
+  locksPlugin, // content locks: delete locked media from non-staff
   botOnboardPlugin, // greets the group when the BOT itself is added/promoted
   welcomePlugin,
   voiceChatPlugin,
