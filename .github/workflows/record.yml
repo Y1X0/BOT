@@ -1,0 +1,60 @@
+name: تسجيل فيديو الدورة
+
+# شغّله يدويًا من تبويب Actions → اختر هذا الـ workflow → Run workflow، وحط رابط
+# بث/فيديو اليوتيوب. ينزّله على رَنر GitHub (قرص ~14GB) ثم يرفعه لحسابك على
+# تيليجرام (رسائلك المحفوظة افتراضيًا) عبر Pyrogram — حتى 4GB بحساب Premium.
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "رابط البث / الفيديو (YouTube)"
+        required: true
+      quality:
+        description: "أقصى دقة: best أو 1080 أو 720 أو 480"
+        required: false
+        default: "best"
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: تثبيت الأدوات
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -U yt-dlp kurigram tgcrypto
+
+      - name: تنزيل الفيديو
+        env:
+          URL: ${{ github.event.inputs.url }}
+          QUALITY: ${{ github.event.inputs.quality }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          set -e
+          mkdir -p out
+          COOKIES=""
+          if [ -n "$YT_COOKIES" ]; then printf '%s' "$YT_COOKIES" > cookies.txt; COOKIES="--cookies cookies.txt"; fi
+          if [ "$QUALITY" = "best" ] || [ -z "$QUALITY" ]; then
+            FORMAT="bv*+ba/b"
+          else
+            FORMAT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b"
+          fi
+          yt-dlp --live-from-start $COOKIES -f "$FORMAT" \
+            --merge-output-format mp4 \
+            --no-part \
+            -o "out/%(title)s [%(id)s].%(ext)s" \
+            "$URL"
+          echo "--- الملفات ---"; ls -lh out
+
+      - name: رفعه لتيليجرام
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          TARGET: ${{ secrets.TARGET_CHAT }}
+        run: python3 recorder/upload.py
