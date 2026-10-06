@@ -14,10 +14,19 @@ on:
         description: "أقصى دقة: best أو 1080 أو 720 أو 480"
         required: false
         default: "best"
+      runner:
+        description: "وين يشتغل؟ self-hosted = جهازك (IP منزلي، بدون حظر) | ubuntu-latest = رَنر GitHub (محظور حاليًا)"
+        required: false
+        default: "self-hosted"
+        type: choice
+        options:
+          - self-hosted
+          - ubuntu-latest
 
 jobs:
   record:
-    runs-on: ubuntu-latest
+    # يُختار وقت التشغيل: رَنرك المنزلي (self-hosted) أو رَنر GitHub (ubuntu-latest).
+    runs-on: ${{ github.event.inputs.runner }}
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
@@ -35,16 +44,26 @@ jobs:
 
       - name: تثبيت الأدوات
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y ffmpeg
-          python3 -m pip install --upgrade pip
+          set -e
+          # ffmpeg: ثبّته فقط لو مش موجود (على جهازك المنزلي قد يكون مثبّتًا أصلاً).
+          if command -v ffmpeg >/dev/null 2>&1; then
+            echo "ffmpeg موجود: $(ffmpeg -version | head -1)"
+          elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -y && sudo apt-get install -y ffmpeg
+          else
+            echo "⚠️ ffmpeg غير موجود وما في apt — ثبّته يدويًا على جهاز الرَنر." >&2
+            exit 1
+          fi
+          # venv معزول: ما يلمس بايثون النظام على جهازك، ويتجاوز قيود PEP 668.
+          python3 -m venv venv
+          ./venv/bin/pip install -U pip
           # yt-dlp بالطريقة الرسمية + مكوّن EJS محليًا (بدون كوكيز/حساب):
           # وجود حزمة yt-dlp-ejs محليًا يغني عن --remote-components نهائيًا.
-          python3 -m pip install -U "yt-dlp[default]"
-          python3 -m pip install -U yt-dlp-ejs
-          python3 -m pip install -U kurigram tgcrypto
-          yt-dlp --version
-          python3 -m pip show yt-dlp-ejs | grep -iE "^Name|^Version"
+          ./venv/bin/pip install -U "yt-dlp[default]"
+          ./venv/bin/pip install -U yt-dlp-ejs
+          ./venv/bin/pip install -U kurigram tgcrypto
+          ./venv/bin/yt-dlp --version
+          ./venv/bin/pip show yt-dlp-ejs | grep -iE "^Name|^Version"
 
       - name: تنزيل الفيديو
         env:
@@ -67,7 +86,7 @@ jobs:
           # --js-runtimes deno: نفعّل Deno صراحةً كـ JS runtime.
           # حزمة yt-dlp-ejs مثبّتة محليًا، لذا لا نستخدم --remote-components.
           # جرّب عدة عملاء يوتيوب لتجاوز حظر الـ datacenter بدون كوكيز قدر الإمكان.
-          yt-dlp -v --live-from-start $COOKIES -f "$FORMAT" \
+          ./venv/bin/yt-dlp -v --live-from-start $COOKIES -f "$FORMAT" \
             --js-runtimes deno \
             --extractor-args "youtube:player_client=tv,mweb,web_safari,default" \
             --merge-output-format mp4 \
@@ -82,4 +101,4 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           TARGET: ${{ secrets.TARGET_CHAT }}
-        run: python3 recorder/upload.py
+        run: ./venv/bin/python recorder/upload.py
