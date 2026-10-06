@@ -19,3 +19,8 @@ prisma/migrations/dev.db*
 .idea/
 .vscode/
 coverage/
+
+# Termux recorder secrets (local only)
+recorder/termux.env
+recorder/out/
+cookies.txt
