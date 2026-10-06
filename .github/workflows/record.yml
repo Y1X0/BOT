@@ -32,7 +32,10 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg
           python3 -m pip install --upgrade pip
-          python3 -m pip install -U yt-dlp kurigram tgcrypto
+          # nightly yt-dlp: أحدث ترقيعات تجاوز حظر يوتيوب (تتحدث يوميًا)
+          python3 -m pip install -U --pre "yt-dlp[default]"
+          python3 -m pip install -U kurigram tgcrypto
+          yt-dlp --version
 
       - name: تنزيل الفيديو
         env:
@@ -49,8 +52,9 @@ jobs:
           else
             FORMAT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b"
           fi
+          # جرّب عدة عملاء يوتيوب لتجاوز حظر الـ datacenter بدون كوكيز قدر الإمكان.
           yt-dlp --live-from-start $COOKIES -f "$FORMAT" \
-            --extractor-args "youtube:player_client=default,web_safari,tv" \
+            --extractor-args "youtube:player_client=tv,mweb,web_safari,default" \
             --merge-output-format mp4 \
             --no-part \
             -o "out/%(title)s [%(id)s].%(ext)s" \
