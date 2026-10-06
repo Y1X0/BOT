@@ -27,15 +27,24 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: التأكد من توفّر Deno بالـ PATH
+        run: |
+          echo "PATH=$PATH"
+          which deno
+          deno --version
+
       - name: تثبيت الأدوات
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg
           python3 -m pip install --upgrade pip
-          # nightly yt-dlp: أحدث ترقيعات تجاوز حظر يوتيوب (تتحدث يوميًا)
-          python3 -m pip install -U --pre "yt-dlp[default]"
+          # yt-dlp بالطريقة الرسمية + مكوّن EJS محليًا (بدون كوكيز/حساب):
+          # وجود حزمة yt-dlp-ejs محليًا يغني عن --remote-components نهائيًا.
+          python3 -m pip install -U "yt-dlp[default]"
+          python3 -m pip install -U yt-dlp-ejs
           python3 -m pip install -U kurigram tgcrypto
           yt-dlp --version
+          python3 -m pip show yt-dlp-ejs | grep -iE "^Name|^Version"
 
       - name: تنزيل الفيديو
         env:
@@ -44,6 +53,8 @@ jobs:
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
         run: |
           set -e
+          # نفس البيئة التي ستشغّل yt-dlp — تأكد أن Deno هنا أيضًا:
+          echo "which deno: $(which deno)"; deno --version
           mkdir -p out
           COOKIES=""
           if [ -n "$YT_COOKIES" ]; then printf '%s' "$YT_COOKIES" > cookies.txt; COOKIES="--cookies cookies.txt"; fi
@@ -52,11 +63,12 @@ jobs:
           else
             FORMAT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b"
           fi
-          # EJS: مكوّن JavaScript الرسمي اللي يوتيوب‑dlp يوصي فيه لدعم يوتيوب الكامل.
-          # يُحمَّل من GitHub بدون أي حساب/كوكيز، ويشتغل عبر Deno المثبّت فوق.
+          # -v: مؤقتًا لنرى سطر "JS runtimes: deno-..." في اللوج ونتأكد أن EJS متاح.
+          # --js-runtimes deno: نفعّل Deno صراحةً كـ JS runtime.
+          # حزمة yt-dlp-ejs مثبّتة محليًا، لذا لا نستخدم --remote-components.
           # جرّب عدة عملاء يوتيوب لتجاوز حظر الـ datacenter بدون كوكيز قدر الإمكان.
-          yt-dlp --live-from-start $COOKIES -f "$FORMAT" \
-            --remote-components ejs:github \
+          yt-dlp -v --live-from-start $COOKIES -f "$FORMAT" \
+            --js-runtimes deno \
             --extractor-args "youtube:player_client=tv,mweb,web_safari,default" \
             --merge-output-format mp4 \
             --no-part \
