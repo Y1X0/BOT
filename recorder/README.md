@@ -53,6 +53,16 @@
 دخول يوتيوب، صدّر كوكيزه (إضافة متصفح مثل "Get cookies.txt")، وحطّ المحتوى بسر
 `YT_COOKIES`. استخدم حساب احتياطي عشان لو تسرّب ما يأثّر على حسابك الحقيقي.
 
+## الأسهل لو عندك كمبيوتر ويندوز — بدون كوكيز ولا GitHub
+
+جهازك على IP منزلي، فيوتيوب ما بيحظره. السكربت `windows.ps1` ينزّل كل الأدوات
+لحاله (yt-dlp + ffmpeg + deno) وينزّل الفيديو بمجلد `out`:
+
+```
+# احفظ windows.ps1 على سطح المكتب باسم record.ps1، ثم بـ PowerShell:
+powershell -ExecutionPolicy Bypass -File "$HOME\Desktop\record.ps1" -Url "https://www.youtube.com/live/XXXX"
+```
+
 ## البديل المجاني الجاهز: التنزيل من الهاتف (Termux) — بدون كوكيز
 
 هاتفك على **IP منزلي**، فيوتيوب ما بيحظره. السكربت `termux.sh` بينزّل **ويرفع
