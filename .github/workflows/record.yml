@@ -52,8 +52,11 @@ jobs:
           else
             FORMAT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b"
           fi
+          # EJS: مكوّن JavaScript الرسمي اللي يوتيوب‑dlp يوصي فيه لدعم يوتيوب الكامل.
+          # يُحمَّل من GitHub بدون أي حساب/كوكيز، ويشتغل عبر Deno المثبّت فوق.
           # جرّب عدة عملاء يوتيوب لتجاوز حظر الـ datacenter بدون كوكيز قدر الإمكان.
           yt-dlp --live-from-start $COOKIES -f "$FORMAT" \
+            --remote-components ejs:github \
             --extractor-args "youtube:player_client=tv,mweb,web_safari,default" \
             --merge-output-format mp4 \
             --no-part \
