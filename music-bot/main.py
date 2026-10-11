@@ -1143,18 +1143,44 @@ async def _serve() -> None:
     # Connect the assistant + PyTgCalls (needed for actual playback). Do NOT
     # crash the whole service if this fails — keep serving so search still works
     # and the session can be fixed without the container crash-looping.
-    global _ready, _assistant_id
-    try:
-        await assistant.start()
-        await calls.start()
-        me = await assistant.get_me()
-        _assistant_id = me.id
-        _ready = True
-        log.info("Streamer up. Assistant: %s (id %s). PyTgCalls started.", me.first_name, me.id)
-    except Exception as e:
-        log.error("Assistant/PyTgCalls failed to start — playback disabled until the session is fixed: %s", e)
+    asyncio.create_task(_connect_assistant_with_retry())
 
     await asyncio.Event().wait()  # serve forever
+
+
+async def _connect_assistant_with_retry() -> None:
+    """Connect the assistant with retries. On a redeploy the previous instance
+    may still hold the Telegram session for a few seconds, so the first attempt
+    often fails with AUTH_KEY_DUPLICATED — we retry (with backoff) until the old
+    instance releases it, instead of giving up and leaving the service unusable.
+
+    `_ready` (which gates uploads/downloads) is set as soon as the USER client is
+    up; PyTgCalls (voice only) is started best-effort afterward, so a voice-stack
+    hiccup never blocks the video-download/upload feature."""
+    global _ready, _assistant_id
+    delay = 8
+    for attempt in range(1, 16):
+        try:
+            await assistant.start()
+            me = await assistant.get_me()
+            _assistant_id = me.id
+            _ready = True
+            log.info("Streamer up. Assistant: %s (id %s).", me.first_name, me.id)
+            try:
+                await calls.start()
+                log.info("PyTgCalls started (voice enabled).")
+            except Exception as e:  # noqa: BLE001 — voice optional; uploads still work
+                log.warning("PyTgCalls failed to start (voice disabled): %s", e)
+            return
+        except Exception as e:  # noqa: BLE001
+            log.error("assistant connect attempt %d/15 failed: %s", attempt, e)
+            try:
+                await assistant.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60)
+    log.error("assistant could not connect after retries — session may be revoked; regenerate SESSION_STRING.")
 
 
 def _setup_cookies() -> None:
