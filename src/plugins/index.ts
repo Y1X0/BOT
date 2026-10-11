@@ -31,6 +31,7 @@ import { whisperPlugin } from './whisper';
 import { musarahaPlugin } from './musaraha';
 import { youtubePlugin } from './youtube';
 import { downloaderPlugin } from './downloader';
+import { courseDlPlugin } from './coursedl';
 import { storyPlugin } from './story';
 import { transcribePlugin } from './transcribe';
 import { ttsPlugin } from './tts';
@@ -153,6 +154,7 @@ allPlugins.push(
   transcribePlugin, // reply «نص» to a voice/audio → speech-to-text (Whisper)
   ttsPlugin, // «نطق النص» → text-to-speech voice-over
   netdiagPlugin, // owner /udptest — checks if the host allows UDP (for the كول)
+  courseDlPlugin, // «نزّل <رابط يوتيوب>» → big-file download via assistant (before downloader)
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()
   economyPlugin,

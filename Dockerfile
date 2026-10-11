@@ -30,11 +30,17 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
 # (the card's 👑🔥 etc.), dejavu, and noto Arabic as a system fallback.
 # Use the nightly yt-dlp — it tracks YouTube extractor fixes far more closely.
 RUN apt-get update -y \
-    && apt-get install -y openssl ffmpeg ca-certificates wget \
+    && apt-get install -y openssl ffmpeg ca-certificates wget unzip \
        chromium fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core \
        python3 python3-venv \
     && wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux -O /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
+    # Deno = JavaScript runtime yt-dlp needs to solve YouTube's JS challenge
+    # (for the full-video download feature). Installed from GitHub releases.
+    && wget -q https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -O /tmp/deno.zip \
+    && unzip -q /tmp/deno.zip -d /usr/local/bin \
+    && chmod a+rx /usr/local/bin/deno \
+    && rm -f /tmp/deno.zip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./

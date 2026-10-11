@@ -767,6 +767,157 @@ async def _fetch_story(peer: object, story_id: int, storage: int) -> web.Respons
     )
 
 
+@routes.post("/ytdownload")
+async def ytdownload(request: web.Request) -> web.Response:
+    """Download a FULL YouTube video via yt-dlp (cookies + deno JS runtime), then
+    upload it to Telegram through the assistant USER account (up to ~4GB, which a
+    bot can't). Runs in the BACKGROUND so the long download never blocks the HTTP
+    request or the voice loop; the bot is told the result via `callback`.
+
+    Body: {url, quality?, chat_id, callback, cookies?}. `cookies` is a Netscape
+    cookies.txt CONTENT (from a throwaway YouTube account). We write it, let
+    yt-dlp refresh it in place, and return the refreshed copy in the callback so
+    the bot can persist it — keeping the login alive instead of dying daily."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
+    data = await _body(request)
+    url = str(data.get("url") or "").strip()
+    if not url:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+    quality = str(data.get("quality") or "720").strip()
+    chat_id = data.get("chat_id")
+    callback = str(data.get("callback") or "").strip()
+    cookies = data.get("cookies")
+    asyncio.create_task(_run_ytdownload(url, quality, chat_id, callback, cookies))
+    return web.json_response({"ok": True, "status": "started"})
+
+
+async def _yt_notify(callback: str, payload: dict) -> None:
+    if not callback:
+        return
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(
+                callback, json=payload,
+                headers={"X-Token": config.STREAMER_TOKEN},
+                timeout=aiohttp.ClientTimeout(total=20),
+            )
+    except Exception as e:
+        log.info("yt callback failed: %s", e)
+
+
+async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
+    import glob as _glob
+    import os
+    import shutil
+    import sys
+    import tempfile
+
+    workdir = tempfile.mkdtemp(prefix="ytdl_")
+    cookiefile = os.path.join(workdir, "cookies.txt")
+    have_cookies = False
+    if cookies:
+        try:
+            with open(cookiefile, "w", encoding="utf-8") as f:
+                f.write(cookies)
+            have_cookies = True
+        except Exception as e:  # noqa: BLE001
+            log.warning("yt: write cookies failed: %s", e)
+    if not have_cookies:
+        envck = os.getenv("YT_COOKIES") or ""
+        if envck and os.path.exists(envck):
+            try:
+                shutil.copyfile(envck, cookiefile)
+                have_cookies = True
+            except OSError:
+                pass
+
+    if quality in ("best", "", None):
+        fmt = "bv*+ba/b"
+    else:
+        fmt = f"bv*[height<={quality}]+ba/b[height<={quality}]/b"
+
+    outtmpl = os.path.join(workdir, "%(title).150B [%(id)s].%(ext)s")
+    cmd = [
+        sys.executable, "-m", "yt_dlp", "-v", "--live-from-start",
+        "-f", fmt, "--merge-output-format", "mp4", "--no-part", "--no-playlist",
+        "--extractor-args", "youtube:player_client=tv,mweb,web_safari,default,web",
+        "-o", outtmpl,
+    ]
+    if shutil.which("deno"):
+        cmd += ["--js-runtimes", "deno"]
+    if have_cookies:
+        cmd += ["--cookies", cookiefile]
+    cmd.append(url)
+
+    log.info("yt: downloading %s (quality=%s, cookies=%s)", url, quality, have_cookies)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+        out, _ = await proc.communicate()
+        rc = proc.returncode
+    except Exception as e:  # noqa: BLE001
+        log.warning("yt: subprocess failed: %s", e)
+        await _yt_notify(callback, {"chat_id": chat_id, "ok": False, "error": "failed", "detail": str(e)[:300]})
+        shutil.rmtree(workdir, ignore_errors=True)
+        return
+
+    tail = (out or b"").decode("utf-8", "replace")[-2000:]
+    media = [
+        f for f in _glob.glob(os.path.join(workdir, "*"))
+        if os.path.isfile(f) and os.path.basename(f) != "cookies.txt"
+        and f.rsplit(".", 1)[-1].lower() in ("mp4", "mkv", "webm", "mov", "m4a", "ts")
+    ]
+
+    if rc != 0 or not media:
+        low = tail.lower()
+        if "sign in to confirm" in low or "login_required" in low or "not a bot" in low:
+            err = "botwall"
+        elif "members-only" in low or "join this channel" in low or "private video" in low:
+            err = "private"
+        elif "requested format is not available" in low:
+            err = "format"
+        else:
+            err = "failed"
+        log.info("yt: download failed (%s). tail: %s", err, tail[-400:])
+        await _yt_notify(callback, {"chat_id": chat_id, "ok": False, "error": err, "detail": tail[-300:]})
+        shutil.rmtree(workdir, ignore_errors=True)
+        return
+
+    # Upload via the assistant USER account (big-file capable).
+    target_env = os.getenv("YT_TARGET_CHAT") or "me"
+    target = int(target_env) if str(target_env).lstrip("-").isdigit() else target_env
+    title = os.path.basename(media[0])
+    try:
+        for f in sorted(media):
+            cap = os.path.basename(f)
+            try:
+                await assistant.send_video(target, f, caption=cap)
+            except Exception:  # noqa: BLE001 — some containers reject as video; fall back
+                await assistant.send_document(target, f, caption=cap, force_document=True)
+    except Exception as e:  # noqa: BLE001
+        log.warning("yt: upload failed: %s", e)
+        await _yt_notify(callback, {"chat_id": chat_id, "ok": False, "error": "upload", "detail": str(e)[:300]})
+        shutil.rmtree(workdir, ignore_errors=True)
+        return
+
+    # Read the refreshed cookies back so the bot can persist them (self-refresh).
+    refreshed = None
+    try:
+        if os.path.exists(cookiefile):
+            with open(cookiefile, encoding="utf-8") as f:
+                refreshed = f.read()
+    except OSError:
+        pass
+
+    log.info("yt: done → %s", title)
+    await _yt_notify(callback, {"chat_id": chat_id, "ok": True, "title": title, "cookies": refreshed})
+    shutil.rmtree(workdir, ignore_errors=True)
+
+
 @routes.post("/import")
 async def import_audio(request: web.Request) -> web.Response:
     """Bulk-import audio from a source channel into the archive storage channel.

@@ -11,5 +11,8 @@ tgcrypto==1.2.5
 # Install the latest master (nightly) — SoundCloud's client_id extraction breaks
 # periodically and is fixed fastest on master; the pinned release couldn't get it.
 yt-dlp @ https://github.com/yt-dlp/yt-dlp/archive/refs/heads/master.tar.gz
+# EJS components for YouTube's JS challenge (used with the Deno runtime). Having
+# this installed means yt-dlp needs no --remote-components fetch at runtime.
+yt-dlp-ejs
 python-dotenv==1.0.1
 aiohttp==3.10.11

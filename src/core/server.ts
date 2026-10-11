@@ -88,6 +88,46 @@ export function createServer(bot: Telegraf<BotContext>): Express {
     res.json({ ok: true });
   });
 
+  // The streamer calls this when a big YouTube download (course video) finishes
+  // or fails. We persist the refreshed cookies (self-refresh, so the login stays
+  // alive) and tell the requester in their chat. Authenticated with STREAMER_TOKEN.
+  app.post('/yt/done', async (req, res): Promise<void> => {
+    const token = process.env.STREAMER_TOKEN || '';
+    if (!token || req.header('X-Token') !== token) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    const { chat_id, ok, error, title, cookies } = (req.body ?? {}) as {
+      chat_id?: number | string;
+      ok?: boolean;
+      error?: string;
+      title?: string;
+      cookies?: string;
+    };
+    // Persist refreshed cookies so the next run uses a fresh (non-expiring) copy.
+    if (typeof cookies === 'string' && cookies.includes('\t')) {
+      const { setGlobal } = await import('../services/global.service');
+      await setGlobal('yt_cookies', cookies).catch(() => undefined);
+    }
+    if (chat_id) {
+      const YT_ERRORS: Record<string, string> = {
+        botwall: '❌ يوتيوب طلب تأكيد (الكوكيز غالباً منتهية). جدّد ملف الكوكيز وجرّب تاني.',
+        private: '🔒 الفيديو خاص أو للأعضاء فقط — ما قدر يوصل له.',
+        format: '❌ الدقة المطلوبة غير متاحة، جرّب دقة أقل (مثلاً 480).',
+        upload: '⚠️ نزّل الفيديو بس فشل رفعه لتيليجرام، حاول مرة ثانية.',
+        failed: '⚠️ تعذّر التنزيل، تأكد من الرابط وحاول مرة ثانية.',
+      };
+      const text = ok
+        ? `✅ <b>خلص التنزيل</b>\n<code>${String(title || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')}</code>\nشوف «الرسائل المحفوظة» بتيليجرام. 🎉`
+        : YT_ERRORS[error || 'failed'] || YT_ERRORS.failed;
+      await bot.telegram.sendMessage(Number(chat_id), text, { parse_mode: 'HTML' }).catch(() => undefined);
+    }
+    res.json({ ok: true });
+  });
+
   // In webhook mode, mount Telegraf's callback at the secret path.
   if (env.BOT_MODE === 'webhook') {
     const path = env.WEBHOOK_PATH.startsWith('/')
