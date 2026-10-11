@@ -89,7 +89,7 @@ export const courseDlPlugin: Plugin = {
       const replied = (ctx.message as { reply_to_message?: { text?: string; caption?: string } }).reply_to_message;
       const text = `${fromArg} ${replied?.text || replied?.caption || ''}`;
       const url = text.match(URL_RE)?.[1];
-      const quality = text.match(/\b(\d{3,4}|best)\b/i)?.[1] || '720';
+      const quality = text.match(/\b(\d{3,4}|best)\b/i)?.[1] || '480';
       if (!url || !YT_RE.test(url)) return next(); // not YouTube → normal downloader
       await handle(ctx, url, quality.toLowerCase());
     });
@@ -97,7 +97,7 @@ export const courseDlPlugin: Plugin = {
     bot.command('ytget', async (ctx) => {
       const parts = ctx.message.text.split(/\s+/).slice(1);
       const url = parts.find((p) => /^https?:\/\//i.test(p));
-      const quality = parts.find((p) => /^(\d{3,4}|best)$/i.test(p)) || '720';
+      const quality = parts.find((p) => /^(\d{3,4}|best)$/i.test(p)) || '480';
       if (!url || !YT_RE.test(url)) {
         await ctx.reply('⬇️ أرسل: <code>/ytget رابط_يوتيوب [دقة]</code>', { parse_mode: 'HTML' }).catch(() => undefined);
         return;
