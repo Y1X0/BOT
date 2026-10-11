@@ -843,7 +843,9 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
     cmd = [
         sys.executable, "-m", "yt_dlp", "-v", "--live-from-start",
         "-f", fmt, "--merge-output-format", "mp4", "--no-part", "--no-playlist",
-        "--extractor-args", "youtube:player_client=tv,mweb,web_safari,default,web",
+        # Same client order the voice feature proved works on this datacenter IP:
+        # ios returns progressive formats and bypasses the wall; tv_embedded next.
+        "--extractor-args", "youtube:player_client=ios,web_safari,tv_embedded,web,android",
         "-o", outtmpl,
     ]
     if shutil.which("deno"):
