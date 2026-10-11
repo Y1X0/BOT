@@ -815,7 +815,15 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
     import sys
     import tempfile
 
-    workdir = tempfile.mkdtemp(prefix="ytdl_")
+    # IMPORTANT: write to real container disk, NOT /tmp. On Render /tmp is tmpfs
+    # (RAM-backed), so a multi-GB download would fill the 512MB RAM and OOM the
+    # box. /app/data is on the writable disk layer.
+    base = os.getenv("YT_WORKDIR") or "/app/data"
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        base = tempfile.gettempdir()
+    workdir = tempfile.mkdtemp(prefix="ytdl_", dir=base)
     cookiefile = os.path.join(workdir, "cookies.txt")
     have_cookies = False
     if cookies:
@@ -847,11 +855,8 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
         # one fragment at a time, small HTTP chunks, tiny buffer — avoids the RAM
         # spike that OOM-killed the container mid-download.
         "--concurrent-fragments", "1",
-        "--http-chunk-size", "5M",
+        "--http-chunk-size", "10M",
         "--buffer-size", "16K",
-        # Cap the rate so the slow free-tier disk keeps up with writes; otherwise
-        # dirty pages pile into the cgroup memory limit and OOM the container.
-        "--limit-rate", "3M",
         # Same client order the voice feature proved works on this datacenter IP:
         # ios returns progressive formats and bypasses the wall; tv_embedded next.
         "--extractor-args", "youtube:player_client=ios,web_safari,tv_embedded,web,android",
@@ -901,6 +906,8 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
             err = "notlive"
         elif "requested format is not available" in low:
             err = "format"
+        elif "no space left" in low or "enospc" in low:
+            err = "nospace"
         elif "video unavailable" in low or "removed" in low:
             err = "unavailable"
         else:
