@@ -847,8 +847,11 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
         # one fragment at a time, small HTTP chunks, tiny buffer — avoids the RAM
         # spike that OOM-killed the container mid-download.
         "--concurrent-fragments", "1",
-        "--http-chunk-size", "10M",
+        "--http-chunk-size", "5M",
         "--buffer-size", "16K",
+        # Cap the rate so the slow free-tier disk keeps up with writes; otherwise
+        # dirty pages pile into the cgroup memory limit and OOM the container.
+        "--limit-rate", "3M",
         # Same client order the voice feature proved works on this datacenter IP:
         # ios returns progressive formats and bypasses the wall; tv_embedded next.
         "--extractor-args", "youtube:player_client=ios,web_safari,tv_embedded,web,android",
