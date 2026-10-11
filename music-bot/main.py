@@ -867,7 +867,8 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
         shutil.rmtree(workdir, ignore_errors=True)
         return
 
-    tail = (out or b"").decode("utf-8", "replace")[-2000:]
+    full = (out or b"").decode("utf-8", "replace")
+    tail = full[-2000:]
     media = [
         f for f in _glob.glob(os.path.join(workdir, "*"))
         if os.path.isfile(f) and os.path.basename(f) != "cookies.txt"
@@ -875,17 +876,28 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
     ]
 
     if rc != 0 or not media:
-        low = tail.lower()
+        # Pull the human-readable reason lines (yt-dlp prints ERROR:/WARNING: and
+        # the playability status) so we can see WHY instead of just a traceback.
+        reason_lines = [
+            ln.strip() for ln in full.splitlines()
+            if ln.strip().startswith(("ERROR:", "WARNING:")) or "playability" in ln.lower()
+        ]
+        reason = " | ".join(reason_lines[-4:]) or tail[-300:]
+        low = (reason + " " + tail).lower()
         if "sign in to confirm" in low or "login_required" in low or "not a bot" in low:
             err = "botwall"
-        elif "members-only" in low or "join this channel" in low or "private video" in low:
+        elif "members-only" in low or "join this channel" in low or "private video" in low or "members on level" in low:
             err = "private"
+        elif "this live event will begin" in low or "premiere" in low or "will begin in" in low or "starts in" in low:
+            err = "notlive"
         elif "requested format is not available" in low:
             err = "format"
+        elif "video unavailable" in low or "removed" in low:
+            err = "unavailable"
         else:
             err = "failed"
-        log.info("yt: download failed (%s). tail: %s", err, tail[-400:])
-        await _yt_notify(callback, {"chat_id": chat_id, "ok": False, "error": err, "detail": tail[-300:]})
+        log.info("yt: download failed (%s). reason: %s", err, reason[-600:])
+        await _yt_notify(callback, {"chat_id": chat_id, "ok": False, "error": err, "detail": reason[-350:]})
         shutil.rmtree(workdir, ignore_errors=True)
         return
 
