@@ -868,6 +868,42 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
         cmd += ["--cookies", cookiefile]
     cmd.append(url)
 
+    # Log the workdir's filesystem TYPE so we can see tmpfs (RAM-backed, bad) vs
+    # a real disk (overlay/ext4). Decides whether the cache-drop below can help.
+    try:
+        import subprocess as _sp
+        fsinfo = _sp.run(["df", "-hT", base], capture_output=True, text=True, timeout=5).stdout
+        log.info("yt: workdir=%s fs: %s", base, " | ".join(fsinfo.splitlines()))
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Background: periodically flush + drop the download file's page cache. On a
+    # real disk this keeps RAM flat (the 512MB box OOM'd because the growing
+    # file's cache filled memory). No-op/ineffective if the fs is tmpfs.
+    import threading
+    _stop_cache = threading.Event()
+
+    def _drop_cache() -> None:
+        while not _stop_cache.is_set():
+            try:
+                os.sync()
+                for entry in os.scandir(workdir):
+                    if entry.is_file():
+                        try:
+                            fd = os.open(entry.path, os.O_RDONLY)
+                            try:
+                                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                            finally:
+                                os.close(fd)
+                        except OSError:
+                            pass
+            except Exception:  # noqa: BLE001
+                pass
+            _stop_cache.wait(3)
+
+    _cache_thread = threading.Thread(target=_drop_cache, daemon=True)
+    _cache_thread.start()
+
     log.info("yt: downloading %s (quality=%s, cookies=%s)", url, quality, have_cookies)
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -876,10 +912,13 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
         out, _ = await proc.communicate()
         rc = proc.returncode
     except Exception as e:  # noqa: BLE001
+        _stop_cache.set()
         log.warning("yt: subprocess failed: %s", e)
         await _yt_notify(callback, {"chat_id": chat_id, "ok": False, "error": "failed", "detail": str(e)[:300]})
         shutil.rmtree(workdir, ignore_errors=True)
         return
+    finally:
+        _stop_cache.set()
 
     full = (out or b"").decode("utf-8", "replace")
     tail = full[-2000:]
