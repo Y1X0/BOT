@@ -15,13 +15,17 @@ on:
         required: false
         default: "best"
       runner:
-        description: "وين يشتغل؟ self-hosted = جهازك (IP منزلي، بدون حظر) | ubuntu-latest = رَنر GitHub (محظور حاليًا)"
+        description: "وين يشتغل؟ ubuntu-latest = رَنر GitHub (7GB رام) | self-hosted = جهازك"
         required: false
-        default: "self-hosted"
+        default: "ubuntu-latest"
         type: choice
         options:
-          - self-hosted
           - ubuntu-latest
+          - self-hosted
+      cookies:
+        description: "محتوى cookies.txt (اختياري — يتجاوز سر YT_COOKIES). يمرّره البوت تلقائيًا."
+        required: false
+        default: ""
 
 jobs:
   record:
@@ -69,26 +73,27 @@ jobs:
         env:
           URL: ${{ github.event.inputs.url }}
           QUALITY: ${{ github.event.inputs.quality }}
+          COOKIES_INPUT: ${{ github.event.inputs.cookies }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
         run: |
           set -e
-          # نفس البيئة التي ستشغّل yt-dlp — تأكد أن Deno هنا أيضًا:
           echo "which deno: $(which deno)"; deno --version
           mkdir -p out
           COOKIES=""
-          if [ -n "$YT_COOKIES" ]; then printf '%s' "$YT_COOKIES" > cookies.txt; COOKIES="--cookies cookies.txt"; fi
+          # Prefer the cookies passed in by the bot; else fall back to the secret.
+          if [ -n "$COOKIES_INPUT" ]; then
+            printf '%s' "$COOKIES_INPUT" > cookies.txt; COOKIES="--cookies cookies.txt"; echo "using cookies from input"
+          elif [ -n "$YT_COOKIES" ]; then
+            printf '%s' "$YT_COOKIES" > cookies.txt; COOKIES="--cookies cookies.txt"; echo "using cookies from secret"
+          fi
           if [ "$QUALITY" = "best" ] || [ -z "$QUALITY" ]; then
             FORMAT="bv*+ba/b"
           else
             FORMAT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b"
           fi
-          # -v: مؤقتًا لنرى سطر "JS runtimes: deno-..." في اللوج ونتأكد أن EJS متاح.
-          # --js-runtimes deno: نفعّل Deno صراحةً كـ JS runtime.
-          # حزمة yt-dlp-ejs مثبّتة محليًا، لذا لا نستخدم --remote-components.
-          # جرّب عدة عملاء يوتيوب لتجاوز حظر الـ datacenter بدون كوكيز قدر الإمكان.
           ./venv/bin/yt-dlp -v --live-from-start $COOKIES -f "$FORMAT" \
             --js-runtimes deno \
-            --extractor-args "youtube:player_client=tv,mweb,web_safari,default" \
+            --extractor-args "youtube:player_client=ios,web_safari,tv_embedded,web,android" \
             --merge-output-format mp4 \
             --no-part \
             -o "out/%(title)s [%(id)s].%(ext)s" \
