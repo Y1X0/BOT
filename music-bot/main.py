@@ -857,9 +857,11 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
         "--concurrent-fragments", "1",
         "--http-chunk-size", "10M",
         "--buffer-size", "16K",
-        # Same client order the voice feature proved works on this datacenter IP:
-        # ios returns progressive formats and bypasses the wall; tv_embedded next.
-        "--extractor-args", "youtube:player_client=ios,web_safari,tv_embedded,web,android",
+        # ios/android ONLY: these mobile clients don't trigger the nsig JS
+        # challenge, so Deno (~150MB) is never spawned — the real memory hog that
+        # pushed the 512MB box over the edge. (Deno stays available as a fallback
+        # but won't run if these clients don't need it.)
+        "--extractor-args", "youtube:player_client=ios,android",
         "-o", outtmpl,
     ]
     if shutil.which("deno"):
