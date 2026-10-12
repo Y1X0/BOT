@@ -19,7 +19,15 @@ echo "[start] setting db provider from env"
 node scripts/set-db-provider.mjs
 
 echo "[start] generating prisma client"
-npx prisma generate
+# Guard against a hung `prisma generate` (seen stalling >10min, blocking boot):
+# cap each try and retry a couple of times before giving up and starting anyway
+# (the build already generated a client, so a stale one still lets the bot run).
+gi=1
+while [ "$gi" -le 3 ]; do
+  if timeout 120 npx prisma generate; then break; fi
+  echo "[start] prisma generate attempt $gi timed out/failed; retrying"
+  gi=$((gi + 1))
+done
 
 # Retry db push to survive a Neon cold start. Backoff: 3s,6s,9s,12s,15s (~45s).
 i=1
