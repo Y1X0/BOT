@@ -65,9 +65,21 @@ jobs:
           # وجود حزمة yt-dlp-ejs محليًا يغني عن --remote-components نهائيًا.
           ./venv/bin/pip install -U "yt-dlp[default]"
           ./venv/bin/pip install -U yt-dlp-ejs
+          # PO Token provider (script mode via node) — fixes googlevideo HTTP 403
+          # on datacenter IPs. Not cookies, not a Google account.
+          ./venv/bin/pip install -U bgutil-ytdlp-pot-provider
           ./venv/bin/pip install -U kurigram tgcrypto
           ./venv/bin/yt-dlp --version
+          node --version || true
           ./venv/bin/pip show yt-dlp-ejs | grep -iE "^Name|^Version"
+          ./venv/bin/pip show bgutil-ytdlp-pot-provider | grep -iE "^Name|^Version"
+
+      - name: تشغيل مزوّد PO Token (يصلّح 403)
+        if: runner.environment == 'github-hosted'
+        run: |
+          docker run --name bgutil -d --restart unless-stopped -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider:latest || true
+          sleep 6
+          curl -s http://127.0.0.1:4416/ping || echo "provider not reachable yet (will still try)"
 
       - name: تنزيل الفيديو
         env:
