@@ -14,18 +14,34 @@ export type Engine = 'cobalt' | 'yt-dlp' | 'piped' | 'invidious';
  *   yt-dlp (fast, direct) → Piped → Invidious (HTTP proxies on other IPs).
  * This maximizes the chance of getting audio when the server IP is blocked.
  */
+/** Resolve the FIRST attempt that returns results; if all fail, the last error. */
+async function firstSuccess(
+  attempts: Promise<SearchItem[] | { error: YtError }>[],
+): Promise<SearchItem[] | { error: YtError }> {
+  return new Promise((resolve) => {
+    let remaining = attempts.length;
+    let lastError: { error: YtError } = { error: 'failed' };
+    if (!remaining) return resolve(lastError);
+    for (const a of attempts) {
+      a.then((r) => {
+        if (!('error' in r) && r.length) return resolve(r);
+        if ('error' in r) lastError = r;
+        if (--remaining === 0) resolve(lastError);
+      }).catch(() => {
+        if (--remaining === 0) resolve(lastError);
+      });
+    }
+  });
+}
+
 export async function resolveSearch(query: string, limit: number): Promise<SearchItem[] | { error: YtError }> {
-  const yt = await ytSearch(query, limit);
-  if (!('error' in yt)) return yt;
-  if (env.YT_PIPED_ENABLED) {
-    const p = await pipedSearch(query, limit);
-    if (!('error' in p)) return p;
-  }
-  if (env.YT_INVIDIOUS_ENABLED) {
-    const i = await invidiousSearch(query, limit);
-    if (!('error' in i)) return i;
-  }
-  return yt;
+  // Run the HTTP engines (fast, on other IPs) AND yt-dlp IN PARALLEL and take the
+  // first that returns results. HTTP usually wins in ~1-2s, so search feels
+  // instant; yt-dlp is the reliable backstop when the public instances are down.
+  const attempts: Promise<SearchItem[] | { error: YtError }>[] = [ytSearch(query, limit)];
+  if (env.YT_PIPED_ENABLED) attempts.push(pipedSearch(query, limit));
+  if (env.YT_INVIDIOUS_ENABLED) attempts.push(invidiousSearch(query, limit));
+  return firstSuccess(attempts);
 }
 
 export async function resolveDownload(

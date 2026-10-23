@@ -31,32 +31,46 @@ function instances(): string[] {
   return DEFAULT_INSTANCES;
 }
 
+/** Parse a Piped /search response into our SearchItem shape. */
+function parsePipedSearch(data: unknown, limit: number): SearchItem[] {
+  const items: SearchItem[] = [];
+  const list = (data as { items?: Array<Record<string, unknown>> } | null)?.items;
+  if (!list) return items;
+  for (const it of list) {
+    const videoId = String(it.url ?? '').match(/[?&]v=([\w-]{11})/)?.[1];
+    const title = it.title ? String(it.title) : '';
+    if (videoId && title) {
+      const dur = typeof it.duration === 'number' && it.duration > 0 ? it.duration : null;
+      items.push({ videoId, title, duration: dur });
+    }
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
 export async function pipedSearch(
   query: string,
   limit: number,
 ): Promise<SearchItem[] | { error: YtError }> {
-  for (const base of instances()) {
-    const data = (await fetchJson(`${base}/search?q=${encodeURIComponent(query)}&filter=videos`)) as
-      | { items?: Array<Record<string, unknown>> }
-      | null;
-    if (!data?.items) continue;
-
-    const items: SearchItem[] = [];
-    for (const it of data.items) {
-      const videoId = String(it.url ?? '').match(/[?&]v=([\w-]{11})/)?.[1];
-      const title = it.title ? String(it.title) : '';
-      if (videoId && title) {
-        const dur = typeof it.duration === 'number' && it.duration > 0 ? it.duration : null;
-        items.push({ videoId, title, duration: dur });
+  // Race ALL instances in parallel with a short per-request timeout and take the
+  // first one that returns results. Public instances are flaky, so trying them
+  // sequentially (old behavior) could stall for minutes; racing makes search
+  // feel instant — the fastest healthy instance wins in ~1-2s.
+  const attempts = instances().map((base) =>
+    fetchJson(`${base}/search?q=${encodeURIComponent(query)}&filter=videos`, 5_000).then((data) => {
+      const items = parsePipedSearch(data, limit);
+      if (items.length) {
+        log.info({ base, count: items.length }, 'piped search ok');
+        return items;
       }
-      if (items.length >= limit) break;
-    }
-    if (items.length) {
-      log.info({ base, count: items.length }, 'piped search ok');
-      return items;
-    }
+      throw new Error('no items');
+    }),
+  );
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return { error: 'failed' };
   }
-  return { error: 'failed' };
 }
 
 interface AudioStream {
