@@ -83,7 +83,9 @@ function isRetryable(e: YtError): boolean {
   return e === 'blocked' || e === 'failed' || e === 'drm';
 }
 
-const SEARCH_TIMEOUT_MS = 20_000;
+// Keep search snappy: a flat ytsearch returns in ~2-3s, so cap each attempt low
+// and fail fast to the fallback instead of making the user wait.
+const SEARCH_TIMEOUT_MS = 8_000;
 // Per-attempt cap. Audio files are small, so a real download finishes in well
 // under this; the old 10-min ceiling meant one stalled attempt could hang for
 // minutes before the next method was tried.
@@ -150,15 +152,14 @@ function classifyError(stderr: string): YtError {
 }
 
 /**
- * Clients to try FOR SEARCH (relevance-first), as opposed to download.
- * The DEFAULT client (null = web) returns YouTube's normal, best-ranked search
- * results; forcing a mobile client (needed for non-DRM *download*) gives poorer
- * search relevance. So try default first, then fall back to mobile clients only
- * if the default is blocked on this IP.
+ * Clients to try FOR SEARCH. SPEED-first: `android` answers a flat ytsearch in a
+ * couple of seconds and rarely blocks, so it goes first and almost always
+ * returns on the first try. `null` (default web) is a single relevance fallback
+ * only if android somehow yields nothing. Kept short so search feels instant.
  */
 function searchClients(): (string | null)[] {
   if (env.YT_PLAYER_CLIENT) return [env.YT_PLAYER_CLIENT];
-  return [null, 'web_safari', 'android', 'ios'];
+  return ['android', null];
 }
 
 /**
