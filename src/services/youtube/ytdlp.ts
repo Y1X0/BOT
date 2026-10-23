@@ -150,12 +150,24 @@ function classifyError(stderr: string): YtError {
 }
 
 /**
+ * Clients to try FOR SEARCH (relevance-first), as opposed to download.
+ * The DEFAULT client (null = web) returns YouTube's normal, best-ranked search
+ * results; forcing a mobile client (needed for non-DRM *download*) gives poorer
+ * search relevance. So try default first, then fall back to mobile clients only
+ * if the default is blocked on this IP.
+ */
+function searchClients(): (string | null)[] {
+  if (env.YT_PLAYER_CLIENT) return [env.YT_PLAYER_CLIENT];
+  return [null, 'web_safari', 'android', 'ios'];
+}
+
+/**
  * Search YouTube and return up to `limit` results (id, title, duration).
  * Uses a flat, download-free query so it stays fast.
  */
 export async function search(query: string, limit: number): Promise<SearchItem[] | { error: YtError }> {
   let lastError: YtError = 'failed';
-  for (const client of clientsToTry()) {
+  for (const client of searchClients()) {
     const args = [
       ...commonArgs(client),
       '--no-playlist',
