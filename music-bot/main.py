@@ -857,11 +857,13 @@ async def _run_ytdownload(url, quality, chat_id, callback, cookies) -> None:
         "--concurrent-fragments", "1",
         "--http-chunk-size", "10M",
         "--buffer-size", "16K",
-        # ios/android ONLY: these mobile clients don't trigger the nsig JS
-        # challenge, so Deno (~150MB) is never spawned — the real memory hog that
-        # pushed the 512MB box over the edge. (Deno stays available as a fallback
-        # but won't run if these clients don't need it.)
-        "--extractor-args", "youtube:player_client=ios,android",
+        # Lightweight clients only (ios/android/tv_embedded): they don't trigger
+        # the nsig JS challenge, so Deno (~150MB) is never spawned — the memory
+        # hog that OOM'd the 512MB box. Listing several gives a fallback so that
+        # if YouTube 403s one client from this IP, another can still serve the
+        # formats. Heavy web clients are deliberately excluded (they'd need Deno
+        # + a PO token, which don't fit in 512MB alongside the bot).
+        "--extractor-args", "youtube:player_client=ios,android,tv_embedded",
         "-o", outtmpl,
     ]
     if shutil.which("deno"):
