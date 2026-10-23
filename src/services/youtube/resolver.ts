@@ -49,8 +49,10 @@ export async function resolveDownload(
   onEngineTry?: (engine: Engine) => void,
   opts: { lowBitrate?: boolean } = {},
 ): Promise<DownloadResult | { error: YtError }> {
-  // Cobalt first when configured: it downloads from its own IP, bypassing the
-  // datacenter block that usually defeats direct yt-dlp.
+  // Engines that fetch from ANOTHER IP go FIRST — on this datacenter IP, yt-dlp
+  // is reliably blocked by YouTube, so trying it first just wastes ~60s before
+  // these bypasses. Cobalt (own IP) → Piped → Invidious (proxied streams) →
+  // yt-dlp only as a last resort.
   if (cobaltConfigured()) {
     onEngineTry?.('cobalt');
     const c = await cobaltDownload(`https://www.youtube.com/watch?v=${videoId}`, true);
@@ -59,16 +61,6 @@ export async function resolveDownload(
       return c;
     }
   }
-
-  onEngineTry?.('yt-dlp');
-  const yt = await ytDownload(videoId, opts);
-  if (!('error' in yt)) {
-    log.info({ engine: 'yt-dlp' }, 'download resolved');
-    return yt;
-  }
-  // These are terminal — no engine can fix them.
-  if (yt.error === 'notinstalled' || yt.error === 'toolarge') return yt;
-
   if (env.YT_PIPED_ENABLED) {
     onEngineTry?.('piped');
     const p = await pipedDownload(videoId);
@@ -84,6 +76,13 @@ export async function resolveDownload(
       log.info({ engine: 'invidious' }, 'download resolved');
       return i;
     }
+  }
+
+  onEngineTry?.('yt-dlp');
+  const yt = await ytDownload(videoId, opts);
+  if (!('error' in yt)) {
+    log.info({ engine: 'yt-dlp' }, 'download resolved');
+    return yt;
   }
   return yt;
 }

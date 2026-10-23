@@ -81,7 +81,8 @@ interface AudioStream {
 
 export async function pipedDownload(videoId: string): Promise<DownloadResult | { error: YtError }> {
   for (const base of instances()) {
-    const data = (await fetchJson(`${base}/streams/${videoId}`)) as
+    // Short timeout so a sleeping instance is skipped fast instead of stalling.
+    const data = (await fetchJson(`${base}/streams/${videoId}`, 6_000)) as
       | { title?: string; audioStreams?: AudioStream[] }
       | null;
     const streams = data?.audioStreams;
