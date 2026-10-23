@@ -86,11 +86,30 @@ export async function pipedDownload(videoId: string): Promise<DownloadResult | {
       | { title?: string; audioStreams?: AudioStream[] }
       | null;
     const streams = data?.audioStreams;
-    if (!streams?.length) continue;
+    if (!data) {
+      log.warn({ base }, 'piped dl: /streams no response');
+      continue;
+    }
+    if (!streams?.length) {
+      log.warn({ base }, 'piped dl: no audioStreams in response');
+      continue;
+    }
 
     const sorted = [...streams].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
     const chosen = sorted.find((s) => /mp4/i.test(s.mimeType ?? '')) ?? sorted[0];
-    if (!chosen?.url) continue;
+    if (!chosen?.url) {
+      log.warn({ base, count: streams.length }, 'piped dl: no usable stream url');
+      continue;
+    }
+    // Redacted: host only tells us proxied (pipedproxy/instance) vs direct
+    // googlevideo (which the datacenter IP typically blocks).
+    let urlHost = '?';
+    try {
+      urlHost = new URL(chosen.url).host;
+    } catch {
+      /* ignore */
+    }
+    log.info({ base, urlHost, streams: streams.length }, 'piped dl: got stream url');
 
     const title = data?.title ? String(data.title) : 'audio';
     const isMp4 = /mp4/i.test(chosen.mimeType ?? '');
@@ -122,5 +141,5 @@ export async function pipedDownload(videoId: string): Promise<DownloadResult | {
       await cleanup();
     }
   }
-  return { error: 'blocked' };
+  return { error: 'failed' };
 }

@@ -71,12 +71,29 @@ export async function invidiousDownload(
     const data = (await fetchJson(`${base}/api/v1/videos/${videoId}?local=true`)) as
       | { title?: string; adaptiveFormats?: AdaptiveFormat[] }
       | null;
+    if (!data) {
+      log.warn({ base }, 'invidious dl: /videos no response');
+      continue;
+    }
     const audio = (data?.adaptiveFormats ?? []).filter((f) => /^audio\//i.test(f.type ?? ''));
-    if (!audio.length) continue;
+    if (!audio.length) {
+      log.warn({ base }, 'invidious dl: no audio formats');
+      continue;
+    }
 
     const sorted = [...audio].sort((a, b) => Number(b.bitrate ?? 0) - Number(a.bitrate ?? 0));
     const chosen = sorted.find((f) => /mp4/i.test(f.type ?? '')) ?? sorted[0];
-    if (!chosen?.url) continue;
+    if (!chosen?.url) {
+      log.warn({ base, count: audio.length }, 'invidious dl: no usable url');
+      continue;
+    }
+    let urlHost = '?';
+    try {
+      urlHost = new URL(chosen.url).host;
+    } catch {
+      /* ignore */
+    }
+    log.info({ base, urlHost, formats: audio.length }, 'invidious dl: got stream url');
 
     const title = data?.title ? String(data.title) : 'audio';
     const isMp4 = /mp4/i.test(chosen.type ?? '');
@@ -108,5 +125,5 @@ export async function invidiousDownload(
       await cleanup();
     }
   }
-  return { error: 'blocked' };
+  return { error: 'failed' };
 }
