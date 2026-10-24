@@ -26,6 +26,10 @@ try {
         update: { value },
       });
     }
+  } else if (cmd === 'clear') {
+    // Drop the saved profile so the next boot registers a fresh WARP account —
+    // used to rotate away from an exit IP that YouTube has started blocking.
+    await prisma.globalConfig.deleteMany({ where: { key: KEY } });
   }
 } catch {
   // Best-effort: on a `get` failure we print nothing, so start.sh registers.

@@ -100,6 +100,15 @@ if [ "$WARP_ENABLED" = "true" ]; then
     set +e
     cd "$WARP_DIR" || exit 0
 
+    # WARP_RESET=true rotates the exit IP: drop the saved profile and register a
+    # fresh WARP account. Use it when YouTube starts blocking the current IP.
+    # Set it once, redeploy, then set it back to false so the new IP is reused.
+    if [ "$WARP_RESET" = "true" ]; then
+      echo "[warp] WARP_RESET=true → rotating to a fresh WARP IP"
+      node "$APP_DIR/scripts/warp-profile.mjs" clear 2>/dev/null || true
+      rm -f wgcf-profile.conf wgcf-account.toml
+    fi
+
     # Reuse the WARP profile saved in the DB so we register with Cloudflare only
     # ONCE ever. The free tier has no persistent disk, so re-registering on every
     # deploy quickly hits Cloudflare's rate limit (HTTP 429) and leaves WARP down.
