@@ -15,6 +15,13 @@
 
 set -e
 
+# Download/extract to REAL DISK, not /tmp. On Render /tmp is tmpfs (RAM-backed),
+# so writing a large media file there eats into the 512MB limit and OOM-restarts
+# the bot mid-download (health check then times out). /app/data is real disk, so
+# yt-dlp/ffmpeg temp files no longer count against RAM. os.tmpdir() honors TMPDIR.
+export TMPDIR="${TMPDIR:-/app/data/tmp}"
+mkdir -p "$TMPDIR" || true
+
 echo "[start] setting db provider from env"
 node scripts/set-db-provider.mjs
 
