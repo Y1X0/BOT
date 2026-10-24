@@ -53,9 +53,13 @@ function getCookiesPath(): string | null {
 // Each extra client is a full failed round-trip when YouTube blocks the IP, so
 // fewer = faster failure to a working method. The mobile clients return normal
 // (non-DRM) audio; tv/web mostly returned DRM-protected formats we can't save.
+// With WARP egress unblocking YouTube, the `web` client becomes viable again
+// (its nsig JS challenge is solved by the bundled Deno), and it returns proper
+// audio-only DASH formats — so it's a strong fallback after the mobile clients.
 const CLIENT_FALLBACKS = [
   'android',
   'ios',
+  'web',
   'tv_embedded',
 ];
 
@@ -86,10 +90,10 @@ function isRetryable(e: YtError): boolean {
 // Keep search snappy: a flat ytsearch returns in ~2-3s, so cap each attempt low
 // and fail fast to the fallback instead of making the user wait.
 const SEARCH_TIMEOUT_MS = 8_000;
-// Per-attempt cap. Audio files are small, so a real download finishes in well
-// under this; the old 10-min ceiling meant one stalled attempt could hang for
-// minutes before the next method was tried.
-const DOWNLOAD_ATTEMPT_TIMEOUT_MS = 90_000;
+// Per-attempt cap. Audio files are small, but routing through the WARP tunnel
+// adds latency and audio extraction costs a little CPU on the 0.1-vCPU tier, so
+// give each attempt enough room to finish a real song without timing out.
+const DOWNLOAD_ATTEMPT_TIMEOUT_MS = 150_000;
 
 export interface SearchItem {
   videoId: string;
@@ -239,17 +243,24 @@ async function attemptDownload(
   const outBase = join(dir, 'audio');
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
 
-  // Native audio, no ffmpeg re-encode (Telegram plays m4a fine). For long
-  // tracks, prefer the ~48kbps native m4a stream (itag 139) so the file is a
-  // fraction of the size and sends far faster; otherwise take the best m4a.
+  // Prefer a small audio-only stream, but ALWAYS fall back to `best` so we never
+  // hit "Requested format is not available" when a client only offers combined
+  // (progressive video+audio) formats — common with the android/ios clients.
+  // `--extract-audio` (below) then pulls the audio track out of whatever we got.
   const format = lowBitrate
-    ? 'bestaudio[ext=m4a][abr<=70]/worstaudio[ext=m4a]/bestaudio[ext=m4a]/bestaudio'
-    : 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio';
+    ? 'bestaudio[ext=m4a][abr<=70]/worstaudio[ext=m4a]/bestaudio/best'
+    : 'bestaudio[ext=m4a]/bestaudio/best';
 
   const args = [
     ...commonArgs(client),
     '-f',
     format,
+    // Extract the audio track from whatever stream we got (audio-only DASH or a
+    // combined/progressive file). `best` keeps the original codec (remux, no
+    // re-encode) when possible, so it stays fast and lossless.
+    '--extract-audio',
+    '--audio-format',
+    'best',
     '--concurrent-fragments',
     '4',
     '--no-playlist',

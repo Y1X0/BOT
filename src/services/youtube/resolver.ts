@@ -49,10 +49,18 @@ export async function resolveDownload(
   onEngineTry?: (engine: Engine) => void,
   opts: { lowBitrate?: boolean } = {},
 ): Promise<DownloadResult | { error: YtError }> {
-  // Engines that fetch from ANOTHER IP go FIRST — on this datacenter IP, yt-dlp
-  // is reliably blocked by YouTube, so trying it first just wastes ~60s before
-  // these bypasses. Cobalt (own IP) → Piped → Invidious (proxied streams) →
-  // yt-dlp only as a last resort.
+  // yt-dlp FIRST now that WARP egress (YT_PROXY) routes it past YouTube's
+  // datacenter-IP bot-wall — it's the one path that actually returns audio, and
+  // trying it first avoids ~6s wasted on the (currently all-blocked) public
+  // instances. Cobalt → Piped → Invidious remain as fallbacks for when WARP is
+  // briefly down and a public instance happens to be healthy.
+  onEngineTry?.('yt-dlp');
+  const yt = await ytDownload(videoId, opts);
+  if (!('error' in yt)) {
+    log.info({ engine: 'yt-dlp' }, 'download resolved');
+    return yt;
+  }
+
   if (cobaltConfigured()) {
     onEngineTry?.('cobalt');
     const c = await cobaltDownload(`https://www.youtube.com/watch?v=${videoId}`, true);
@@ -76,13 +84,6 @@ export async function resolveDownload(
       log.info({ engine: 'invidious' }, 'download resolved');
       return i;
     }
-  }
-
-  onEngineTry?.('yt-dlp');
-  const yt = await ytDownload(videoId, opts);
-  if (!('error' in yt)) {
-    log.info({ engine: 'yt-dlp' }, 'download resolved');
-    return yt;
   }
   return yt;
 }
