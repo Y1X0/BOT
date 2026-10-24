@@ -76,5 +76,49 @@ elif [ "$EMBED_STREAMER" = "true" ]; then
   echo "[start] ⚠️ EMBED_STREAMER=true but SESSION_STRING is empty — streamer NOT started"
 fi
 
+# Cloudflare WARP egress (opt-in). Routes yt-dlp through Cloudflare's network —
+# a different IP than our datacenter one, which YouTube bot-walls — via userspace
+# WireGuard (wgcf + wireproxy), so no root/TUN. The WARP account + profile are
+# cached on the persistent disk, so we register only once. Fully best-effort: if
+# anything here fails the bot still starts normally (YT_PROXY would just point at
+# a dead port and yt-dlp falls back to its other methods). Enable with
+# WARP_ENABLED=true and set YT_PROXY=socks5://127.0.0.1:40000 so yt-dlp uses it.
+if [ "$WARP_ENABLED" = "true" ]; then
+  echo "[start] WARP_ENABLED=true → bringing up Cloudflare WARP (wireproxy)"
+  WARP_DIR="${WARP_DIR:-/app/data/warp}"
+  WARP_BIND="${WARP_BIND:-127.0.0.1:40000}"
+  mkdir -p "$WARP_DIR" || true
+  (
+    set +e
+    cd "$WARP_DIR" || exit 0
+    if [ ! -f wgcf-account.toml ]; then
+      echo "[warp] registering a new WARP account"
+      wgcf register --accept-tos || echo "[warp] ⚠️ register failed"
+    fi
+    if [ -f wgcf-account.toml ] && [ ! -f wgcf-profile.conf ]; then
+      echo "[warp] generating WireGuard profile"
+      wgcf generate || echo "[warp] ⚠️ generate failed"
+    fi
+    if [ -f wgcf-profile.conf ]; then
+      # wireproxy config = the WireGuard profile + a local SOCKS5 listener.
+      { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = %s\n' "$WARP_BIND"; } > wireproxy.conf
+      echo "[warp] starting wireproxy SOCKS5 on ${WARP_BIND}"
+      wireproxy -c wireproxy.conf &
+      port="${WARP_BIND##*:}"
+      n=1
+      while [ "$n" -le 12 ]; do
+        if node -e "require('net').connect({host:'127.0.0.1',port:${port}},()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
+          echo "[warp] ✅ SOCKS5 proxy up on ${WARP_BIND} — yt-dlp will egress via Cloudflare"
+          break
+        fi
+        sleep 1; n=$((n + 1))
+      done
+      [ "$n" -gt 12 ] && echo "[warp] ⚠️ wireproxy did not come up in time"
+    else
+      echo "[warp] ⚠️ no WireGuard profile — WARP not started"
+    fi
+  ) &
+fi
+
 echo "[start] launching bot"
 exec node dist/index.js

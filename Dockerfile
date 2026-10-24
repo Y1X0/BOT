@@ -43,6 +43,19 @@ RUN apt-get update -y \
     && rm -f /tmp/deno.zip \
     && rm -rf /var/lib/apt/lists/*
 
+# Cloudflare WARP egress (optional, free). Routes yt-dlp through Cloudflare's
+# network — a different IP than our datacenter one, which YouTube bot-walls —
+# using userspace WireGuard (wgcf registers a free WARP account; wireproxy runs
+# it and exposes a local SOCKS5 proxy). No root/TUN needed, so it works in this
+# unprivileged container. Only used when WARP_ENABLED=true at runtime; otherwise
+# the binaries just sit idle. See scripts/start.sh.
+RUN wget -q https://github.com/ViRb3/wgcf/releases/download/v2.2.29/wgcf_2.2.29_linux_amd64 -O /usr/local/bin/wgcf \
+    && chmod a+rx /usr/local/bin/wgcf \
+    && wget -q https://github.com/whyvl/wireproxy/releases/download/v1.1.3/wireproxy_linux_amd64.tar.gz -O /tmp/wireproxy.tgz \
+    && tar xzf /tmp/wireproxy.tgz -C /usr/local/bin wireproxy \
+    && chmod a+rx /usr/local/bin/wireproxy \
+    && rm -f /tmp/wireproxy.tgz
+
 COPY package*.json ./
 COPY prisma ./prisma
 COPY scripts ./scripts
