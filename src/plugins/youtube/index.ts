@@ -38,11 +38,39 @@ function cacheResults(chatId: number, msgId: number, items: SearchItem[]): void 
   resultCache.set(`${chatId}:${msgId}`, items);
 }
 
-function fmtDuration(sec: number | null): string {
+/** "m:ss" with no surrounding parens — for the result badge. */
+function clock(sec: number | null): string {
   if (sec == null) return '';
   const m = Math.floor(sec / 60);
   const s = sec % 60;
-  return ` (${m}:${String(s).padStart(2, '0')})`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Pretty keycap numbers (1-10) that mirror the inline buttons; plain beyond 10.
+const KEYCAPS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+const keycap = (i: number): string => KEYCAPS[i] ?? `${i + 1}.`;
+
+/** Trim long YouTube titles so the result list stays tidy and uniform. */
+function clipTitle(t: string, max = 58): string {
+  const clean = t.replace(/\s+/g, ' ').trim();
+  return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+}
+
+const RESULT_DIVIDER = '━━━━━━━━━━━━━';
+
+/** Build the pretty, numbered search-results message. */
+function renderResults(query: string, items: { title: string; duration: number | null }[]): string {
+  const lines = items.map((it, i) => {
+    const dur = it.duration != null ? `  ·  ${clock(it.duration)}` : '';
+    return `${keycap(i)}  ${clipTitle(it.title)}${dur}`;
+  });
+  return [
+    `🎧 نتائج «${query}»`,
+    RESULT_DIVIDER,
+    lines.join('\n'),
+    RESULT_DIVIDER,
+    '👇 اضغط الرقم لاختيار المقطع',
+  ].join('\n');
 }
 
 export const youtubePlugin: Plugin = {
@@ -64,7 +92,7 @@ export const youtubePlugin: Plugin = {
       if (!query) return void ctx.reply('🎵 اكتب اسم الأغنية.\nمثال: يوت باب الحارة');
       if (query.length > 150) return void ctx.reply('🎵 البحث طويل جداً.');
 
-      const status = await ctx.reply(`🔎 جاري البحث عن: ${query} ...`);
+      const status = await ctx.reply(`🔎 جاري البحث عن «${query}» …`);
       const found = await resolveSearch(query, youtubeConfig.maxResults);
       if ('error' in found) {
         await editText(ctx, status.message_id, ERRORS[found.error]);
@@ -72,17 +100,14 @@ export const youtubePlugin: Plugin = {
       }
 
       cacheResults(ctx.chat.id, status.message_id, found);
-      const lines = found
-        .map((it, i) => `${i + 1}. ${it.title}${fmtDuration(it.duration)}`)
-        .join('\n');
       const buttons = found.map((_, i) =>
-        Markup.button.callback(String(i + 1), `ytp:${status.message_id}:${i}`),
+        Markup.button.callback(keycap(i), `ytp:${status.message_id}:${i}`),
       );
       // 5 buttons per row.
       const rows: (typeof buttons)[] = [];
       for (let i = 0; i < buttons.length; i += 5) rows.push(buttons.slice(i, i + 5));
 
-      await editText(ctx, status.message_id, `🔎 نتائج «${query}»:\n\n${lines}\n\n👇 اضغط الرقم`, {
+      await editText(ctx, status.message_id, renderResults(query, found), {
         reply_markup: { inline_keyboard: rows.map((r) => r.map((b) => b)) },
       });
     });
