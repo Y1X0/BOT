@@ -94,65 +94,104 @@ if [ "$WARP_ENABLED" = "true" ]; then
   echo "[start] WARP_ENABLED=true → bringing up Cloudflare WARP (wireproxy)"
   WARP_DIR="${WARP_DIR:-/app/data/warp}"
   WARP_BIND="${WARP_BIND:-127.0.0.1:40000}"
+  WARP_MAX_ROTATE="${WARP_MAX_ROTATE:-4}"
   APP_DIR="$(pwd)"
   mkdir -p "$WARP_DIR" || true
   (
     set +e
     cd "$WARP_DIR" || exit 0
+    PORT_WARP="${WARP_BIND##*:}"
+    WP_PID=""
 
-    # WARP_RESET=true rotates the exit IP: drop the saved profile and register a
-    # fresh WARP account. Use it when YouTube starts blocking the current IP.
-    # Set it once, redeploy, then set it back to false so the new IP is reused.
-    if [ "$WARP_RESET" = "true" ]; then
-      echo "[warp] WARP_RESET=true → rotating to a fresh WARP IP"
-      node "$APP_DIR/scripts/warp-profile.mjs" clear 2>/dev/null || true
+    # Register a brand-new WARP account (= fresh exit IP) and persist the profile.
+    warp_register() {
       rm -f wgcf-profile.conf wgcf-account.toml
+      wgcf register --accept-tos >/dev/null 2>&1 && wgcf generate >/dev/null 2>&1
+      [ -s wgcf-profile.conf ] || return 1
+      node "$APP_DIR/scripts/warp-profile.mjs" save wgcf-profile.conf 2>/dev/null
+      return 0
+    }
+
+    # (Re)start wireproxy on the current profile; wait for the SOCKS port to open.
+    warp_start() {
+      [ -n "$WP_PID" ] && kill "$WP_PID" 2>/dev/null
+      sleep 1
+      { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = %s\n' "$WARP_BIND"; } > wireproxy.conf
+      wireproxy -c wireproxy.conf >/dev/null 2>&1 &
+      WP_PID=$!
+      i=0
+      while [ "$i" -lt 15 ]; do
+        node -e "require('net').connect({host:'127.0.0.1',port:${PORT_WARP}},()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null && return 0
+        sleep 1; i=$((i + 1))
+      done
+      return 1
+    }
+
+    # Does YouTube bot-wall this exit IP? Extraction-only probe (no download).
+    warp_blocked() {
+      out=$(timeout 45 yt-dlp --proxy "socks5://127.0.0.1:${PORT_WARP}" -J --no-warnings \
+        --extractor-args "youtube:player_client=android" \
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>&1)
+      echo "$out" | grep -qiE "sign in to confirm|not a bot|--cookies|confirm you"
+    }
+
+    # Start from the saved profile, unless WARP_RESET asks for a fresh one.
+    if [ "$WARP_RESET" = "true" ]; then
+      echo "[warp] WARP_RESET=true → starting from a fresh WARP IP"
+      node "$APP_DIR/scripts/warp-profile.mjs" clear 2>/dev/null
+      rm -f wgcf-profile.conf wgcf-account.toml
+    else
+      node "$APP_DIR/scripts/warp-profile.mjs" get > wgcf-profile.conf 2>/dev/null || true
+      [ -s wgcf-profile.conf ] && echo "[warp] loaded saved WARP profile from DB"
     fi
 
-    # Reuse the WARP profile saved in the DB so we register with Cloudflare only
-    # ONCE ever. The free tier has no persistent disk, so re-registering on every
-    # deploy quickly hits Cloudflare's rate limit (HTTP 429) and leaves WARP down.
-    # If none is saved yet, register and persist it; keep retrying so a transient
-    # 429 self-heals in the background without needing a redeploy.
-    until [ -s wgcf-profile.conf ]; do
-      node "$APP_DIR/scripts/warp-profile.mjs" get > wgcf-profile.conf 2>/dev/null || true
-      if [ -s wgcf-profile.conf ]; then
-        echo "[warp] loaded saved WARP profile from DB (no registration needed)"
+    # Find an exit IP that YouTube does NOT bot-wall, rotating up to N times.
+    # Registration is persisted so a clean IP is reused on future deploys; a 429
+    # (rate limit) self-heals by waiting, so no redeploy is needed.
+    rotations=0
+    while :; do
+      until [ -s wgcf-profile.conf ]; do
+        echo "[warp] registering a new WARP account"
+        if warp_register; then
+          echo "[warp] registered + saved WARP profile to DB"
+        else
+          echo "[warp] ⚠️ registration unavailable (likely 429) — retrying in 120s"
+          sleep 120
+        fi
+      done
+
+      if ! warp_start; then
+        echo "[warp] ⚠️ wireproxy did not come up — leaving watchdog to retry"
         break
       fi
+      echo "[warp] ✅ SOCKS5 up on ${WARP_BIND}; probing whether YouTube blocks this IP…"
+
+      if ! warp_blocked; then
+        echo "[warp] ✅ exit IP is CLEAN — YouTube is not bot-walling it, downloads should work"
+        break
+      fi
+
+      rotations=$((rotations + 1))
+      if [ "$rotations" -ge "$WARP_MAX_ROTATE" ]; then
+        echo "[warp] ⚠️ tried ${rotations} IPs, all bot-walled — keeping last. Downloads may fail; consider cookies."
+        break
+      fi
+      echo "[warp] ⚠️ exit IP is bot-walled — rotating to a fresh IP (${rotations}/${WARP_MAX_ROTATE})"
+      node "$APP_DIR/scripts/warp-profile.mjs" clear 2>/dev/null
       rm -f wgcf-profile.conf wgcf-account.toml
-      echo "[warp] no saved profile → registering a new WARP account"
-      wgcf register --accept-tos >/dev/null 2>&1 && wgcf generate >/dev/null 2>&1
-      if [ -s wgcf-profile.conf ]; then
-        node "$APP_DIR/scripts/warp-profile.mjs" save wgcf-profile.conf 2>/dev/null \
-          && echo "[warp] registered + saved WARP profile to DB for future deploys"
-        break
-      fi
-      echo "[warp] ⚠️ registration unavailable (likely 429) — retrying in 120s"
-      sleep 120
     done
 
-    # wireproxy config = the WireGuard profile + a local SOCKS5 listener.
-    { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = %s\n' "$WARP_BIND"; } > wireproxy.conf
-    echo "[warp] starting wireproxy SOCKS5 on ${WARP_BIND}"
-    # Watchdog: always bring wireproxy back if it ever exits.
-    (
-      while true; do
-        wireproxy -c wireproxy.conf
-        echo "[warp] ⚠️ wireproxy exited — restarting in 5s"
-        sleep 5
-      done
-    ) &
-    port="${WARP_BIND##*:}"
-    n=1
-    while [ "$n" -le 15 ]; do
-      if node -e "require('net').connect({host:'127.0.0.1',port:${port}},()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
-        echo "[warp] ✅ SOCKS5 proxy up on ${WARP_BIND} — yt-dlp will egress via Cloudflare"
-        break
+    # Watchdog: keep wireproxy alive if it ever exits.
+    while true; do
+      if [ -n "$WP_PID" ] && kill -0 "$WP_PID" 2>/dev/null; then
+        sleep 15
+      else
+        echo "[warp] ⚠️ wireproxy not running — restarting"
+        wireproxy -c wireproxy.conf >/dev/null 2>&1 &
+        WP_PID=$!
+        sleep 15
       fi
-      sleep 1; n=$((n + 1))
     done
-    [ "$n" -gt 15 ] && echo "[warp] ⚠️ wireproxy did not come up in time"
   ) &
 fi
 
