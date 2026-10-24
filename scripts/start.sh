@@ -87,36 +87,56 @@ if [ "$WARP_ENABLED" = "true" ]; then
   echo "[start] WARP_ENABLED=true → bringing up Cloudflare WARP (wireproxy)"
   WARP_DIR="${WARP_DIR:-/app/data/warp}"
   WARP_BIND="${WARP_BIND:-127.0.0.1:40000}"
+  APP_DIR="$(pwd)"
   mkdir -p "$WARP_DIR" || true
   (
     set +e
     cd "$WARP_DIR" || exit 0
-    if [ ! -f wgcf-account.toml ]; then
-      echo "[warp] registering a new WARP account"
-      wgcf register --accept-tos || echo "[warp] ⚠️ register failed"
-    fi
-    if [ -f wgcf-account.toml ] && [ ! -f wgcf-profile.conf ]; then
-      echo "[warp] generating WireGuard profile"
-      wgcf generate || echo "[warp] ⚠️ generate failed"
-    fi
-    if [ -f wgcf-profile.conf ]; then
-      # wireproxy config = the WireGuard profile + a local SOCKS5 listener.
-      { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = %s\n' "$WARP_BIND"; } > wireproxy.conf
-      echo "[warp] starting wireproxy SOCKS5 on ${WARP_BIND}"
-      wireproxy -c wireproxy.conf &
-      port="${WARP_BIND##*:}"
-      n=1
-      while [ "$n" -le 12 ]; do
-        if node -e "require('net').connect({host:'127.0.0.1',port:${port}},()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
-          echo "[warp] ✅ SOCKS5 proxy up on ${WARP_BIND} — yt-dlp will egress via Cloudflare"
-          break
-        fi
-        sleep 1; n=$((n + 1))
+
+    # Reuse the WARP profile saved in the DB so we register with Cloudflare only
+    # ONCE ever. The free tier has no persistent disk, so re-registering on every
+    # deploy quickly hits Cloudflare's rate limit (HTTP 429) and leaves WARP down.
+    # If none is saved yet, register and persist it; keep retrying so a transient
+    # 429 self-heals in the background without needing a redeploy.
+    until [ -s wgcf-profile.conf ]; do
+      node "$APP_DIR/scripts/warp-profile.mjs" get > wgcf-profile.conf 2>/dev/null || true
+      if [ -s wgcf-profile.conf ]; then
+        echo "[warp] loaded saved WARP profile from DB (no registration needed)"
+        break
+      fi
+      rm -f wgcf-profile.conf wgcf-account.toml
+      echo "[warp] no saved profile → registering a new WARP account"
+      wgcf register --accept-tos >/dev/null 2>&1 && wgcf generate >/dev/null 2>&1
+      if [ -s wgcf-profile.conf ]; then
+        node "$APP_DIR/scripts/warp-profile.mjs" save wgcf-profile.conf 2>/dev/null \
+          && echo "[warp] registered + saved WARP profile to DB for future deploys"
+        break
+      fi
+      echo "[warp] ⚠️ registration unavailable (likely 429) — retrying in 120s"
+      sleep 120
+    done
+
+    # wireproxy config = the WireGuard profile + a local SOCKS5 listener.
+    { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = %s\n' "$WARP_BIND"; } > wireproxy.conf
+    echo "[warp] starting wireproxy SOCKS5 on ${WARP_BIND}"
+    # Watchdog: always bring wireproxy back if it ever exits.
+    (
+      while true; do
+        wireproxy -c wireproxy.conf
+        echo "[warp] ⚠️ wireproxy exited — restarting in 5s"
+        sleep 5
       done
-      [ "$n" -gt 12 ] && echo "[warp] ⚠️ wireproxy did not come up in time"
-    else
-      echo "[warp] ⚠️ no WireGuard profile — WARP not started"
-    fi
+    ) &
+    port="${WARP_BIND##*:}"
+    n=1
+    while [ "$n" -le 15 ]; do
+      if node -e "require('net').connect({host:'127.0.0.1',port:${port}},()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
+        echo "[warp] ✅ SOCKS5 proxy up on ${WARP_BIND} — yt-dlp will egress via Cloudflare"
+        break
+      fi
+      sleep 1; n=$((n + 1))
+    done
+    [ "$n" -gt 15 ] && echo "[warp] ⚠️ wireproxy did not come up in time"
   ) &
 fi
 
