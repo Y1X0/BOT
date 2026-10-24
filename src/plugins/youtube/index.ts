@@ -73,6 +73,49 @@ function renderResults(query: string, items: { title: string; duration: number |
   ].join('\n');
 }
 
+/** Escape text for Telegram HTML captions. */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** YouTube's thumbnail URL — Telegram fetches it itself, so no load on us. */
+function thumbUrl(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+/**
+ * Send each result as its own rich photo card (thumbnail + title + duration +
+ * a «play» button), so results read as distinct, premium cards instead of a
+ * cramped text list. Returns how many cards were sent; 0 means the caller should
+ * fall back to the plain text list.
+ */
+async function sendResultCards(
+  ctx: BotContext,
+  query: string,
+  items: SearchItem[],
+  token: number,
+): Promise<number> {
+  const chatId = ctx.chat!.id;
+  let sent = 0;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const dur = it.duration != null ? `\n⏱ ${clock(it.duration)}` : '';
+    const head = i === 0 ? `🎧 نتائج «${esc(query)}»\n\n` : '';
+    const caption = `${head}${keycap(i)}  <b>${esc(clipTitle(it.title, 80))}</b>${dur}`;
+    try {
+      await ctx.telegram.sendPhoto(chatId, thumbUrl(it.videoId), {
+        caption,
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([Markup.button.callback('🎧 تشغيل', `ytp:${token}:${i}`)]),
+      });
+      sent++;
+    } catch (err) {
+      log.warn({ err: String(err).slice(0, 80), videoId: it.videoId }, 'result card send failed');
+    }
+  }
+  return sent;
+}
+
 export const youtubePlugin: Plugin = {
   name: 'youtube',
   description: 'YouTube audio: multi-result search, per-chat queue, live status',
@@ -99,14 +142,21 @@ export const youtubePlugin: Plugin = {
         return;
       }
 
-      cacheResults(ctx.chat.id, status.message_id, found);
-      const buttons = found.map((_, i) =>
-        Markup.button.callback(keycap(i), `ytp:${status.message_id}:${i}`),
-      );
-      // 5 buttons per row.
+      // A token (not the message id) keys the cached results, since the fancy
+      // card flow sends new messages whose ids we don't know up front.
+      const token = Date.now();
+      cacheResults(ctx.chat.id, token, found);
+
+      // Fancy path: one rich photo card per result. Falls back to the text list.
+      const sent = await sendResultCards(ctx, query, found, token);
+      if (sent > 0) {
+        await ctx.telegram.deleteMessage(ctx.chat.id, status.message_id).catch(() => undefined);
+        return;
+      }
+
+      const buttons = found.map((_, i) => Markup.button.callback(keycap(i), `ytp:${token}:${i}`));
       const rows: (typeof buttons)[] = [];
       for (let i = 0; i < buttons.length; i += 5) rows.push(buttons.slice(i, i + 5));
-
       await editText(ctx, status.message_id, renderResults(query, found), {
         reply_markup: { inline_keyboard: rows.map((r) => r.map((b) => b)) },
       });
