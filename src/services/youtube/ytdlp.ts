@@ -69,13 +69,19 @@ function clientsToTry(): (string | null)[] {
   return CLIENT_FALLBACKS; // cookies (if any) are attached to every attempt
 }
 
-/** Args applied to every yt-dlp call. `client` null = no player_client override. */
-function commonArgs(client: string | null): string[] {
+/**
+ * Args applied to every yt-dlp call. `client` null = no player_client override.
+ * `useProxy` routes the call through WARP (YT_PROXY) — only DOWNLOAD needs it,
+ * since that's the part YouTube blocks on our datacenter IP. SEARCH skips the
+ * tunnel so it stays fast and isn't limited by WARP's throughput ceiling.
+ */
+function commonArgs(client: string | null, useProxy = false): string[] {
   // --socket-timeout: fail a stalled connection fast instead of hanging, so a
   // blocked attempt moves on to the next method quickly (key on datacenter IPs).
   const a = ['--no-warnings', '--geo-bypass', '--socket-timeout', '20'];
-  if (env.YT_FORCE_IPV4 && !env.YT_PROXY) a.push('--force-ipv4');
-  if (env.YT_PROXY) a.push('--proxy', env.YT_PROXY);
+  const proxy = useProxy ? env.YT_PROXY : undefined;
+  if (env.YT_FORCE_IPV4 && !proxy) a.push('--force-ipv4');
+  if (proxy) a.push('--proxy', proxy);
   const cp = getCookiesPath();
   if (cp) a.push('--cookies', cp);
   if (client) a.push('--extractor-args', `youtube:player_client=${client}`);
@@ -252,7 +258,7 @@ async function attemptDownload(
     : 'bestaudio[ext=m4a]/bestaudio/best';
 
   const args = [
-    ...commonArgs(client),
+    ...commonArgs(client, true), // download goes through WARP (YT_PROXY)
     '-f',
     format,
     // Extract the audio track from whatever stream we got (audio-only DASH or a

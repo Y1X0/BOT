@@ -193,9 +193,10 @@ async function deliverItem(
       if (statusId) await telegram.editMessageText(chatId, statusId, undefined, `⬇️ جاري التحميل: ${item.title}`).catch(() => undefined);
       await telegram.sendChatAction(chatId, 'upload_voice').catch(() => undefined);
 
-      // Long tracks: fetch a smaller (lower-bitrate) audio stream so the big
-      // file downloads + uploads to Telegram much faster (~1/3 the size).
-      const lowBitrate = (item.duration ?? 0) > 15 * 60;
+      // Balanced speed/quality: short tracks (<6 min) download at full 128k,
+      // longer ones use the compact ~48k stream (~1/3 the size) so they don't
+      // crawl through the WARP tunnel's throughput ceiling on the free tier.
+      const lowBitrate = (item.duration ?? 0) > 6 * 60;
       const result = await resolveDownload(
         item.videoId,
         (engine) => {
