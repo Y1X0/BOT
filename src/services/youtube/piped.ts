@@ -13,15 +13,27 @@ const log = createLogger('youtube:piped');
  * the Piped instance (a different IP), so it can succeed when yt-dlp is blocked
  * on the server's datacenter IP. Public instances vary in uptime — we try many.
  */
+// Full current official public-instance list (from TeamPiped/documentation).
+// Public instances are flaky and often rate-limited/blocked by YouTube, so we
+// list ALL of them and try each — the more we try, the better the odds one is
+// healthy at request time. Override with YT_PIPED_INSTANCES when you have a
+// private/self-hosted one.
 const DEFAULT_INSTANCES = [
   'https://pipedapi.kavin.rocks',
-  'https://pipedapi.adminforge.de',
-  'https://api.piped.private.coffee',
-  'https://pipedapi.reallyaweso.me',
   'https://pipedapi.leptons.xyz',
-  'https://pipedapi.darkness.services',
-  'https://piped-api.privacydev.net',
+  'https://pipedapi.nosebs.ru',
+  'https://pipedapi-libre.kavin.rocks',
+  'https://piped-api.privacy.com.de',
+  'https://pipedapi.adminforge.de',
   'https://api.piped.yt',
+  'https://pipedapi.drgns.space',
+  'https://pipedapi.owo.si',
+  'https://pipedapi.ducks.party',
+  'https://piped-api.codespace.cz',
+  'https://pipedapi.reallyaweso.me',
+  'https://api.piped.private.coffee',
+  'https://pipedapi.darkness.services',
+  'https://pipedapi.orangenet.cc',
 ];
 
 function instances(): string[] {
@@ -79,67 +91,87 @@ interface AudioStream {
   bitrate?: number;
 }
 
+interface PipedStreams {
+  base: string;
+  title?: string;
+  audioStreams?: AudioStream[];
+}
+
+/**
+ * Race `/streams/<id>` across ALL instances in parallel and return the first one
+ * that actually has audio streams. With a long instance list, trying them
+ * sequentially could stall for over a minute; racing bounds the "find a healthy
+ * proxy" time to the single fastest responder.
+ */
+async function findStreams(videoId: string): Promise<PipedStreams | null> {
+  const attempts = instances().map((base) =>
+    fetchJson(`${base}/streams/${videoId}`, 8_000).then((data) => {
+      const d = data as { title?: string; audioStreams?: AudioStream[] } | null;
+      if (!d?.audioStreams?.length) {
+        log.warn({ base }, 'piped dl: no audioStreams');
+        throw new Error('no streams');
+      }
+      log.info({ base, streams: d.audioStreams.length }, 'piped dl: got streams');
+      return { base, title: d.title, audioStreams: d.audioStreams };
+    }),
+  );
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return null;
+  }
+}
+
 export async function pipedDownload(videoId: string): Promise<DownloadResult | { error: YtError }> {
-  for (const base of instances()) {
-    // Short timeout so a sleeping instance is skipped fast instead of stalling.
-    const data = (await fetchJson(`${base}/streams/${videoId}`, 6_000)) as
-      | { title?: string; audioStreams?: AudioStream[] }
-      | null;
-    const streams = data?.audioStreams;
-    if (!data) {
-      log.warn({ base }, 'piped dl: /streams no response');
-      continue;
-    }
-    if (!streams?.length) {
-      log.warn({ base }, 'piped dl: no audioStreams in response');
-      continue;
-    }
+  const found = await findStreams(videoId);
+  if (!found) return { error: 'failed' };
+  const { base } = found;
+  const streams = found.audioStreams ?? [];
 
-    const sorted = [...streams].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
-    const chosen = sorted.find((s) => /mp4/i.test(s.mimeType ?? '')) ?? sorted[0];
-    if (!chosen?.url) {
-      log.warn({ base, count: streams.length }, 'piped dl: no usable stream url');
-      continue;
-    }
-    // Redacted: host only tells us proxied (pipedproxy/instance) vs direct
-    // googlevideo (which the datacenter IP typically blocks).
-    let urlHost = '?';
-    try {
-      urlHost = new URL(chosen.url).host;
-    } catch {
-      /* ignore */
-    }
-    log.info({ base, urlHost, streams: streams.length }, 'piped dl: got stream url');
+  const sorted = [...streams].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+  const chosen = sorted.find((s) => /mp4/i.test(s.mimeType ?? '')) ?? sorted[0];
+  if (!chosen?.url) {
+    log.warn({ base, count: streams.length }, 'piped dl: no usable stream url');
+    return { error: 'failed' };
+  }
+  // Redacted: host only tells us proxied (pipedproxy/instance) vs direct
+  // googlevideo (which the datacenter IP typically blocks).
+  let urlHost = '?';
+  try {
+    urlHost = new URL(chosen.url).host;
+  } catch {
+    /* ignore */
+  }
+  log.info({ base, urlHost, streams: streams.length }, 'piped dl: got stream url');
 
-    const title = data?.title ? String(data.title) : 'audio';
-    const isMp4 = /mp4/i.test(chosen.mimeType ?? '');
-    const dir = await mkdtemp(join(tmpdir(), 'pd-'));
-    const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    const rawPath = join(dir, isMp4 ? 'audio.m4a' : 'audio.src');
+  const title = found.title ? String(found.title) : 'audio';
+  const isMp4 = /mp4/i.test(chosen.mimeType ?? '');
+  const dir = await mkdtemp(join(tmpdir(), 'pd-'));
+  const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  const rawPath = join(dir, isMp4 ? 'audio.m4a' : 'audio.src');
 
-    try {
-      if (!(await downloadTo(chosen.url, rawPath))) {
+  try {
+    if (!(await downloadTo(chosen.url, rawPath))) {
+      await cleanup();
+      return { error: 'failed' };
+    }
+    let filePath = rawPath;
+    if (!isMp4) {
+      const mp3 = join(dir, 'audio.mp3');
+      if (!(await ffmpegToMp3(rawPath, mp3))) {
         await cleanup();
-        continue;
+        return { error: 'failed' };
       }
-      let filePath = rawPath;
-      if (!isMp4) {
-        const mp3 = join(dir, 'audio.mp3');
-        if (!(await ffmpegToMp3(rawPath, mp3))) {
-          await cleanup();
-          continue;
-        }
-        filePath = mp3;
-      }
-      if ((await stat(filePath)).size > 0) {
-        log.info({ base }, 'piped download ok');
-        return { filePath, title, cleanup };
-      }
-      await cleanup();
-    } catch (err) {
-      log.warn({ err, base }, 'piped download error');
-      await cleanup();
+      filePath = mp3;
     }
+    if ((await stat(filePath)).size > 0) {
+      log.info({ base }, 'piped download ok');
+      return { filePath, title, cleanup };
+    }
+    await cleanup();
+  } catch (err) {
+    log.warn({ err, base }, 'piped download error');
+    await cleanup();
   }
   return { error: 'failed' };
 }

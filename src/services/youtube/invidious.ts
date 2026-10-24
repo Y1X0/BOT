@@ -16,6 +16,7 @@ const log = createLogger('youtube:invidious');
 const DEFAULT_INSTANCES = [
   'https://invidious.nerdvpn.de',
   'https://inv.nadeko.net',
+  'https://invidious.tiekoetter.com',
   'https://invidious.jing.rocks',
   'https://yewtu.be',
   'https://invidious.privacyredirect.com',
