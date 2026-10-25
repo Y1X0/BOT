@@ -35,16 +35,25 @@ import time
 # `spaces` must be imported before torch so ZeroGPU can patch CUDA. It is a no-op
 # decorator on non-ZeroGPU hardware.
 import spaces
+import torch  # the ZeroGPU base image provides a CUDA build
 
-# omnivoice pulls conflicting demo deps, so install it WITHOUT deps before it is first used.
+# omnivoice needs torchaudio (>=2.4), but the ZeroGPU base image ships torch
+# WITHOUT torchaudio. Install the version matching the installed torch, WITHOUT
+# deps, so the CUDA torch is never replaced.
+try:
+    import torchaudio  # noqa: F401
+except Exception:
+    _tv = torch.__version__.split("+")[0]
+    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", f"torchaudio=={_tv}"], check=False)
+
+# omnivoice pulls conflicting demo deps, so install it WITHOUT deps before first use.
 try:
     import omnivoice  # noqa: F401
 except Exception:
-    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "omnivoice==0.2.1"], check=True)
+    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "omnivoice==0.2.1"], check=False)
 
 import numpy as np
 import soundfile as sf
-import torch
 import gradio as gr
 from huggingface_hub import snapshot_download
 
