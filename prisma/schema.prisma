@@ -624,3 +624,33 @@ model StarOrder {
   @@index([status])
   @@index([userId])
 }
+
+/// A consent-gated voice-cloning request. Someone submits reference recordings
+/// of a voice together with a signed consent declaration; a global bot owner
+/// must APPROVE it before any speech is ever synthesized. Every generated clip
+/// is labeled as SYNTHETIC. The actual audio is never stored here — only
+/// Telegram file_id references (refFileIds) and a hash of the consent text — so
+/// no recordings or raw consent land in the database rows, git, or logs.
+model VoiceConsent {
+  id          Int       @id @default(autoincrement())
+  requesterId BigInt // Telegram user who submitted the request
+  chatId      BigInt? // chat the request was made from (context only)
+  voiceOwner  String // declared identity of the person whose voice this is
+  scope       String // declared permitted use ("read my own audiobook", ...)
+  revocable   Boolean   @default(true)
+  // pending → approved | rejected ; approved → revoked
+  status      String    @default("pending")
+  consentSha  String // SHA-256 of the consent declaration (+ metadata) — tamper-evidence
+  refFileIds  String    @default("[]") // JSON array of Telegram file_ids (reference clips)
+  refCount    Int       @default(0)
+  refSeconds  Float     @default(0) // total seconds of reference audio captured
+  reviewedBy  BigInt? // owner who approved/rejected
+  reviewedAt  DateTime?
+  note        String? // owner reason on reject, or revocation reason
+  genCount    Int       @default(0) // how many clips have been synthesized from this consent
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([requesterId])
+  @@index([status])
+}

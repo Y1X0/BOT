@@ -220,6 +220,21 @@ const envSchema = z.object({
   TTS_MODEL: z.string().default('eleven_multilingual_v2'), // ElevenLabs model, or gemini-2.5-flash-preview-tts
   TTS_MAX_CHARS: z.coerce.number().default(2000),
 
+  // Consent-gated voice cloning (text → speech in a specific person's voice).
+  // The model is far too heavy for this host, so it runs on a separate engine
+  // (a free Hugging Face Space, CPU) and the bot calls it over HTTP. OFF by
+  // default — nothing runs until you deploy the engine and set its URL+secret.
+  // Every request must be APPROVED by a bot owner, and every clip the engine
+  // returns is sent clearly labeled as AI-synthesized. See VOICECLONE.md.
+  VOICECLONE_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  VOICE_ENGINE_URL: z.string().optional(), // e.g. https://<user>-voise.hf.space
+  VOICE_ENGINE_SECRET: z.string().optional(), // must equal the engine's ENGINE_SECRET
+  VOICE_ENGINE_LANG: z.string().default('apc'), // default language tag (apc = Levantine Arabic)
+  VOICE_ENGINE_TIMEOUT_SEC: z.coerce.number().default(180), // CPU inference is slow
+
   // Fun Image Editor (needs an image-generation API key to actually run)
   IMAGE_AI_ENABLED: z
     .string()
