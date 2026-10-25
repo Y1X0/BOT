@@ -156,7 +156,7 @@ def _speak(text, ref_bytes, ref_text, language, tmp, dev):
     return _to_ogg(y / max(1e-6, float(np.abs(y).max())) * 0.9, sr, tmp), len(y) / sr
 
 
-@spaces.GPU(duration=120)
+@spaces.GPU(duration=90)
 def _run(text, ref_bytes, ref_text, language):
     """GPU-bound work. ZeroGPU attaches a GPU for this call; CPU-basic runs it on CPU."""
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -189,6 +189,10 @@ def predict(text, ref_b64, ref_text="", language="apc", secret=""):
 
 print("voise-engine: downloading models…", flush=True)
 _ensure_models()
+# Load models at startup (ZeroGPU best practice): the heavy disk→RAM load happens
+# here, OFF the GPU clock, so each GPU call only moves to CUDA + infers — far less
+# ZeroGPU quota per request.
+_load_cpu()
 print("voise-engine: models ready", flush=True)
 
 demo = gr.Interface(
