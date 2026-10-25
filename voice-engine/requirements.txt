@@ -1,6 +1,4 @@
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.11.0
-torchaudio==2.11.0
+spaces
 transformers==5.18.0
 accelerate
 huggingface_hub

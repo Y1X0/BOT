@@ -106,7 +106,7 @@ const sseError = (msg: string) =>
 
 const isPost = (opts?: { method?: string }): boolean => opts?.method === 'POST';
 
-const ENGINE_KEYS = ['VOICECLONE_ENABLED', 'VOICE_ENGINE_URL', 'VOICE_ENGINE_SECRET', 'VOICE_ENGINE_TIMEOUT_SEC', 'VOICE_ENGINE_LANG'];
+const ENGINE_KEYS = ['VOICECLONE_ENABLED', 'VOICE_ENGINE_URL', 'VOICE_ENGINE_SECRET', 'VOICE_ENGINE_TIMEOUT_SEC', 'VOICE_ENGINE_LANG', 'VOICE_ENGINE_HF_TOKEN'];
 
 async function loadEngine(overrides: Record<string, string>) {
   vi.resetModules();
@@ -164,6 +164,29 @@ describe('voiceclone engine — gating & results', () => {
     // Two-step: POST to start, GET to collect.
     expect((fetchMock.mock.calls[0][0] as string)).toContain('/gradio_api/call/predict');
     expect((fetchMock.mock.calls[1][0] as string)).toContain('/gradio_api/call/predict/e1');
+  });
+
+  it('attaches the HF bearer token when configured, and omits it otherwise', async () => {
+    // With token.
+    let eng = await loadEngine({ ...CONFIGURED, VOICE_ENGINE_HF_TOKEN: 'hf_abc' });
+    let fetchMock = vi.fn(async (_url: string, opts?: { method?: string }) =>
+      isPost(opts) ? okJson({ event_id: 'e1' }) : sseComplete({ audio_b64: B64('x'), seconds: 1 }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    await eng.synthesizeVoice(sampleOpts());
+    for (const call of fetchMock.mock.calls) {
+      expect((call[1] as { headers?: Record<string, string> }).headers?.Authorization).toBe('Bearer hf_abc');
+    }
+    // Without token.
+    eng = await loadEngine(CONFIGURED);
+    fetchMock = vi.fn(async (_url: string, opts?: { method?: string }) =>
+      isPost(opts) ? okJson({ event_id: 'e1' }) : sseComplete({ audio_b64: B64('x'), seconds: 1 }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    await eng.synthesizeVoice(sampleOpts());
+    for (const call of fetchMock.mock.calls) {
+      expect((call[1] as { headers?: Record<string, string> }).headers?.Authorization).toBeUndefined();
+    }
   });
 
   it('maps a non-ok POST to an http error', async () => {

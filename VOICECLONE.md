@@ -37,25 +37,37 @@ Telegram ⇄ bot (Render) ──Gradio REST API (+ secret arg)──▶ Voise en
    POST /gradio_api/call/predict → event_id → GET …/{event_id} → ogg/opus audio (base64)
 ```
 
-## 1 — Deploy the engine (Hugging Face Gradio Space)
+## 1 — Deploy the engine (Hugging Face Gradio Space, ZeroGPU)
 
 The ready-to-deploy engine is in [`voice-engine/`](./voice-engine): `app.py`,
-`requirements.txt`, `packages.txt`.
+`requirements.txt`, `packages.txt`. On HF's free tier Gradio Spaces run on
+**ZeroGPU** (on-demand GPU; CPU-basic now needs PRO). `app.py` uses the `spaces`
+GPU decorator and runs on CUDA when a GPU is attached, else CPU — so it also
+works on CPU-basic (with PRO) or locally, unchanged.
 
 1. Create a new **Space** → **SDK: Gradio** → template **Blank** → hardware
-   **CPU basic** (free) → **Public**. (Hugging Face writes a starter `README.md`
+   **ZeroGPU** (free) → **Public**. (Hugging Face writes a starter `README.md`
    with the right `sdk_version` — keep it.)
 2. In the Space **Settings → Variables and secrets → New secret**, add
    **`ENGINE_SECRET`** = a long random string (step 3 — same value on both sides).
 3. In the Space **Files** tab, replace `app.py` with ours and add
    `requirements.txt` and `packages.txt` (the latter installs ffmpeg). Commit.
-4. Let it build. On startup it **downloads the models (~5 GB) and takes a
+   (Do not pin torch — ZeroGPU provides a CUDA build; `requirements.txt` leaves
+   it out on purpose.)
+4. Let it build. On startup it **downloads the models (~4 GB) and takes a
    while**; the Space shows "Running" when ready. The first `predict` after a
-   cold start also loads the models into RAM, so it is slow; keep texts short
-   (≤ 400 chars — enforced on both sides). A free Space sleeps when idle and
-   re-downloads on wake, so expect a slow first call after inactivity.
+   cold start also loads the models, so it is slow; later calls are fast (GPU).
+   Keep texts short (≤ 400 chars — enforced on both sides). ZeroGPU has a **daily
+   free GPU-time quota** (PRO raises it), so this is for light use.
 5. Your engine URL is `https://<your-username>-<space-name>.hf.space` (shown on
    the Space page). Check it is up: open `…/gradio_api/config` in a browser.
+
+### ZeroGPU API token
+
+ZeroGPU attributes GPU usage to a Hugging Face account, so API calls from the bot
+need a token to be served reliably. Create a **read** token at
+<https://huggingface.co/settings/tokens> and set it as `VOICE_ENGINE_HF_TOKEN`
+on the bot (below). On CPU-basic/local it is optional.
 
 > **Model licensing:** the voice model `oddadmix/lahgtna-omnivoice-v2` ships with
 > **no stated license** ("private use only until its author permits more"). Use it
@@ -70,8 +82,9 @@ The ready-to-deploy engine is in [`voice-engine/`](./voice-engine): `app.py`,
 | `VOICECLONE_ENABLED` | `true` |
 | `VOICE_ENGINE_URL` | `https://<your-username>-<space-name>.hf.space` |
 | `VOICE_ENGINE_SECRET` | the **same** secret you set as `ENGINE_SECRET` |
+| `VOICE_ENGINE_HF_TOKEN` | a HF **read** token (needed for ZeroGPU quota) |
 | `VOICE_ENGINE_LANG` *(optional)* | `apc` (Levantine Arabic; default) |
-| `VOICE_ENGINE_TIMEOUT_SEC` *(optional)* | `180` (raise if the Space is slow) |
+| `VOICE_ENGINE_TIMEOUT_SEC` *(optional)* | `300` (raise if the Space is slow) |
 
 The table auto-creates on the next deploy (`prisma db push` on boot), so no manual
 migration is needed.

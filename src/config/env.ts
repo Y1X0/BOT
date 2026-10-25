@@ -234,6 +234,9 @@ const envSchema = z.object({
   VOICE_ENGINE_SECRET: z.string().optional(), // must equal the engine's ENGINE_SECRET
   VOICE_ENGINE_LANG: z.string().default('apc'), // default language tag (apc = Levantine Arabic)
   VOICE_ENGINE_TIMEOUT_SEC: z.coerce.number().default(300), // CPU inference + cold start are slow
+  // A Hugging Face token (read) so ZeroGPU API calls are attributed to your
+  // account's GPU quota and served reliably. Optional on CPU-basic/local.
+  VOICE_ENGINE_HF_TOKEN: z.string().optional(),
 
   // Fun Image Editor (needs an image-generation API key to actually run)
   IMAGE_AI_ENABLED: z

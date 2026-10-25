@@ -1,4 +1,9 @@
-"""Voise voice engine — Gradio Space (free CPU): speak text in a consenting person's voice.
+"""Voise voice engine — Gradio Space: speak text in a consenting person's voice.
+
+On Hugging Face's free tier, Gradio Spaces run on **ZeroGPU** (on-demand GPU), because
+CPU-basic now needs PRO. This file works on BOTH: it uses the `spaces` GPU decorator and
+picks CUDA when a GPU is attached, else CPU (so it also runs on CPU-basic with PRO, or
+locally).
 
 Exposed as one Gradio API function (api name "predict"), called over the REST API:
 
@@ -10,15 +15,11 @@ The reference audio is passed base64-encoded (no file upload). The result is a J
 `secret` equal to the ENGINE_SECRET Space secret; without it the call is refused. Nothing is
 stored: audio lives in a per-request temp dir only.
 
-Models (downloaded at startup, pinned to exact revisions):
+Models (downloaded at startup, lahgtna/higgs pinned to exact revisions):
   - oddadmix/lahgtna-omnivoice-v2  (no licence stated → private use only until its author permits more)
   - eustlb/higgs-audio-v2-tokenizer (Boson licence)   — part of the TTS model
-  - openai/whisper-large-v3-turbo  (MIT)               — transcribes the reference clip
+  - openai/whisper-small           (MIT)              — transcribes the reference clip
 Code: OmniVoice (Apache-2.0).
-
-Docker Spaces require a paid plan, so this runs as a Gradio Space (free). omnivoice is installed
-without its heavy demo dependencies at startup (pip --no-deps), which a plain requirements.txt
-cannot express.
 """
 import base64
 import hashlib
@@ -31,7 +32,11 @@ import tempfile
 import threading
 import time
 
-# omnivoice pulls conflicting demo deps, so install it WITHOUT deps before importing it.
+# `spaces` must be imported before torch so ZeroGPU can patch CUDA. It is a no-op
+# decorator on non-ZeroGPU hardware.
+import spaces
+
+# omnivoice pulls conflicting demo deps, so install it WITHOUT deps before it is first used.
 try:
     import omnivoice  # noqa: F401
 except Exception:
@@ -49,18 +54,22 @@ MAX_TEXT = 400
 MAX_REF_S = 15.0
 SR = 16000
 
-torch.set_num_threads(max(1, os.cpu_count() or 1))
-
+# lahgtna/higgs are pinned; whisper-small (MIT) is small and stable, taken from main.
 _PINS = [
     ("oddadmix/lahgtna-omnivoice-v2", "55c38a613e31", "lahgtna-omnivoice-v2", ["*.json", "*.safetensors", "*.jinja"]),
     ("eustlb/higgs-audio-v2-tokenizer", "528e871c2a26", "lahgtna-omnivoice-v2/audio_tokenizer", ["*.json", "*.safetensors"]),
-    ("openai/whisper-large-v3-turbo", "41f01f3fe87f", "whisper-large-v3-turbo", ["*.json", "*.safetensors", "*.txt"]),
+    ("openai/whisper-small", None, "whisper-small", None),
 ]
 
 
 def _ensure_models():
     for repo, rev, sub, patterns in _PINS:
-        snapshot_download(repo, revision=rev, local_dir=os.path.join(MODELS, sub), allow_patterns=patterns)
+        kwargs = {"local_dir": os.path.join(MODELS, sub)}
+        if rev:
+            kwargs["revision"] = rev
+        if patterns:
+            kwargs["allow_patterns"] = patterns
+        snapshot_download(repo, **kwargs)
 
 
 _models = {}
@@ -68,15 +77,16 @@ _ref_text_cache = {}
 _lock = threading.Lock()
 
 
-def _load():
+def _load_cpu():
+    """Load every model once, on CPU. Moved to the active device per call in _run."""
     if not _models:
         from omnivoice.models.omnivoice import OmniVoice
-        from transformers import pipeline
-        _models["tts"] = OmniVoice.from_pretrained(f"{MODELS}/lahgtna-omnivoice-v2", device_map="cpu")
-        _models["asr"] = pipeline("automatic-speech-recognition", model=f"{MODELS}/whisper-large-v3-turbo",
-                                  torch_dtype=torch.float32, device="cpu")
+        from transformers import WhisperForConditionalGeneration, WhisperProcessor
+        _models["tts"] = OmniVoice.from_pretrained(f"{MODELS}/lahgtna-omnivoice-v2")
+        _models["asr"] = WhisperForConditionalGeneration.from_pretrained(f"{MODELS}/whisper-small").eval()
+        _models["asr_proc"] = WhisperProcessor.from_pretrained(f"{MODELS}/whisper-small")
         from silero_vad import load_silero_vad
-        _models["vad"] = load_silero_vad()
+        _models["vad"] = load_silero_vad()  # tiny — stays on CPU
     return _models
 
 
@@ -103,9 +113,12 @@ def _speech_only(y, max_s):
     return y / max(1e-6, float(np.abs(y).max())) * 0.9
 
 
-def _asr(y):
-    out = _models["asr"]({"raw": y, "sampling_rate": SR}, generate_kwargs={"language": "ar", "task": "transcribe"})
-    return out["text"].strip()
+def _asr(y, dev):
+    proc = _models["asr_proc"]
+    model = _models["asr"].to(dev)
+    feats = proc(y, sampling_rate=SR, return_tensors="pt").input_features.to(dev)
+    ids = model.generate(feats, language="ar", task="transcribe", num_beams=1, max_new_tokens=200)
+    return proc.batch_decode(ids, skip_special_tokens=True)[0].strip()
 
 
 def _to_ogg(y, sr, tmp):
@@ -116,23 +129,36 @@ def _to_ogg(y, sr, tmp):
     return base64.b64encode(open(ogg, "rb").read()).decode()
 
 
-def _speak(text, ref_bytes, ref_text, language, tmp):
+def _speak(text, ref_bytes, ref_text, language, tmp, dev):
     ref = _speech_only(_decode(ref_bytes, tmp + "_ref"), MAX_REF_S)
     ref_wav = tmp + "_ref.clean.wav"
     sf.write(ref_wav, ref, SR, subtype="PCM_16")
     key = hashlib.sha256(ref.tobytes()).hexdigest()
     if not ref_text:
-        ref_text = _ref_text_cache.get(key) or _asr(ref)
+        ref_text = _ref_text_cache.get(key) or _asr(ref, dev)
         _ref_text_cache[key] = ref_text
-    tts = _models["tts"]
+    tts = _models["tts"].to(dev)
     y = tts.generate(text=text, language=language, ref_audio=ref_wav, ref_text=ref_text)
     y = np.asarray(y[0] if isinstance(y, list) else y, dtype=np.float32).squeeze()
     sr = getattr(tts, "sampling_rate", None) or 24000
     return _to_ogg(y / max(1e-6, float(np.abs(y).max())) * 0.9, sr, tmp), len(y) / sr
 
 
+@spaces.GPU(duration=120)
+def _run(text, ref_bytes, ref_text, language):
+    """GPU-bound work. ZeroGPU attaches a GPU for this call; CPU-basic runs it on CPU."""
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    torch.set_num_threads(max(1, os.cpu_count() or 1))
+    with _lock, tempfile.TemporaryDirectory() as d:
+        t0 = time.time()
+        _load_cpu()
+        audio, secs = _speak(text, ref_bytes, ref_text, language, os.path.join(d, "j"), dev)
+        return json.dumps({"audio_b64": audio, "format": "ogg/opus", "seconds": round(secs, 1),
+                           "took": round(time.time() - t0, 1)})
+
+
 def predict(text, ref_b64, ref_text="", language="apc", secret=""):
-    """The API function. Returns a JSON string so the caller gets audio + metadata in one field."""
+    """API entry: validate + check the secret (no GPU), then run the GPU work."""
     if not SECRET:
         raise gr.Error("ENGINE_SECRET is not configured")
     if not secret or not hmac.compare_digest(str(secret).encode(), SECRET.encode()):
@@ -146,12 +172,7 @@ def predict(text, ref_b64, ref_text="", language="apc", secret=""):
         ref_bytes = base64.b64decode(ref_b64)
     except Exception:
         raise gr.Error("reference audio is not valid base64")
-    with _lock, tempfile.TemporaryDirectory() as d:
-        t0 = time.time()
-        _load()
-        audio, secs = _speak(text, ref_bytes, (ref_text or "").strip(), language or "apc", os.path.join(d, "j"))
-        return json.dumps({"audio_b64": audio, "format": "ogg/opus", "seconds": round(secs, 1),
-                           "took": round(time.time() - t0, 1)})
+    return _run(text, ref_bytes, (ref_text or "").strip(), language or "apc")
 
 
 print("voise-engine: downloading models…", flush=True)

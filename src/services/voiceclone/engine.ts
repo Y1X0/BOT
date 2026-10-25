@@ -33,6 +33,11 @@ export function voiceCloneReady(): boolean {
 
 const base = (): string => (env.VOICE_ENGINE_URL || '').replace(/\/+$/, '');
 
+/** Auth header for ZeroGPU quota attribution, when a HF token is configured. */
+function authHeaders(): Record<string, string> {
+  return env.VOICE_ENGINE_HF_TOKEN ? { Authorization: `Bearer ${env.VOICE_ENGINE_HF_TOKEN}` } : {};
+}
+
 // ── Serial queue (CPU Space handles one job at a time) ──
 let tail: Promise<unknown> = Promise.resolve();
 let active = 0;
@@ -102,7 +107,7 @@ export async function engineHealth(): Promise<{ ok: boolean; detail?: string }> 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetch(`${base()}/gradio_api/config`, { signal: controller.signal });
+    const res = await fetch(`${base()}/gradio_api/config`, { headers: authHeaders(), signal: controller.signal });
     return { ok: res.ok, detail: res.ok ? undefined : `http ${res.status}` };
   } catch (err) {
     return { ok: false, detail: String(err).slice(0, 120) };
@@ -138,7 +143,7 @@ export function synthesizeVoice(opts: SynthOptions): Promise<EngineResult | { er
 
       const post = await fetch(`${base()}/gradio_api/call/predict`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
@@ -149,7 +154,10 @@ export function synthesizeVoice(opts: SynthOptions): Promise<EngineResult | { er
       const started = (await post.json().catch(() => ({}))) as { event_id?: string };
       if (!started.event_id) return { error: 'http' as const, detail: 'no event_id' };
 
-      const get = await fetch(`${base()}/gradio_api/call/predict/${started.event_id}`, { signal: controller.signal });
+      const get = await fetch(`${base()}/gradio_api/call/predict/${started.event_id}`, {
+        headers: authHeaders(),
+        signal: controller.signal,
+      });
       if (!get.ok) return { error: 'http' as const, detail: `get http ${get.status}` };
       const raw = await get.text();
 
