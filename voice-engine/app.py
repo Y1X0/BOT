@@ -65,11 +65,12 @@ MAX_TEXT = 400
 MAX_REF_S = 15.0
 SR = 16000
 
-# lahgtna/higgs are pinned; whisper-small (MIT) is small and stable, taken from main.
+# lahgtna/higgs/whisper pinned to exact revisions. whisper-large-v3-turbo (MIT)
+# transcribes the reference accurately — ref_text quality drives clone fidelity.
 _PINS = [
     ("oddadmix/lahgtna-omnivoice-v2", "55c38a613e31", "lahgtna-omnivoice-v2", ["*.json", "*.safetensors", "*.jinja"]),
     ("eustlb/higgs-audio-v2-tokenizer", "528e871c2a26", "lahgtna-omnivoice-v2/audio_tokenizer", ["*.json", "*.safetensors"]),
-    ("openai/whisper-small", None, "whisper-small", None),
+    ("openai/whisper-large-v3-turbo", "41f01f3fe87f", "whisper-large-v3-turbo", ["*.json", "*.safetensors", "*.txt"]),
 ]
 
 
@@ -94,8 +95,8 @@ def _load_cpu():
         from omnivoice.models.omnivoice import OmniVoice
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
         _models["tts"] = OmniVoice.from_pretrained(f"{MODELS}/lahgtna-omnivoice-v2")
-        _models["asr"] = WhisperForConditionalGeneration.from_pretrained(f"{MODELS}/whisper-small").eval()
-        _models["asr_proc"] = WhisperProcessor.from_pretrained(f"{MODELS}/whisper-small")
+        _models["asr"] = WhisperForConditionalGeneration.from_pretrained(f"{MODELS}/whisper-large-v3-turbo").eval()
+        _models["asr_proc"] = WhisperProcessor.from_pretrained(f"{MODELS}/whisper-large-v3-turbo")
         from silero_vad import load_silero_vad
         _models["vad"] = load_silero_vad()  # tiny — stays on CPU
     return _models

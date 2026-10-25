@@ -389,7 +389,9 @@ export const voiceclonePlugin: Plugin = {
         await ctx.reply('🔊 الصيغة: /speak <رقم الطلب> <النص>\nمثال: /speak 3 مرحبا كيف حالك').catch(() => undefined);
         return;
       }
-      await generate(ctx, Number(mm[1]), mm[2]);
+      // Detached: GPU synthesis can exceed Telegraf's 30s handlerTimeout. generate()
+      // posts its own status and sends the result, so let the handler return now.
+      void generate(ctx, Number(mm[1]), mm[2]).catch((err) => log.error({ err }, 'voiceclone generate (detached) failed'));
     });
 
     bot.command('myvoices', async (ctx) => {
