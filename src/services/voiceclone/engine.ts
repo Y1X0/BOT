@@ -101,13 +101,13 @@ function parseGradioSSE(raw: string): { data?: string; error?: string } {
   }
 }
 
-/** GET /gradio_api/config — quick reachability probe. Never throws. */
+/** GET the Space root — quick reachability probe. Never throws. */
 export async function engineHealth(): Promise<{ ok: boolean; detail?: string }> {
   if (!voiceCloneReady()) return { ok: false, detail: 'unconfigured' };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetch(`${base()}/gradio_api/config`, { headers: authHeaders(), signal: controller.signal });
+    const res = await fetch(`${base()}/`, { headers: authHeaders(), signal: controller.signal });
     return { ok: res.ok, detail: res.ok ? undefined : `http ${res.status}` };
   } catch (err) {
     return { ok: false, detail: String(err).slice(0, 120) };
