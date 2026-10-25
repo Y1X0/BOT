@@ -1,51 +1,71 @@
-"""Voise voice engine (Hugging Face Space, free CPU): speak text, or re-speak a voice note, in a reference voice.
+"""Voise voice engine — Gradio Space (free CPU): speak text in a consenting person's voice.
 
-  POST /tts  form: text, ref (audio file), [ref_text], [language=apc]  -> JSON {audio_b64 (ogg/opus), ...}
-  POST /s2s  form: source (audio file), ref (audio file), [language]  -> JSON {audio_b64, transcript, ...}
-  GET  /health
+Exposed as one Gradio API function (api name "predict"), called over the REST API:
 
-Every request needs the header X-Engine-Secret equal to the ENGINE_SECRET Space secret; without that secret
-configured the engine refuses everything. Nothing is stored: audio lives in a temp dir for the request only.
-Speech-to-speech transcribes the voice note (Whisper large-v3-turbo) and speaks the transcript with
-Lahgtna-OmniVoice, so the output keeps the words, not the sender's own prosody.
+  POST {url}/gradio_api/call/predict   {"data": [text, ref_b64, ref_text, language, secret]}
+  GET  {url}/gradio_api/call/predict/{event_id}            (SSE) -> data: ["<json string>"]
 
-Models (baked into the image at build time): oddadmix/lahgtna-omnivoice-v2 (no licence stated: private use
-only until its author permits more), eustlb/higgs-audio-v2-tokenizer (Boson licence), openai/whisper-large-v3-turbo
-(MIT). Code: OmniVoice (Apache-2.0).
+The reference audio is passed base64-encoded (no file upload). The result is a JSON string
+{"audio_b64": "<ogg/opus base64>", "format": "ogg/opus", "seconds": N}. Every call must pass
+`secret` equal to the ENGINE_SECRET Space secret; without it the call is refused. Nothing is
+stored: audio lives in a per-request temp dir only.
+
+Models (downloaded at startup, pinned to exact revisions):
+  - oddadmix/lahgtna-omnivoice-v2  (no licence stated → private use only until its author permits more)
+  - eustlb/higgs-audio-v2-tokenizer (Boson licence)   — part of the TTS model
+  - openai/whisper-large-v3-turbo  (MIT)               — transcribes the reference clip
+Code: OmniVoice (Apache-2.0).
+
+Docker Spaces require a paid plan, so this runs as a Gradio Space (free). omnivoice is installed
+without its heavy demo dependencies at startup (pip --no-deps), which a plain requirements.txt
+cannot express.
 """
 import base64
 import hashlib
 import hmac
+import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 
+# omnivoice pulls conflicting demo deps, so install it WITHOUT deps before importing it.
+try:
+    import omnivoice  # noqa: F401
+except Exception:
+    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "omnivoice==0.2.1"], check=True)
+
 import numpy as np
 import soundfile as sf
 import torch
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+import gradio as gr
+from huggingface_hub import snapshot_download
 
-MODELS = os.environ.get("MODELS_DIR", "/models")
+MODELS = os.environ.get("MODELS_DIR", os.path.join(os.path.expanduser("~"), "models"))
 SECRET = os.environ.get("ENGINE_SECRET", "")
 MAX_TEXT = 400
-MAX_SOURCE_S = 60.0
 MAX_REF_S = 15.0
 SR = 16000
 
 torch.set_num_threads(max(1, os.cpu_count() or 1))
-app = FastAPI(title="voise-engine", docs_url=None, redoc_url=None)
-_lock = threading.Lock()
+
+_PINS = [
+    ("oddadmix/lahgtna-omnivoice-v2", "55c38a613e31", "lahgtna-omnivoice-v2", ["*.json", "*.safetensors", "*.jinja"]),
+    ("eustlb/higgs-audio-v2-tokenizer", "528e871c2a26", "lahgtna-omnivoice-v2/audio_tokenizer", ["*.json", "*.safetensors"]),
+    ("openai/whisper-large-v3-turbo", "41f01f3fe87f", "whisper-large-v3-turbo", ["*.json", "*.safetensors", "*.txt"]),
+]
+
+
+def _ensure_models():
+    for repo, rev, sub, patterns in _PINS:
+        snapshot_download(repo, revision=rev, local_dir=os.path.join(MODELS, sub), allow_patterns=patterns)
+
+
 _models = {}
 _ref_text_cache = {}
-
-
-def _check(secret):
-    if not SECRET:
-        raise HTTPException(503, "ENGINE_SECRET is not configured")
-    if not secret or not hmac.compare_digest(secret.encode(), SECRET.encode()):
-        raise HTTPException(401, "bad secret")
+_lock = threading.Lock()
 
 
 def _load():
@@ -68,7 +88,7 @@ def _decode(data, path):
     r = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", src, "-ac", "1", "-ar", str(SR), out],
                        capture_output=True, timeout=120)
     if r.returncode != 0:
-        raise HTTPException(400, "could not decode audio")
+        raise gr.Error("could not decode audio")
     y, _ = sf.read(out, dtype="float32")
     return y
 
@@ -78,7 +98,7 @@ def _speech_only(y, max_s):
     ts = get_speech_timestamps(torch.as_tensor(y), _models["vad"], sampling_rate=SR, min_silence_duration_ms=300,
                                speech_pad_ms=80)
     if not ts:
-        raise HTTPException(400, "no speech found")
+        raise gr.Error("no speech found in the reference")
     y = np.concatenate([y[t["start"]:t["end"]] for t in ts])[: int(max_s * SR)]
     return y / max(1e-6, float(np.abs(y).max())) * 0.9
 
@@ -111,36 +131,47 @@ def _speak(text, ref_bytes, ref_text, language, tmp):
     return _to_ogg(y / max(1e-6, float(np.abs(y).max())) * 0.9, sr, tmp), len(y) / sr
 
 
-@app.get("/health")
-def health():
-    return {"ok": True, "loaded": bool(_models), "secret_configured": bool(SECRET)}
-
-
-@app.post("/tts")
-def tts(text: str = Form(...), ref: UploadFile = File(...), ref_text: str = Form(""), language: str = Form("apc"),
-        x_engine_secret: str = Header(None)):
-    _check(x_engine_secret)
-    text = text.strip()
+def predict(text, ref_b64, ref_text="", language="apc", secret=""):
+    """The API function. Returns a JSON string so the caller gets audio + metadata in one field."""
+    if not SECRET:
+        raise gr.Error("ENGINE_SECRET is not configured")
+    if not secret or not hmac.compare_digest(str(secret).encode(), SECRET.encode()):
+        raise gr.Error("bad secret")
+    text = (text or "").strip()
     if not text or len(text) > MAX_TEXT:
-        raise HTTPException(400, f"text must be 1-{MAX_TEXT} characters")
+        raise gr.Error(f"text must be 1-{MAX_TEXT} characters")
+    if not ref_b64:
+        raise gr.Error("missing reference audio")
+    try:
+        ref_bytes = base64.b64decode(ref_b64)
+    except Exception:
+        raise gr.Error("reference audio is not valid base64")
     with _lock, tempfile.TemporaryDirectory() as d:
-        t0 = time.time(); _load()
-        audio, secs = _speak(text, ref.file.read(), ref_text.strip(), language, os.path.join(d, "j"))
-        return {"audio_b64": audio, "format": "ogg/opus", "seconds": round(secs, 1), "took": round(time.time() - t0, 1)}
+        t0 = time.time()
+        _load()
+        audio, secs = _speak(text, ref_bytes, (ref_text or "").strip(), language or "apc", os.path.join(d, "j"))
+        return json.dumps({"audio_b64": audio, "format": "ogg/opus", "seconds": round(secs, 1),
+                           "took": round(time.time() - t0, 1)})
 
 
-@app.post("/s2s")
-def s2s(source: UploadFile = File(...), ref: UploadFile = File(...), language: str = Form("apc"),
-        x_engine_secret: str = Header(None)):
-    _check(x_engine_secret)
-    with _lock, tempfile.TemporaryDirectory() as d:
-        t0 = time.time(); _load()
-        src = _decode(source.file.read(), os.path.join(d, "src"))
-        if len(src) > MAX_SOURCE_S * SR:
-            raise HTTPException(400, f"voice note longer than {int(MAX_SOURCE_S)} s")
-        transcript = _asr(_speech_only(src, MAX_SOURCE_S))
-        if not transcript:
-            raise HTTPException(400, "could not understand the voice note")
-        audio, secs = _speak(transcript[:MAX_TEXT], ref.file.read(), "", language, os.path.join(d, "j"))
-        return {"audio_b64": audio, "format": "ogg/opus", "transcript": transcript, "seconds": round(secs, 1),
-                "took": round(time.time() - t0, 1)}
+print("voise-engine: downloading models…", flush=True)
+_ensure_models()
+print("voise-engine: models ready", flush=True)
+
+demo = gr.Interface(
+    fn=predict,
+    inputs=[
+        gr.Textbox(label="text"),
+        gr.Textbox(label="ref_b64"),
+        gr.Textbox(label="ref_text", value=""),
+        gr.Textbox(label="language", value="apc"),
+        gr.Textbox(label="secret", type="password"),
+    ],
+    outputs=gr.Textbox(label="result"),
+    title="voise-engine",
+    description="Consent-gated voice cloning. API only — every call needs the engine secret.",
+    allow_flagging="never",
+)
+
+if __name__ == "__main__":
+    demo.queue(max_size=8).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))

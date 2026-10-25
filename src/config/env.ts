@@ -230,10 +230,10 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
-  VOICE_ENGINE_URL: z.string().optional(), // e.g. https://<user>-voise.hf.space
+  VOICE_ENGINE_URL: z.string().optional(), // Gradio Space root, e.g. https://<user>-voise-engine.hf.space
   VOICE_ENGINE_SECRET: z.string().optional(), // must equal the engine's ENGINE_SECRET
   VOICE_ENGINE_LANG: z.string().default('apc'), // default language tag (apc = Levantine Arabic)
-  VOICE_ENGINE_TIMEOUT_SEC: z.coerce.number().default(180), // CPU inference is slow
+  VOICE_ENGINE_TIMEOUT_SEC: z.coerce.number().default(300), // CPU inference + cold start are slow
 
   // Fun Image Editor (needs an image-generation API key to actually run)
   IMAGE_AI_ENABLED: z

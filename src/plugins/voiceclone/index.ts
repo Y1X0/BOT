@@ -37,7 +37,6 @@ import {
   revokeConsent,
   authorizeGeneration,
   bumpGenCount,
-  getConsent,
   listForUser,
   listPending,
   refIds,

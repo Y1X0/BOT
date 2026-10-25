@@ -27,32 +27,35 @@ consent declaration that a **bot owner approves**, and every clip the bot sends 
 ## Architecture
 
 The voice model is far too heavy for the Render free tier, so it runs on a
-separate **engine** (a free Hugging Face Space, CPU). The bot calls it over HTTPS
-with a shared secret. If the engine is not configured, the feature simply stays
-off.
+separate **engine** (a free Hugging Face **Gradio** Space, CPU — Docker Spaces
+require a paid plan). The bot calls the Space's REST API with a shared secret
+passed as a call argument. If the engine is not configured, the feature simply
+stays off.
 
 ```
-Telegram ⇄ bot (Render)  ──HTTPS + X-Engine-Secret──▶  Voise engine (HF Space, CPU)
-                                                        POST /tts → ogg/opus audio
+Telegram ⇄ bot (Render) ──Gradio REST API (+ secret arg)──▶ Voise engine (HF Gradio Space, CPU)
+   POST /gradio_api/call/predict → event_id → GET …/{event_id} → ogg/opus audio (base64)
 ```
 
-## 1 — Deploy the engine (Hugging Face Space)
+## 1 — Deploy the engine (Hugging Face Gradio Space)
 
 The ready-to-deploy engine is in [`voice-engine/`](./voice-engine): `app.py`,
-`Dockerfile`, `requirements.txt`, `fetch_models.py`, `README.md`.
+`requirements.txt`, `packages.txt`.
 
-1. Create a new **Space** → **SDK: Docker** → hardware **CPU basic** (free).
-2. Add the five files from `voice-engine/` to the Space (drag-and-drop in the web
-   UI, or `git push` to the Space repo). The `README.md` already has the required
-   Space header (`sdk: docker`, `app_port: 7860`).
-3. In the Space **Settings → Variables and secrets**, add a secret named
-   **`ENGINE_SECRET`** set to a long random string (see step 3 below — use the
-   same value on both sides).
-4. Let it build. The first build **downloads the models and takes a while**; the
-   Space shows "Running" when ready. The first `/tts` after a cold start is slow
-   (model load); later ones are faster. CPU synthesis is still minutes-scale, so
-   keep texts short (≤ 400 chars — enforced on both sides).
-5. Your engine URL is `https://<your-username>-<space-name>.hf.space`.
+1. Create a new **Space** → **SDK: Gradio** → template **Blank** → hardware
+   **CPU basic** (free) → **Public**. (Hugging Face writes a starter `README.md`
+   with the right `sdk_version` — keep it.)
+2. In the Space **Settings → Variables and secrets → New secret**, add
+   **`ENGINE_SECRET`** = a long random string (step 3 — same value on both sides).
+3. In the Space **Files** tab, replace `app.py` with ours and add
+   `requirements.txt` and `packages.txt` (the latter installs ffmpeg). Commit.
+4. Let it build. On startup it **downloads the models (~5 GB) and takes a
+   while**; the Space shows "Running" when ready. The first `predict` after a
+   cold start also loads the models into RAM, so it is slow; keep texts short
+   (≤ 400 chars — enforced on both sides). A free Space sleeps when idle and
+   re-downloads on wake, so expect a slow first call after inactivity.
+5. Your engine URL is `https://<your-username>-<space-name>.hf.space` (shown on
+   the Space page). Check it is up: open `…/gradio_api/config` in a browser.
 
 > **Model licensing:** the voice model `oddadmix/lahgtna-omnivoice-v2` ships with
 > **no stated license** ("private use only until its author permits more"). Use it
@@ -104,7 +107,7 @@ All in a **private chat** with the bot:
 | File | Role |
 | --- | --- |
 | `src/services/voiceclone/policy.ts` | Pure gates: who may approve/generate/revoke, reference & text validation, synthetic labeling, consent hash. |
-| `src/services/voiceclone/engine.ts` | HTTPS client for the engine; serial queue (one job at a time, matching the engine's own lock). |
+| `src/services/voiceclone/engine.ts` | Gradio REST client for the engine; serial queue (one job at a time). |
 | `src/services/voiceclone/consent.ts` | DB-backed consent records (`VoiceConsent` model). |
 | `src/plugins/voiceclone/index.ts` | Telegram wizard, owner approval buttons, generation, revocation. |
 | `voice-engine/` | The deployable Hugging Face Space engine. |

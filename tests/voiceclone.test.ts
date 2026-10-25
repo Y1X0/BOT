@@ -93,11 +93,18 @@ describe('voiceclone policy — labeling & hashing', () => {
   });
 });
 
-// ── Engine client (env toggled per-test via dynamic import) ──────────────────
+// ── Engine client (Gradio API; env toggled per-test via dynamic import) ──────
 
 const B64 = (s: string): string => Buffer.from(s).toString('base64');
 const okJson = (body: unknown) =>
   ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response;
+/** A Gradio SSE "complete" response carrying one JSON string in the data array. */
+const sseComplete = (inner: unknown) =>
+  ({ ok: true, status: 200, text: async () => `event: complete\ndata: ${JSON.stringify([JSON.stringify(inner)])}\n\n` }) as unknown as Response;
+const sseError = (msg: string) =>
+  ({ ok: true, status: 200, text: async () => `event: error\ndata: ${JSON.stringify(msg)}\n\n` }) as unknown as Response;
+
+const isPost = (opts?: { method?: string }): boolean => opts?.method === 'POST';
 
 const ENGINE_KEYS = ['VOICECLONE_ENABLED', 'VOICE_ENGINE_URL', 'VOICE_ENGINE_SECRET', 'VOICE_ENGINE_TIMEOUT_SEC', 'VOICE_ENGINE_LANG'];
 
@@ -136,10 +143,12 @@ describe('voiceclone engine — gating & results', () => {
     expect(await eng.synthesizeVoice(sampleOpts())).toEqual({ error: 'unconfigured' });
   });
 
-  it('returns decoded OGG bytes on success', async () => {
+  it('returns decoded OGG bytes on success, passing the secret as the last arg', async () => {
     const eng = await loadEngine(CONFIGURED);
     expect(eng.voiceCloneReady()).toBe(true);
-    const fetchMock = vi.fn(async () => okJson({ audio_b64: B64('OGGDATA'), format: 'ogg', seconds: 1.4 }));
+    const fetchMock = vi.fn(async (_url: string, opts?: { method?: string }) =>
+      isPost(opts) ? okJson({ event_id: 'e1' }) : sseComplete({ audio_b64: B64('OGGDATA'), format: 'ogg/opus', seconds: 1.4 }),
+    );
     global.fetch = fetchMock as unknown as typeof fetch;
     const res = await eng.synthesizeVoice(sampleOpts());
     expect('error' in res).toBe(false);
@@ -147,44 +156,62 @@ describe('voiceclone engine — gating & results', () => {
       expect(res.ogg.toString()).toBe('OGGDATA');
       expect(res.seconds).toBe(1.4);
     }
-    // Secret header is sent.
-    const call = fetchMock.mock.calls[0] as unknown as [string, { headers: Record<string, string> }];
-    expect(call[1].headers['X-Engine-Secret']).toBe('sekret');
+    // The POST body carries the secret as data[4], and the ref as base64 data[1].
+    const postCall = fetchMock.mock.calls.find((c) => (c[1] as { method?: string })?.method === 'POST')!;
+    const body = JSON.parse((postCall[1] as { body: string }).body) as { data: string[] };
+    expect(body.data[1]).toBe(Buffer.from('refbytes').toString('base64'));
+    expect(body.data[4]).toBe('sekret');
+    // Two-step: POST to start, GET to collect.
+    expect((fetchMock.mock.calls[0][0] as string)).toContain('/gradio_api/call/predict');
+    expect((fetchMock.mock.calls[1][0] as string)).toContain('/gradio_api/call/predict/e1');
   });
 
-  it('maps a non-ok HTTP response to an http error', async () => {
+  it('maps a non-ok POST to an http error', async () => {
     const eng = await loadEngine(CONFIGURED);
     global.fetch = vi.fn(async () => ({ ok: false, status: 503, text: async () => 'busy' }) as unknown as Response) as unknown as typeof fetch;
     expect(await eng.synthesizeVoice(sampleOpts())).toMatchObject({ error: 'http' });
   });
 
+  it('maps a Gradio error event to an http error', async () => {
+    const eng = await loadEngine(CONFIGURED);
+    global.fetch = vi.fn(async (_url: string, opts?: { method?: string }) =>
+      isPost(opts) ? okJson({ event_id: 'e1' }) : sseError('bad secret'),
+    ) as unknown as typeof fetch;
+    expect(await eng.synthesizeVoice(sampleOpts())).toMatchObject({ error: 'http' });
+  });
+
   it('maps an empty audio payload to an empty error', async () => {
     const eng = await loadEngine(CONFIGURED);
-    global.fetch = vi.fn(async () => okJson({ audio_b64: '', seconds: 0 })) as unknown as typeof fetch;
+    global.fetch = vi.fn(async (_url: string, opts?: { method?: string }) =>
+      isPost(opts) ? okJson({ event_id: 'e1' }) : sseComplete({ audio_b64: '', seconds: 0 }),
+    ) as unknown as typeof fetch;
     expect(await eng.synthesizeVoice(sampleOpts())).toEqual({ error: 'empty' });
   });
 
   it('maps an aborted/slow request to a timeout error', async () => {
     const eng = await loadEngine(CONFIGURED);
-    global.fetch = vi.fn(
-      (_url: string, opts: { signal?: AbortSignal }) =>
-        new Promise((_resolve, reject) => {
-          opts.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-        }),
-    ) as unknown as typeof fetch;
+    global.fetch = vi.fn((_url: string, opts?: { method?: string; signal?: AbortSignal }) => {
+      if (isPost(opts)) return Promise.resolve(okJson({ event_id: 'e1' }));
+      return new Promise((_resolve, reject) => {
+        opts?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    }) as unknown as typeof fetch;
     expect(await eng.synthesizeVoice(sampleOpts())).toEqual({ error: 'timeout' });
   });
 
-  it('serializes concurrent calls (never two in flight at once)', async () => {
+  it('serializes concurrent calls (never two jobs in flight at once)', async () => {
     const eng = await loadEngine({ ...CONFIGURED, VOICE_ENGINE_TIMEOUT_SEC: '5' });
     let active = 0;
     let maxActive = 0;
-    global.fetch = vi.fn(async () => {
-      active++;
-      maxActive = Math.max(maxActive, active);
-      await new Promise((r) => setTimeout(r, 30));
+    global.fetch = vi.fn(async (_url: string, opts?: { method?: string }) => {
+      if (isPost(opts)) {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        return okJson({ event_id: 'e1' });
+      }
+      await new Promise((r) => setTimeout(r, 20));
       active--;
-      return okJson({ audio_b64: B64('x'), seconds: 1 });
+      return sseComplete({ audio_b64: B64('x'), seconds: 1 });
     }) as unknown as typeof fetch;
     await Promise.all([eng.synthesizeVoice(sampleOpts()), eng.synthesizeVoice(sampleOpts()), eng.synthesizeVoice(sampleOpts())]);
     expect(maxActive).toBe(1);

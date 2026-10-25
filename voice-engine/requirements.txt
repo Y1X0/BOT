@@ -1,3 +1,6 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0
+torchaudio==2.11.0
 transformers==5.18.0
 accelerate
 huggingface_hub
@@ -7,7 +10,4 @@ librosa
 pydub
 tensorboardx
 webdataset
-fastapi
-uvicorn
-python-multipart
 silero-vad
