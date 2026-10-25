@@ -191,7 +191,6 @@ demo = gr.Interface(
     outputs=gr.Textbox(label="result"),
     title="voise-engine",
     description="Consent-gated voice cloning. API only — every call needs the engine secret.",
-    allow_flagging="never",
 )
 
 if __name__ == "__main__":
