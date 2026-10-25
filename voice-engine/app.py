@@ -37,14 +37,16 @@ import time
 import spaces
 import torch  # the ZeroGPU base image provides a CUDA build
 
-# omnivoice needs torchaudio (>=2.4), but the ZeroGPU base image ships torch
-# WITHOUT torchaudio. Install the version matching the installed torch, WITHOUT
-# deps, so the CUDA torch is never replaced.
+# omnivoice needs torchaudio, but the ZeroGPU base image ships torch WITHOUT it.
+# The base torch can be NEWER than any released torchaudio (e.g. torch 2.13 vs
+# torchaudio ≤2.11), so a ==<torch> pin has no match. Install the newest
+# available torchaudio instead, --no-deps so the CUDA torch is never replaced.
+# omnivoice only calls torchaudio.functional.resample (pure torch ops), so a
+# minor version skew between torch and torchaudio is harmless here.
 try:
     import torchaudio  # noqa: F401
 except Exception:
-    _tv = torch.__version__.split("+")[0]
-    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", f"torchaudio=={_tv}"], check=False)
+    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "torchaudio"], check=False)
 
 # omnivoice pulls conflicting demo deps, so install it WITHOUT deps before first use.
 try:
