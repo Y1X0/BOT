@@ -34,6 +34,7 @@ import { downloaderPlugin } from './downloader';
 import { courseDlPlugin } from './coursedl';
 import { storyPlugin } from './story';
 import { transcribePlugin } from './transcribe';
+import { wav2voicePlugin } from './wav2voice';
 import { ttsPlugin } from './tts';
 import { netdiagPlugin } from './netdiag';
 import { voiceChatPlugin } from './voicechat';
@@ -152,6 +153,7 @@ allPlugins.push(
   stickerPlugin, // passive: photo → sticker
   storyPlugin, // catches Telegram story links (t.me/<user>/s/<id>) → assistant
   transcribePlugin, // reply «نص» to a voice/audio → speech-to-text (Whisper)
+  wav2voicePlugin, // incoming WAV file → Telegram voice message (OGG/Opus)
   ttsPlugin, // «نطق النص» → text-to-speech voice-over
   netdiagPlugin, // owner /udptest — checks if the host allows UDP (for the كول)
   courseDlPlugin, // «نزّل <رابط يوتيوب>» → big-file download via assistant (before downloader)
