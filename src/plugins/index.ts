@@ -35,6 +35,7 @@ import { courseDlPlugin } from './coursedl';
 import { storyPlugin } from './story';
 import { transcribePlugin } from './transcribe';
 import { voiceclonePlugin } from './voiceclone';
+import { voiceDatasetPlugin } from './voicedataset';
 import { wav2voicePlugin } from './wav2voice';
 import { ttsPlugin } from './tts';
 import { netdiagPlugin } from './netdiag';
@@ -155,6 +156,7 @@ allPlugins.push(
   storyPlugin, // catches Telegram story links (t.me/<user>/s/<id>) → assistant
   transcribePlugin, // reply «نص» to a voice/audio → speech-to-text (Whisper)
   voiceclonePlugin, // consent-gated voice cloning (owner-approved; before wav2voice so wizard refs win)
+  voiceDatasetPlugin, // collect many voices → one ZIP (before wav2voice so session clips win)
   wav2voicePlugin, // incoming WAV file → Telegram voice message (OGG/Opus)
   ttsPlugin, // «نطق النص» → text-to-speech voice-over
   netdiagPlugin, // owner /udptest — checks if the host allows UDP (for the كول)

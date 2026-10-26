@@ -30,7 +30,7 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
 # (the card's 👑🔥 etc.), dejavu, and noto Arabic as a system fallback.
 # Use the nightly yt-dlp — it tracks YouTube extractor fixes far more closely.
 RUN apt-get update -y \
-    && apt-get install -y openssl ffmpeg ca-certificates wget unzip \
+    && apt-get install -y openssl ffmpeg ca-certificates wget unzip zip \
        chromium fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core \
        python3 python3-venv \
     && wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux -O /usr/local/bin/yt-dlp \
