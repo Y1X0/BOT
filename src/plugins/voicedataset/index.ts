@@ -23,7 +23,11 @@ const SESSION_TTL = 60 * 60 * 1000;
 
 const START_RE = /^(?:\/collectvoices|جمع فويسات|تجميع الفويسات|اجمع الفويسات|داتاسيت صوت|داتاسيت الفويسات)$/i;
 const DONE_RE = /^(?:\/buildzip|\/donevoices|\/done|تم|خلص|انتهيت|انهاء|جهّز|جهز)$/i;
+const MERGE_RE = /^(?:\/buildmerge|\/mergevoices|دمج|ادمج|دمج الفويسات|ادمجهم)$/i;
 const CANCEL_RE = /^(?:\/cancelcollect|الغاء|إلغاء|الغِ)$/i;
+
+// A merged voice note is sent via the bot, so keep it under the upload cap.
+const MAX_MERGE_BYTES = 48 * 1024 * 1024;
 
 interface Clip {
   fileId: string;
@@ -106,6 +110,23 @@ function makeArchive(cwd: string, folder: string): Promise<string | null> {
   })();
 }
 
+/** Run ffmpeg with the given args. Resolves false on any failure. */
+function ffmpeg(args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    const p = spawn('ffmpeg', ['-nostdin', '-loglevel', 'error', '-y', ...args], { stdio: 'ignore' });
+    p.on('error', () => resolve(false));
+    p.on('close', (code) => resolve(code === 0));
+  });
+}
+
+/** Normalize any clip to a uniform OGG/Opus (mono, 48k) so clips concat cleanly. */
+const normalizeToOgg = (input: string, output: string): Promise<boolean> =>
+  ffmpeg(['-i', input, '-ac', '1', '-ar', '48000', '-c:a', 'libopus', '-b:a', '96k', output]);
+
+/** Concatenate a list of (uniform) clips into one OGG/Opus voice note. */
+const concatToOgg = (listPath: string, output: string): Promise<boolean> =>
+  ffmpeg(['-f', 'concat', '-safe', '0', '-i', listPath, '-c:a', 'libopus', '-b:a', '96k', output]);
+
 async function startSession(ctx: BotContext): Promise<void> {
   if (!ctx.from) return;
   if (ctx.chat?.type !== 'private') {
@@ -117,8 +138,10 @@ async function startSession(ctx: BotContext): Promise<void> {
       '🎙 <b>جمع الفويسات → ملف مضغوط</b>\n' +
         '✦ ┈┈┈┈┈┈┈┈ ✦\n' +
         'أرسل الآن كل الرسائل الصوتية (أو ملفات صوتية) اللي بدك تجمّعها.\n' +
-        `الحد الأقصى ${MAX_CLIPS} مقطع، وحجم الملف المضغوط ~45MB.\n` +
-        'لما تخلّص اكتب <b>/buildzip</b> (أو «تم») وبجهّزلك الملف.\n' +
+        `الحد الأقصى ${MAX_CLIPS} مقطع.\n` +
+        'لما تخلّص اختر:\n' +
+        '• <b>/buildzip</b> (أو «تم») → ملف مضغوط فيهم كلهم.\n' +
+        '• <b>/buildmerge</b> (أو «دمج») → تسجيل واحد مدموج.\n' +
         'للإلغاء: /cancelcollect',
       { parse_mode: 'HTML' },
     )
@@ -233,6 +256,66 @@ async function build(ctx: BotContext, s: Session): Promise<void> {
   }
 }
 
+async function buildMerge(ctx: BotContext, s: Session): Promise<void> {
+  if (!ctx.chat || !ctx.from) return;
+  if (!s.clips.length) {
+    await ctx.reply('⚠️ ما جمّعت أي مقطع بعد. أرسل رسائل صوتية أولاً.').catch(() => undefined);
+    return;
+  }
+  const n = s.clips.length;
+  sessions.delete(ctx.from.id);
+  const status = await ctx.reply(`🎚 جاري دمج ${n} مقطع بتسجيل واحد… ⏳`).catch(() => undefined);
+  const statusId = (status as { message_id?: number } | undefined)?.message_id;
+  await ctx.sendChatAction('upload_voice').catch(() => undefined);
+  const edit = (t: string): Promise<unknown> =>
+    statusId ? ctx.telegram.editMessageText(ctx.chat!.id, statusId, undefined, t).catch(() => undefined) : ctx.reply(t).catch(() => undefined);
+
+  const dir = await mkdtemp(join(tmpdir(), 'vmrg-'));
+  const cleanup = (): Promise<unknown> => rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  try {
+    const parts: string[] = [];
+    for (let i = 0; i < s.clips.length; i++) {
+      const clip = s.clips[i];
+      const raw = join(dir, `raw_${i}`);
+      const part = join(dir, `part_${String(parts.length + 1).padStart(3, '0')}.ogg`);
+      const link = await ctx.telegram.getFileLink(clip.fileId).catch(() => null);
+      if (!link) continue;
+      if (!(await downloadTo(link.toString(), raw))) continue;
+      if ((await stat(raw).catch(() => ({ size: 0 }) as { size: number })).size > MAX_FILE_BYTES) {
+        await rm(raw, { force: true }).catch(() => undefined);
+        continue;
+      }
+      // Normalize to a uniform OGG so clips of different codecs/rates concat cleanly.
+      if (await normalizeToOgg(raw, part)) parts.push(part);
+      await rm(raw, { force: true }).catch(() => undefined);
+      if (parts.length % 15 === 0) await edit(`🎚 معالجة… ${parts.length}/${n}`);
+    }
+    if (!parts.length) return void (await edit('⚠️ تعذّر معالجة أي مقطع.'));
+
+    const listPath = join(dir, 'list.txt');
+    await writeFile(listPath, parts.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n') + '\n', 'utf8');
+    await edit('🎚 جاري الدمج…');
+    const out = join(dir, 'merged.ogg');
+    if (!(await concatToOgg(listPath, out))) return void (await edit('⚠️ تعذّر دمج التسجيلات.'));
+    const sz = (await stat(out).catch(() => ({ size: 0 }) as { size: number })).size;
+    if (sz <= 0) return void (await edit('⚠️ الناتج فارغ.'));
+    if (sz > MAX_MERGE_BYTES)
+      return void (await edit(`⚠️ التسجيل المدموج كبير جداً (${(sz / 1024 / 1024).toFixed(0)}MB > 48MB). جرّب مقاطع أقل.`));
+
+    await ctx
+      .replyWithVoice(Input.fromLocalFile(out, 'merged.ogg'), {
+        caption: `🎙 تسجيل واحد مدموج من ${parts.length} مقطع · ${(sz / 1024 / 1024).toFixed(1)}MB`,
+      })
+      .catch(() => undefined);
+    if (statusId) await ctx.telegram.deleteMessage(ctx.chat.id, statusId).catch(() => undefined);
+  } catch (err) {
+    log.error({ err }, 'voicedataset merge failed');
+    await edit('⚠️ صار خطأ أثناء الدمج.');
+  } finally {
+    await cleanup();
+  }
+}
+
 /**
  * 🎙 Collect many voice messages into a tidy ZIP. Send /collectvoices (private),
  * forward/record as many voices as you like, then /buildzip — the bot numbers
@@ -242,8 +325,9 @@ export const voiceDatasetPlugin: Plugin = {
   name: 'voicedataset',
   description: 'Collect many voice messages and return them as one ZIP dataset',
   commands: [
-    { command: 'collectvoices', description: '🎙 اجمع فويسات → ملف مضغوط (بالخاص)' },
+    { command: 'collectvoices', description: '🎙 اجمع فويسات (بالخاص) ثم ضغط أو دمج' },
     { command: 'buildzip', description: '📦 جهّز ملف الفويسات المضغوط' },
+    { command: 'buildmerge', description: '🎚 ادمج الفويسات بتسجيل واحد' },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -287,8 +371,12 @@ export const voiceDatasetPlugin: Plugin = {
         sessions.delete(ctx.from!.id);
         return void ctx.reply('✖️ تم الإلغاء.').catch(() => undefined);
       }
+      // Detached: downloading + archiving/merging 100 clips can exceed the 30s handler timeout.
+      if (MERGE_RE.test(text)) {
+        void buildMerge(ctx, s).catch((err) => log.error({ err }, 'voicedataset merge (detached) failed'));
+        return;
+      }
       if (DONE_RE.test(text)) {
-        // Detached: downloading + zipping 100 clips can exceed the 30s handler timeout.
         void build(ctx, s).catch((err) => log.error({ err }, 'voicedataset build (detached) failed'));
         return;
       }
