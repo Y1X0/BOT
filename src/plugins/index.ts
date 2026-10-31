@@ -56,6 +56,7 @@ import { reputationPlugin } from './reputation';
 import { ticketsPlugin } from './tickets';
 import { ranksPlugin } from './ranks';
 import { giveawayPlugin } from './giveaway';
+import { roulettePlugin } from './roulette';
 import { qotdPlugin } from './qotd';
 import { decidePlugin } from './decide';
 import { countdownPlugin } from './countdown';
@@ -135,6 +136,7 @@ allPlugins.push(
   ticketsPlugin,
   ranksPlugin,
   giveawayPlugin,
+  roulettePlugin, // animated contest roulette (join → spin → winner)
   qotdPlugin,
   decidePlugin,
   countdownPlugin,
