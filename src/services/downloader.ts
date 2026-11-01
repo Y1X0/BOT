@@ -87,25 +87,27 @@ async function warmPotProvider(): Promise<void> {
   if (!url) return;
   if (Date.now() - _potWarmedAt < 5 * 60_000) return; // still warm
   // The provider is a heavy image (canvas/jsdom) on a 0.1-CPU free instance, so
-  // a cold start from hibernation can take ~2-3 min. Give it that long; it's a
-  // one-off per idle period (subsequent downloads hit a warm server).
-  const deadline = Date.now() + 210_000;
+  // a cold start from hibernation can take ~1-2 min. CRITICAL: use a LONG
+  // per-request timeout. When the free service is asleep, Render holds the
+  // request open through the whole spin-up and returns once it's up — a short
+  // timeout aborts mid-wake and cancels the spin-up, so it never boots.
+  const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
     try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 10_000);
-      const res = await fetch(`${url}/ping`, { signal: controller.signal }).finally(() =>
-        clearTimeout(t),
-      );
+      const res = await fetch(`${url}/ping`, {
+        signal: AbortSignal.timeout(Math.min(remaining, 120_000)),
+      });
       if (res.ok) {
         _potWarmedAt = Date.now();
         log.info('PO-token provider is awake');
         return;
       }
+      // 5xx while spinning up — wait briefly and re-hold.
     } catch {
-      /* cold/booting — retry */
+      /* boot still in progress / timed out — retry */
     }
-    await new Promise((r) => setTimeout(r, 3000));
+    if (Date.now() < deadline) await new Promise((r) => setTimeout(r, 2000));
   }
   log.warn('PO-token provider did not wake in time; downloading without a PO token');
 }
