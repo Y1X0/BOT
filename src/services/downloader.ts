@@ -34,6 +34,61 @@ function cookieArgs(): string[] {
   return _cookieFile ? ['--cookies', _cookieFile] : [];
 }
 
+/**
+ * Proof-of-origin (PO) token wiring. When POT_PROVIDER_URL is set, tell the
+ * standalone yt-dlp binary where the bgutil plugin lives (--plugin-dirs) and
+ * which provider to call (--extractor-args). This passes YouTube's "Sign in to
+ * confirm you're not a bot" wall WITHOUT cookies. No-op when unset.
+ */
+function potBaseUrl(): string | null {
+  const url = env.POT_PROVIDER_URL?.trim().replace(/\/+$/, '');
+  return url ? url : null;
+}
+function potArgs(): string[] {
+  const url = potBaseUrl();
+  if (!url) return [];
+  return [
+    '--plugin-dirs',
+    env.POT_PLUGIN_DIRS,
+    '--plugin-dirs',
+    'default',
+    '--extractor-args',
+    `youtubepot-bgutilhttp:base_url=${url}`,
+  ];
+}
+
+/**
+ * Wake the PO-token service before downloading. It runs on Render's free tier,
+ * which spins the service down after ~15 min idle (≈50s cold start). Pinging it
+ * first means yt-dlp's token request doesn't hit a sleeping server and fail.
+ * Best-effort and bounded; cached for 5 min so back-to-back downloads skip it.
+ */
+let _potWarmedAt = 0;
+async function warmPotProvider(): Promise<void> {
+  const url = potBaseUrl();
+  if (!url) return;
+  if (Date.now() - _potWarmedAt < 5 * 60_000) return; // still warm
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 10_000);
+      const res = await fetch(`${url}/ping`, { signal: controller.signal }).finally(() =>
+        clearTimeout(t),
+      );
+      if (res.ok) {
+        _potWarmedAt = Date.now();
+        log.info('PO-token provider is awake');
+        return;
+      }
+    } catch {
+      /* cold/booting — retry */
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  log.warn('PO-token provider did not wake in time; downloading without a PO token');
+}
+
 const TIMEOUT_MS = 300_000; // 5 min
 const VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv'];
 
@@ -104,6 +159,9 @@ async function ytDlpDownload(
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
   const maxMb = env.DL_MAX_SIZE_MB > 0 ? env.DL_MAX_SIZE_MB : 50;
 
+  // Wake the PO-token provider (no-op unless POT_PROVIDER_URL is set).
+  await warmPotProvider();
+
   // Keep the memory/size footprint low on the 512MB host: 128k audio, 360p video.
   const formatArgs =
     mode === 'audio'
@@ -116,6 +174,7 @@ async function ytDlpDownload(
     '--no-playlist',
     '--geo-bypass',
     ...cookieArgs(),
+    ...potArgs(),
     ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
     '--max-filesize',
     `${maxMb}M`,

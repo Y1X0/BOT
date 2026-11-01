@@ -43,6 +43,18 @@ RUN apt-get update -y \
     && rm -f /tmp/deno.zip \
     && rm -rf /var/lib/apt/lists/*
 
+# bgutil PO-token plugin for yt-dlp. Paired with the separate `pot-provider`
+# service, this lets yt-dlp pass YouTube's "Sign in to confirm you're not a bot"
+# wall WITHOUT cookies: the plugin fetches a proof-of-origin token from the
+# provider. The standalone yt-dlp binary loads it from this dir (passed via
+# --plugin-dirs in the downloader when POT_PROVIDER_URL is set). The plugin uses
+# only stdlib + yt-dlp internals, so it runs in the binary's bundled Python.
+# Keep this version in lockstep with pot-provider/Dockerfile.
+RUN mkdir -p /app/ytdlp-plugins \
+    && wget -q https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/2.0.2/bgutil-ytdlp-pot-provider.zip -O /tmp/pot.zip \
+    && unzip -q /tmp/pot.zip -d /app/ytdlp-plugins \
+    && rm -f /tmp/pot.zip
+
 # Cloudflare WARP egress (optional, free). Routes yt-dlp through Cloudflare's
 # network — a different IP than our datacenter one, which YouTube bot-walls —
 # using userspace WireGuard (wgcf registers a free WARP account; wireproxy runs

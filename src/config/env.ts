@@ -158,6 +158,16 @@ const envSchema = z.object({
   DL_COOKIES: z.string().optional(),
   DL_COOKIES_CONTENT: z.string().optional(),
 
+  // Proof-of-origin (PO) token provider — beats YouTube's "Sign in to confirm
+  // you're not a bot" wall WITHOUT cookies. A separate free service runs
+  // bgutil-ytdlp-pot-provider; set POT_PROVIDER_URL to its public base URL
+  // (e.g. https://pot-provider-xxxx.onrender.com). The downloader then fetches
+  // a PO token from it per YouTube request. Empty = disabled (old behavior).
+  POT_PROVIDER_URL: z.string().optional(),
+  // Directory where the bgutil yt-dlp plugin is unzipped in the image (so the
+  // standalone yt-dlp binary can load it). Set in the Dockerfile.
+  POT_PLUGIN_DIRS: z.string().default('/app/ytdlp-plugins'),
+
   // MTProto (gramjs) credentials so the BOT itself can list a group's full
   // members (channels.getParticipants) — no assistant/streamer needed. Same
   // API_ID/API_HASH from my.telegram.org used by the streamer; the bot logs in
