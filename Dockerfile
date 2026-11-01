@@ -72,6 +72,7 @@ COPY --from=brainicism/bgutil-ytdlp-pot-provider:2.0.2 /usr/local/bin/node /usr/
 COPY --from=brainicism/bgutil-ytdlp-pot-provider:2.0.2 /app /opt/bgutil-server
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
+       libatomic1 \
        libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 \
     && rm -rf /var/lib/apt/lists/*
 
