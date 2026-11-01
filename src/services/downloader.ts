@@ -61,6 +61,7 @@ function potArgs(): string[] {
     // for the JS challenge these clients need.
     '--extractor-args',
     'youtube:player_client=web,web_safari,mweb',
+    '--verbose',
   ];
 }
 
