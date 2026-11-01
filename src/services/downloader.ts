@@ -61,7 +61,6 @@ function potArgs(): string[] {
     // for the JS challenge these clients need.
     '--extractor-args',
     'youtube:player_client=web,web_safari,mweb',
-    '--verbose',
   ];
 }
 
@@ -169,7 +168,22 @@ async function downloadMedia(
     }
     log.warn({ err: c.error }, 'cobalt failed; falling back to local yt-dlp');
   }
-  return ytDlpDownload(url, mode);
+
+  // YouTube's "not a bot" check on the player request is probabilistic on
+  // datacenter IPs even with a valid PO token — the same link that 403s now
+  // often succeeds on the next try. So when the PO provider is configured,
+  // retry a bot-wall up to a few times (the provider is warm, each try is fast).
+  const maxAttempts = potBaseUrl() ? 4 : 1;
+  let result = await ytDlpDownload(url, mode);
+  for (
+    let attempt = 2;
+    attempt <= maxAttempts && 'error' in result && result.error === 'botwall';
+    attempt++
+  ) {
+    log.info({ attempt }, 'bot-wall — retrying download');
+    result = await ytDlpDownload(url, mode);
+  }
+  return result;
 }
 
 async function ytDlpDownload(
