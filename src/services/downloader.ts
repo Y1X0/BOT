@@ -79,19 +79,21 @@ async function downloadMedia(
   url: string,
   mode: DlMode,
 ): Promise<DlResult | { error: DlError; reason?: string }> {
-  const primary = await ytDlpDownload(url, mode);
-  if (!('error' in primary)) return primary;
-  // Fallback to a (self-hosted) Cobalt instance for block-like failures — it
-  // downloads from its own IP, so it can succeed where our IP is blocked.
-  if (cobaltConfigured() && ['failed', 'private', 'timeout'].includes(primary.error)) {
+  // When a (self-hosted) Cobalt instance is configured, prefer it: the heavy
+  // download/mux happens on Cobalt's server, so this memory-limited host never
+  // runs yt-dlp for big media and can't OOM mid-download. Also, Cobalt fetches
+  // from its own IP, so it can succeed where ours is blocked. Fall back to local
+  // yt-dlp only if Cobalt can't handle the link.
+  if (cobaltConfigured()) {
     const c = await cobaltDownload(url, mode === 'audio');
     if (!('error' in c)) {
       const isVideo = mode === 'video' && VIDEO_EXTS.includes(extname(c.filePath).toLowerCase());
-      log.info({ mode }, 'link download resolved via cobalt');
+      log.info({ mode }, 'link download resolved via cobalt (primary)');
       return { filePath: c.filePath, title: c.title, isVideo, cleanup: c.cleanup };
     }
+    log.warn({ err: c.error }, 'cobalt failed; falling back to local yt-dlp');
   }
-  return primary;
+  return ytDlpDownload(url, mode);
 }
 
 async function ytDlpDownload(
