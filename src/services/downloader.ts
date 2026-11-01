@@ -54,6 +54,13 @@ function potArgs(): string[] {
     'default',
     '--extractor-args',
     `youtubepot-bgutilhttp:base_url=${url}`,
+    // Force the web-family clients. yt-dlp only requests a PO token for WEBPO
+    // clients; its default set (tv/ios) never asks the provider, so it bot-walls
+    // at the player stage before any token is fetched. These clients fetch the
+    // token from bgutil and pass the "not a bot" check. The bot has deno+node
+    // for the JS challenge these clients need.
+    '--extractor-args',
+    'youtube:player_client=web,web_safari,mweb',
   ];
 }
 
@@ -229,7 +236,7 @@ async function ytDlpDownload(
         /* fall through */
       }
       await cleanup();
-      log.warn({ code, stderr: stderr.slice(-400) }, 'download produced no file');
+      log.warn({ code, stderr: stderr.slice(-1200) }, 'download produced no file');
       const reason = extractReason(stderr);
       if (code === null) finish({ error: 'timeout' });
       else if (/max-filesize|larger than/i.test(stderr)) finish({ error: 'toolarge' });
