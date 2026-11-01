@@ -50,9 +50,13 @@ RUN apt-get update -y \
 # --plugin-dirs in the downloader when POT_PROVIDER_URL is set). The plugin uses
 # only stdlib + yt-dlp internals, so it runs in the binary's bundled Python.
 # Keep this version in lockstep with pot-provider/Dockerfile.
-RUN mkdir -p /app/ytdlp-plugins \
+# NOTE the nesting: yt-dlp only picks up a plugin dir shaped as
+# <plugin-dir>/<package>/yt_dlp_plugins/… — a bare <plugin-dir>/yt_dlp_plugins/
+# is silently ignored. So unzip under a package subfolder (bgutil/); the
+# downloader passes --plugin-dirs /app/ytdlp-plugins (the parent).
+RUN mkdir -p /app/ytdlp-plugins/bgutil \
     && wget -q https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/2.0.2/bgutil-ytdlp-pot-provider.zip -O /tmp/pot.zip \
-    && unzip -q /tmp/pot.zip -d /app/ytdlp-plugins \
+    && unzip -q /tmp/pot.zip -d /app/ytdlp-plugins/bgutil \
     && rm -f /tmp/pot.zip
 
 # Cloudflare WARP egress (optional, free). Routes yt-dlp through Cloudflare's
