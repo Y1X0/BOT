@@ -86,7 +86,10 @@ async function warmPotProvider(): Promise<void> {
   const url = potBaseUrl();
   if (!url) return;
   if (Date.now() - _potWarmedAt < 5 * 60_000) return; // still warm
-  const deadline = Date.now() + 90_000;
+  // The provider is a heavy image (canvas/jsdom) on a 0.1-CPU free instance, so
+  // a cold start from hibernation can take ~2-3 min. Give it that long; it's a
+  // one-off per idle period (subsequent downloads hit a warm server).
+  const deadline = Date.now() + 210_000;
   while (Date.now() < deadline) {
     try {
       const controller = new AbortController();
