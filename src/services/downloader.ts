@@ -104,10 +104,11 @@ async function ytDlpDownload(
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
   const maxMb = env.DL_MAX_SIZE_MB > 0 ? env.DL_MAX_SIZE_MB : 50;
 
+  // Keep the memory/size footprint low on the 512MB host: 128k audio, 360p video.
   const formatArgs =
     mode === 'audio'
-      ? ['-x', '--audio-format', 'mp3', '--audio-quality', '0']
-      : ['-S', 'res:720,ext:mp4:m4a,br', '--merge-output-format', 'mp4'];
+      ? ['-x', '--audio-format', 'mp3', '--audio-quality', '5']
+      : ['-S', 'res:360,ext:mp4:m4a,br', '--merge-output-format', 'mp4'];
 
   const args = [
     '--no-warnings',
