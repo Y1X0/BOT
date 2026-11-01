@@ -83,6 +83,25 @@ elif [ "$EMBED_STREAMER" = "true" ]; then
   echo "[start] ⚠️ EMBED_STREAMER=true but SESSION_STRING is empty — streamer NOT started"
 fi
 
+# Embedded PO-token provider (opt-in). Runs the bgutil server on localhost so
+# the downloader's yt-dlp can get a YouTube proof-of-origin token WITHOUT
+# cookies. Same container as the bot, so it's always warm (no cold start) and
+# costs no extra free-tier instance hours. Uses its own Node 22 runtime
+# (/usr/local/bin/node22) since the server's native canvas dep is built for 22.
+# A watchdog restarts it if it dies; the bot stays the container's main process.
+if [ "$POT_EMBED" = "true" ]; then
+  echo "[start] POT_EMBED=true → launching embedded PO-token provider on 127.0.0.1:4416"
+  POT_PORT="${POT_PORT:-4416}"
+  (
+    cd /opt/bgutil-server || exit 0
+    while true; do
+      /usr/local/bin/node22 build/main.js --host 127.0.0.1 --port "$POT_PORT" || true
+      echo "[pot] provider exited — restarting in 5s"
+      sleep 5
+    done
+  ) &
+fi
+
 # Cloudflare WARP egress (opt-in). Routes yt-dlp through Cloudflare's network —
 # a different IP than our datacenter one, which YouTube bot-walls — via userspace
 # WireGuard (wgcf + wireproxy), so no root/TUN. The WARP account + profile are

@@ -61,9 +61,6 @@ function potArgs(): string[] {
     // for the JS challenge these clients need.
     '--extractor-args',
     'youtube:player_client=web,web_safari,mweb',
-    // Verbose so the PO-token flow (provider call, client, challenge) shows up
-    // in stderr for diagnosis. Cheap; stripped down to relevant lines in logs.
-    '--verbose',
   ];
 }
 

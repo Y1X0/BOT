@@ -59,6 +59,22 @@ RUN mkdir -p /app/ytdlp-plugins/bgutil \
     && unzip -q /tmp/pot.zip -d /app/ytdlp-plugins/bgutil \
     && rm -f /tmp/pot.zip
 
+# ---- Embedded PO-token provider (bgutil server) ---------------------------
+# The yt-dlp plugin above fetches the token from a bgutil SERVER. Rather than a
+# separate free service (which hibernates, wakes unreliably, and can't be kept
+# awake without blowing the workspace's 750h/month free budget and suspending
+# the bot), we run that server INSIDE this container on localhost — always warm,
+# no cold start, no extra instance hours. It's a Node 22 app with a native
+# `canvas` dependency, so we copy its prebuilt tree AND its Node 22 runtime from
+# the official image, then add canvas's system libraries. Launched from
+# start.sh when POT_EMBED=true. Keep the version in lockstep with the plugin zip.
+COPY --from=brainicism/bgutil-ytdlp-pot-provider:2.0.2 /usr/local/bin/node /usr/local/bin/node22
+COPY --from=brainicism/bgutil-ytdlp-pot-provider:2.0.2 /app /opt/bgutil-server
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+       libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Cloudflare WARP egress (optional, free). Routes yt-dlp through Cloudflare's
 # network — a different IP than our datacenter one, which YouTube bot-walls —
 # using userspace WireGuard (wgcf registers a free WARP account; wireproxy runs
