@@ -197,11 +197,20 @@ async function ytDlpDownload(
   // Wake the PO-token provider (no-op unless POT_PROVIDER_URL is set).
   await warmPotProvider();
 
-  // Keep the memory/size footprint low on the 512MB host: 128k audio, 360p video.
+  // Keep the memory/size footprint low on the 512MB host: 128k audio, ≤480p
+  // video. For video, a hard height FILTER (not just a sort) guarantees we
+  // never pull a huge high-res format whose size yt-dlp couldn't predict.
   const formatArgs =
     mode === 'audio'
-      ? ['-x', '--audio-format', 'mp3', '--audio-quality', '5']
-      : ['-S', 'res:360,ext:mp4:m4a,br', '--merge-output-format', 'mp4'];
+      ? ['-f', 'bestaudio/best', '-x', '--audio-format', 'mp3', '--audio-quality', '5']
+      : [
+          '-f',
+          'bv*[height<=480]+ba/b[height<=480]/b',
+          '-S',
+          'res:360,ext:mp4:m4a',
+          '--merge-output-format',
+          'mp4',
+        ];
 
   const args = [
     '--no-warnings',
@@ -257,6 +266,10 @@ async function ytDlpDownload(
         }
         if (best && best.size > 0) {
           const isVideo = VIDEO_EXTS.includes(extname(best.path).toLowerCase());
+          log.info(
+            { mode, isVideo, sizeMB: +(best.size / (1024 * 1024)).toFixed(1), title },
+            'download complete',
+          );
           finish({ filePath: best.path, title, isVideo, cleanup });
           return;
         }
