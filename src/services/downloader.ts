@@ -61,7 +61,18 @@ function potArgs(): string[] {
     // for the JS challenge these clients need.
     '--extractor-args',
     'youtube:player_client=web,web_safari,mweb',
+    // Verbose so the PO-token flow (provider call, client, challenge) shows up
+    // in stderr for diagnosis. Cheap; stripped down to relevant lines in logs.
+    '--verbose',
   ];
+}
+
+/** Pull the lines of a verbose yt-dlp run that explain a PO-token/YouTube
+ *  failure, so the server log shows what actually happened. */
+function diagLines(stderr: string): string {
+  const re = /pot|bgutil|token|player.?client|GetPOT|challenge|jsc|visitor|sign in|not a bot|nsig|HTTP Error|forbidden|provider/i;
+  const lines = stderr.split('\n').map((l) => l.trim()).filter((l) => l && re.test(l));
+  return (lines.length ? lines : stderr.split('\n').filter(Boolean)).slice(-30).join('\n');
 }
 
 /**
@@ -236,7 +247,7 @@ async function ytDlpDownload(
         /* fall through */
       }
       await cleanup();
-      log.warn({ code, stderr: stderr.slice(-1200) }, 'download produced no file');
+      log.warn({ code, diag: diagLines(stderr) }, 'download produced no file');
       const reason = extractReason(stderr);
       if (code === null) finish({ error: 'timeout' });
       else if (/max-filesize|larger than/i.test(stderr)) finish({ error: 'toolarge' });
