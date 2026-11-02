@@ -202,7 +202,9 @@ async function ytDlpDownload(
   // never pull a huge high-res format whose size yt-dlp couldn't predict.
   const formatArgs =
     mode === 'audio'
-      ? ['-f', 'bestaudio/best', '-x', '--audio-format', 'mp3', '--audio-quality', '5']
+      ? // Audio-only (ba/ba*) — never fall back to a full video file just to
+        // extract audio, which would download tens of MB and spike memory.
+        ['-f', 'ba/ba*', '-x', '--audio-format', 'mp3', '--audio-quality', '5']
       : [
           '-f',
           'bv*[height<=480]+ba/b[height<=480]/b',
@@ -222,6 +224,12 @@ async function ytDlpDownload(
     ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
     '--max-filesize',
     `${maxMb}M`,
+    // Stream the download to disk in small chunks so a download (especially
+    // through the WARP SOCKS proxy) can't balloon memory and OOM the 512MB host.
+    '--http-chunk-size',
+    '1M',
+    '--concurrent-fragments',
+    '1',
     ...formatArgs,
     '-o',
     `${join(dir, 'media')}.%(ext)s`,
