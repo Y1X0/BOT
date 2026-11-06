@@ -200,15 +200,40 @@ if [ "$WARP_ENABLED" = "true" ]; then
       rm -f wgcf-profile.conf wgcf-account.toml
     done
 
-    # Watchdog: keep wireproxy alive if it ever exits.
+    # Watchdog: keep wireproxy alive, and rotate to a fresh exit IP on request.
+    # The bot writes $WARP_DIR/rotate.request when downloads keep getting
+    # bot-walled (the current Cloudflare IP got flagged by YouTube); we then
+    # register a new account (new IP), restart, and probe until one is clean.
+    ROTATE_REQ="$WARP_DIR/rotate.request"
     while true; do
+      if [ -f "$ROTATE_REQ" ]; then
+        rm -f "$ROTATE_REQ"
+        echo "[warp] rotation requested (YouTube bot-walled the IP) → switching to a fresh IP"
+        r=0
+        while [ "$r" -lt "$WARP_MAX_ROTATE" ]; do
+          node "$APP_DIR/scripts/warp-profile.mjs" clear 2>/dev/null
+          rm -f wgcf-profile.conf wgcf-account.toml
+          if ! warp_register; then
+            echo "[warp] ⚠️ registration unavailable (likely 429) — waiting 120s"
+            sleep 120
+            continue
+          fi
+          warp_start || break
+          if ! warp_blocked; then
+            echo "[warp] ✅ rotated to a CLEAN exit IP"
+            break
+          fi
+          r=$((r + 1))
+          echo "[warp] ⚠️ rotated IP still bot-walled (${r}/${WARP_MAX_ROTATE})"
+        done
+      fi
       if [ -n "$WP_PID" ] && kill -0 "$WP_PID" 2>/dev/null; then
-        sleep 15
+        sleep 10
       else
         echo "[warp] ⚠️ wireproxy not running — restarting"
         wireproxy -c wireproxy.conf >/dev/null 2>&1 &
         WP_PID=$!
-        sleep 15
+        sleep 10
       fi
     done
   ) &

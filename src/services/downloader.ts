@@ -233,7 +233,33 @@ async function downloadMedia(
     log.info({ attempt }, 'bot-wall — retrying download');
     result = await ytDlpDownload(url, mode, audioKbps);
   }
+
+  // Still bot-walled after retries under WARP: the Cloudflare exit IP got
+  // flagged by YouTube. Ask the WARP watchdog to rotate to a fresh IP, give it
+  // time to come up, then try once more — so the bot self-heals a flagged IP
+  // instead of staying stuck until the next restart.
+  if ('error' in result && result.error === 'botwall' && env.YT_PROXY) {
+    if (requestWarpRotate()) {
+      await new Promise((r) => setTimeout(r, 80_000));
+      log.info('retrying download after WARP IP rotation');
+      result = await ytDlpDownload(url, mode, audioKbps);
+    }
+  }
   return result;
+}
+
+/** Signal the WARP watchdog (in start.sh) to rotate to a fresh exit IP. Writes
+ *  a request file it polls. Best-effort; returns whether the signal was written. */
+function requestWarpRotate(): boolean {
+  try {
+    const dir = process.env.WARP_DIR || '/app/data/warp';
+    writeFileSync(join(dir, 'rotate.request'), String(Date.now()), 'utf8');
+    log.warn('WARP exit IP bot-walled — requested a WARP IP rotation');
+    return true;
+  } catch (err) {
+    log.warn({ err }, 'failed to request WARP rotation');
+    return false;
+  }
 }
 
 async function ytDlpDownload(
