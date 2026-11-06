@@ -109,7 +109,7 @@ async function warmPotProvider(): Promise<void> {
   log.warn('PO-token provider did not wake in time; downloading without a PO token');
 }
 
-const TIMEOUT_MS = 300_000; // 5 min
+const TIMEOUT_MS = 900_000; // 15 min — long podcasts through WARP download + re-encode slowly on 0.1 CPU
 const VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv'];
 
 export type DlError = 'notinstalled' | 'unsupported' | 'toolarge' | 'private' | 'botwall' | 'failed' | 'timeout';
@@ -130,6 +130,51 @@ function extractReason(stderr: string): string | undefined {
     .pop();
   if (!line) return undefined;
   return line.replace(/^ERROR:\s*/i, '').slice(0, 180);
+}
+
+/** yt-dlp args shared by the duration probe and the real download (proxy,
+ *  YouTube client, cookies), so the probe sees YouTube exactly as the download. */
+function sharedYtArgs(): string[] {
+  return [
+    '--no-warnings',
+    '--no-playlist',
+    '--geo-bypass',
+    ...cookieArgs(),
+    ...potArgs(),
+    ...(potBaseUrl() ? [] : ['--extractor-args', 'youtube:player_client=android,tv,web']),
+    ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
+  ];
+}
+
+/** Media duration in seconds (or null). Cheap — no download. Used to pick an
+ *  audio bitrate that keeps a long podcast under Telegram's 50MB bot limit. */
+function probeDuration(url: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    let out = '';
+    const child = spawn(getYtdlpPath(), [...sharedYtArgs(), '--skip-download', '--print', 'duration', url], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const t = setTimeout(() => child.kill('SIGKILL'), 120_000);
+    child.stdout.on('data', (d) => (out += d.toString()));
+    child.on('error', () => {
+      clearTimeout(t);
+      resolve(null);
+    });
+    child.on('close', () => {
+      clearTimeout(t);
+      const n = parseFloat(out.trim().split('\n')[0]);
+      resolve(Number.isFinite(n) && n > 0 ? n : null);
+    });
+  });
+}
+
+/** Mono MP3 bitrate (kbps) so ~`durationSec` of audio fits in ~45MB, clamped to
+ *  a sane range: short clips/songs get up to 128k, long podcasts drop toward
+ *  32k (still clear for speech) so a multi-hour episode fits in one file. */
+function audioBitrateKbps(durationSec: number | null): number {
+  if (!durationSec || durationSec <= 0) return 64; // unknown → fits ~1.5h
+  const kbps = Math.floor((45 * 1024 * 1024 * 8) / 1000 / durationSec);
+  return Math.min(128, Math.max(32, kbps));
 }
 
 /**
@@ -176,14 +221,17 @@ async function downloadMedia(
   // Retry a bot-wall when WARP (or a PO provider) is in play: the block is
   // usually transient there — the same link often succeeds on the next try.
   const maxAttempts = potBaseUrl() || env.YT_PROXY ? 4 : 1;
-  let result = await ytDlpDownload(url, mode);
+  // For audio, choose a bitrate from the duration so a long podcast still fits
+  // Telegram's 50MB bot limit — probe once, reuse across retries.
+  const audioKbps = mode === 'audio' ? audioBitrateKbps(await probeDuration(url)) : undefined;
+  let result = await ytDlpDownload(url, mode, audioKbps);
   for (
     let attempt = 2;
     attempt <= maxAttempts && 'error' in result && result.error === 'botwall';
     attempt++
   ) {
     log.info({ attempt }, 'bot-wall — retrying download');
-    result = await ytDlpDownload(url, mode);
+    result = await ytDlpDownload(url, mode, audioKbps);
   }
   return result;
 }
@@ -191,10 +239,13 @@ async function downloadMedia(
 async function ytDlpDownload(
   url: string,
   mode: DlMode,
+  audioKbps?: number,
 ): Promise<DlResult | { error: DlError; reason?: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'dl-'));
   const cleanup = () => rm(dir, { recursive: true, force: true }).catch(() => undefined);
-  const maxMb = env.DL_MAX_SIZE_MB > 0 ? env.DL_MAX_SIZE_MB : 50;
+  // Audio is re-encoded down to fit 50MB (see audioKbps), so allow a large
+  // SOURCE download; video is capped at the Telegram limit.
+  const maxMb = mode === 'audio' ? 600 : env.DL_MAX_SIZE_MB > 0 ? env.DL_MAX_SIZE_MB : 50;
 
   // Wake the PO-token provider (no-op unless POT_PROVIDER_URL is set).
   await warmPotProvider();
@@ -204,9 +255,19 @@ async function ytDlpDownload(
   // never pull a huge high-res format whose size yt-dlp couldn't predict.
   const formatArgs =
     mode === 'audio'
-      ? // Audio-only (ba/ba*) — never fall back to a full video file just to
-        // extract audio, which would download tens of MB and spike memory.
-        ['-f', 'ba/ba*', '-x', '--audio-format', 'mp3', '--audio-quality', '5']
+      ? // Audio-only (ba/ba*), re-encoded to a duration-aware mono MP3 bitrate
+        // so even a multi-hour podcast fits under Telegram's 50MB bot limit.
+        [
+          '-f',
+          'ba/ba*',
+          '-x',
+          '--audio-format',
+          'mp3',
+          '--audio-quality',
+          `${audioKbps ?? 64}K`,
+          '--postprocessor-args',
+          'ffmpeg:-ac 1',
+        ]
       : [
           '-f',
           'bv*[height<=480]+ba/b[height<=480]/b',
