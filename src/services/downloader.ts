@@ -223,6 +223,13 @@ async function ytDlpDownload(
     '--geo-bypass',
     ...cookieArgs(),
     ...potArgs(),
+    // Force YouTube onto the app clients. yt-dlp's default web clients get
+    // bot-walled even through WARP's clean IP, while the `android`/`tv` clients
+    // (which WARP's own startup probe uses and confirms pass) don't need a PO
+    // token and aren't web-bot-walled. Skip this only when a PO provider is set,
+    // since that path (potArgs) selects the web clients on purpose. The
+    // `youtube:` prefix makes this a no-op for every other platform.
+    ...(potBaseUrl() ? [] : ['--extractor-args', 'youtube:player_client=android,tv,web']),
     ...(env.YT_PROXY ? ['--proxy', env.YT_PROXY] : env.YT_FORCE_IPV4 ? ['--force-ipv4'] : []),
     '--max-filesize',
     `${maxMb}M`,
