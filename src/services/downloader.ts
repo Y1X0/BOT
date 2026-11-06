@@ -173,7 +173,9 @@ async function downloadMedia(
   // datacenter IPs even with a valid PO token — the same link that 403s now
   // often succeeds on the next try. So when the PO provider is configured,
   // retry a bot-wall up to a few times (the provider is warm, each try is fast).
-  const maxAttempts = potBaseUrl() ? 4 : 1;
+  // Retry a bot-wall when WARP (or a PO provider) is in play: the block is
+  // usually transient there — the same link often succeeds on the next try.
+  const maxAttempts = potBaseUrl() || env.YT_PROXY ? 4 : 1;
   let result = await ytDlpDownload(url, mode);
   for (
     let attempt = 2;
