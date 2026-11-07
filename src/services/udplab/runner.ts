@@ -24,6 +24,7 @@ import {
   verdict,
   isSafeSimTarget,
   lossComparison,
+  shouldDropDeterministic,
   round,
 } from './stats';
 import type { RealUdpResult, SimUdpResult } from './types';
@@ -164,8 +165,11 @@ export async function runRealUdpTest(opts: RealTestOptions = {}): Promise<RealUd
       if (i === 0) {
         try {
           const a = sock.address();
-          localBound = a.address;
-          localAddress = `${a.address}:${a.port}`;
+          // A wildcard bind ("0.0.0.0" / "::") is NOT the device's real address —
+          // it means "all interfaces". Never present it as the local IP.
+          const wildcard = a.address === '0.0.0.0' || a.address === '::' || a.address === '::0';
+          localBound = wildcard ? undefined : a.address;
+          localAddress = wildcard ? NOT_AVAILABLE : `${a.address}:${a.port}`;
         } catch {
           /* leave NOT_AVAILABLE */
         }
@@ -183,6 +187,16 @@ export async function runRealUdpTest(opts: RealTestOptions = {}): Promise<RealUd
   const endedAt = new Date();
   const durationMs = endedAt.getTime() - startedAt.getTime();
   const received = rttSamples.length;
+  const v = verdict(sent, received);
+
+  // Honest, verdict-specific caveat. A missing reply is NOT proof that UDP is
+  // fully blocked; a successful reply proves only this one path/server works.
+  const note =
+    v === 'PASS'
+      ? `وصل ردّ STUN من الخادم المحدد (${host}:${port}) — مسار UDP لهذا الخادم شغّال. هذا لا يثبت أن كل مسارات/منافذ UDP مفتوحة، ولا يثبت الوصول لخوادم Telegram Voice Chat (مسارات ومنافذ مختلفة).`
+      : v === 'FAIL'
+        ? `لم يصل ردّ STUN من (${host}:${port}). هذا لا يثبت أن UDP محجوب بالكامل — قد يكون السبب جدار ناري لهذا المنفذ، أو مهلة قصيرة، أو خادم STUN معيّن مشغول/محجوب. للتأكد جرّب خادم/منفذ آخر.`
+        : `تعذّر إجراء الاختبار (لم تُرسَل حزم). النتيجة NOT_AVAILABLE ولا يُستنتَج منها شيء عن حالة UDP.`;
 
   return {
     kind: 'real',
@@ -200,10 +214,9 @@ export async function runRealUdpTest(opts: RealTestOptions = {}): Promise<RealUd
     durationMs,
     startedAt: startedAt.toISOString(),
     endedAt: endedAt.toISOString(),
-    verdict: verdict(sent, received),
+    verdict: v,
     rttSamples,
-    note:
-      'STUN نجح يعني مسار UDP لهذا السيرفر شغّال فقط. لا يثبت أن كل مسارات UDP مفتوحة، ولا يثبت الوصول لخوادم Telegram Voice Chat (مسارات/منافذ مختلفة).',
+    note,
   };
 }
 
@@ -221,6 +234,7 @@ function loopbackRun(count: number, intervalMs: number, dropPct: number): Promis
     const rx = dgram.createSocket('udp4');
     let received = 0;
     let sent = 0;
+    let arrived = 0; // fallback sequence counter if a payload can't be parsed
     let done = false;
     const finishAll = (): void => {
       if (done) return;
@@ -237,9 +251,15 @@ function loopbackRun(count: number, intervalMs: number, dropPct: number): Promis
       }
       resolve({ sent, received });
     };
-    rx.on('message', () => {
-      // Artificial, software-injected loss lives HERE and only here.
-      if (Math.random() * 100 < dropPct) return; // "lost"
+    rx.on('message', (msg) => {
+      // Artificial, software-injected loss lives HERE and only here — and it is
+      // DETERMINISTIC: keyed to each packet's sequence index (payload "udplab:i"),
+      // so a given loss % reproduces EXACTLY on every run. This is NOT real
+      // network loss; the packets really did travel over 127.0.0.1.
+      const m = /^udplab:(\d+)$/.exec(msg.toString());
+      const seq = m ? Number(m[1]) : arrived;
+      arrived++;
+      if (shouldDropDeterministic(seq, dropPct)) return; // "lost" (injected)
       received++;
     });
     rx.on('error', () => finishAll());
@@ -326,6 +346,6 @@ export async function runSimTest(opts: SimTestOptions = {}): Promise<SimUdpResul
     endedAt: endedAt.toISOString(),
     // PASS = the clean baseline actually delivered its packets over loopback.
     verdict: verdict(baseline.sent, baseline.received, 5),
-    note: 'الفقد في وضع المحاكاة مصطنع ومحقون برمجياً داخل المستقبِل فقط (ليس فقداً حقيقياً من الشبكة). الحزم تنتقل فعلياً عبر 127.0.0.1 ولا تغادر الجهاز.',
+    note: `الفقد في وضع المحاكاة مصطنع ومحقون برمجياً داخل المستقبِل فقط (ليس فقداً حقيقياً من الشبكة). الإسقاط حتمي ومربوط برقم تسلسل كل حزمة (القاعدة: تُسقَط الحزمة i إذا كان ⌊(i+1)·p⌋ > ⌊i·p⌋ حيث p=نسبة الفقد)، فالنتيجة قابلة للتكرار بدقة (~${round(injectedLossPct)}٪) في كل تشغيل. الحزم تنتقل فعلياً عبر 127.0.0.1 ولا تغادر الجهاز.`,
   };
 }

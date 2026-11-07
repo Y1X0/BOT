@@ -115,6 +115,34 @@ export function isSafeSimTarget(host: string): { ok: boolean; reason?: string } 
   return { ok: false, reason: 'only localhost / private LAN IPv4 targets are allowed' };
 }
 
+/**
+ * DETERMINISTIC artificial packet drop (repeatable — no randomness).
+ * METHOD (documented & shown to the user): for a target loss fraction
+ *   p = injectedLossPct / 100
+ * packet index `i` (0-based) is dropped iff
+ *   floor((i + 1) · p) > floor(i · p).
+ * This is the Bresenham/line-drawing rule: it spreads the drops out as evenly as
+ * possible and makes the total dropped over `count` packets exactly
+ *   floor(count · p)
+ * so the realised loss is `injectedLossPct` to within a single packet, and is
+ * identical on every run (unlike a random Bernoulli drop). The loss is injected
+ * IN SOFTWARE inside the receiver — it is NOT real network loss.
+ */
+export function shouldDropDeterministic(index: number, injectedLossPct: number): boolean {
+  if (!Number.isFinite(index) || index < 0) return false;
+  const p = Math.max(0, Math.min(100, injectedLossPct)) / 100;
+  if (p <= 0) return false;
+  if (p >= 1) return true;
+  return Math.floor((index + 1) * p) > Math.floor(index * p);
+}
+
+/** How many of `count` packets the deterministic rule drops = floor(count·p). */
+export function expectedDrops(count: number, injectedLossPct: number): number {
+  if (!Number.isFinite(count) || count <= 0) return 0;
+  const p = Math.max(0, Math.min(100, injectedLossPct)) / 100;
+  return Math.floor(count * p);
+}
+
 /** A side-by-side comparison of a clean run vs a run with artificial loss. */
 export interface LossComparison {
   baseline: { sent: number; received: number; lossPct: number | NotAvailable };

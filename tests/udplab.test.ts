@@ -9,6 +9,8 @@ import {
   verdict,
   isSafeSimTarget,
   lossComparison,
+  shouldDropDeterministic,
+  expectedDrops,
   fmt,
 } from '../src/services/udplab/stats';
 
@@ -91,6 +93,43 @@ describe('udplab stats — simulation target safety', () => {
     expect(isSafeSimTarget('172.32.0.1').ok).toBe(false); // just outside private B
     expect(isSafeSimTarget('example.com').ok).toBe(false);
     expect(isSafeSimTarget('').ok).toBe(false);
+  });
+});
+
+describe('udplab stats — deterministic artificial drop', () => {
+  // Realised loss over `count` packets using the deterministic rule.
+  const realisedLoss = (count: number, pct: number): number => {
+    let dropped = 0;
+    for (let i = 0; i < count; i++) if (shouldDropDeterministic(i, pct)) dropped++;
+    return dropped;
+  };
+
+  it('is repeatable (same input → same drops, no randomness)', () => {
+    const run = (): boolean[] => Array.from({ length: 50 }, (_, i) => shouldDropDeterministic(i, 30));
+    expect(run()).toEqual(run());
+  });
+
+  it('drops exactly floor(count·p) packets and matches expectedDrops', () => {
+    expect(realisedLoss(200, 30)).toBe(60); // 200 * 0.30
+    expect(realisedLoss(200, 30)).toBe(expectedDrops(200, 30));
+    expect(realisedLoss(300, 25)).toBe(75); // 300 * 0.25
+    expect(realisedLoss(100, 33)).toBe(33);
+    expect(realisedLoss(7, 50)).toBe(3); // floor(7 * 0.5)
+  });
+
+  it('realised loss % is within one packet of the target', () => {
+    for (const pct of [10, 25, 30, 50, 90]) {
+      const n = 300;
+      const got = (realisedLoss(n, pct) / n) * 100;
+      expect(Math.abs(got - pct)).toBeLessThanOrEqual(100 / n + 1e-9); // ≤ one packet
+    }
+  });
+
+  it('handles the 0% and 100% edges and invalid indices', () => {
+    expect(realisedLoss(100, 0)).toBe(0);
+    expect(realisedLoss(100, 100)).toBe(100);
+    expect(shouldDropDeterministic(-1, 50)).toBe(false);
+    expect(expectedDrops(0, 30)).toBe(0);
   });
 });
 
