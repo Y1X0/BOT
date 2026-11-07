@@ -39,6 +39,7 @@ import { voiceDatasetPlugin } from './voicedataset';
 import { wav2voicePlugin } from './wav2voice';
 import { ttsPlugin } from './tts';
 import { netdiagPlugin } from './netdiag';
+import { udpLabPlugin } from './udplab';
 import { voiceChatPlugin } from './voicechat';
 import { musicPlugin } from './music';
 import { islamicPlugin } from './islamic';
@@ -162,6 +163,7 @@ allPlugins.push(
   wav2voicePlugin, // incoming WAV file → Telegram voice message (OGG/Opus)
   ttsPlugin, // «نطق النص» → text-to-speech voice-over
   netdiagPlugin, // owner /udptest — checks if the host allows UDP (for the كول)
+  udpLabPlugin, // owner educational UDP lab (/udp_lab, real STUN + loopback sim)
   courseDlPlugin, // «نزّل <رابط يوتيوب>» → big-file download via assistant (before downloader)
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()

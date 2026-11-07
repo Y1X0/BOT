@@ -654,3 +654,27 @@ model VoiceConsent {
   @@index([requesterId])
   @@index([status])
 }
+
+/// UDP LAB: one run of the educational UDP lab (owner-only), kept so /udp_report
+/// and /udp_history can show real past results. `metrics` is a JSON blob of the
+/// actual measured values (or NOT_AVAILABLE markers) produced by the run.
+model UdpExperiment {
+  id         Int      @id @default(autoincrement())
+  runBy      BigInt // Telegram user id who ran it (always a bot owner)
+  kind       String // "real" (STUN over UDP) | "sim" (loopback simulation)
+  target     String // probed host:port (real) or loopback target (sim)
+  verdict    String // PASS | FAIL | NOT_AVAILABLE
+  packetsSent     Int
+  packetsReceived Int
+  lossPct    Float? // null = NOT_AVAILABLE
+  rttAvgMs   Float? // null = NOT_AVAILABLE
+  jitterMs   Float? // null = NOT_AVAILABLE
+  durationMs Int
+  metrics    String // full JSON of the run (raw samples + derived + labels)
+  startedAt  DateTime
+  endedAt    DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([runBy, createdAt])
+  @@index([createdAt])
+}
