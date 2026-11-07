@@ -142,6 +142,48 @@ export async function ensureSchema(): Promise<void> {
       logger.warn({ err }, 'ensureSchema statement failed (continuing)');
     }
   }
+
+  // UDP LAB experiment table. The model is new, so on a fresh Postgres it is
+  // normally created by `prisma db push` at boot. But db push can fail on a Neon
+  // cold start (and only runs at boot), which would leave /udp_report and
+  // /udp_history with no table until the next restart. This guarantees the table
+  // and its indexes exist regardless. The DDL matches Prisma's own Postgres
+  // output verbatim (verified with `prisma migrate diff`), so a later `db push`
+  // sees it as already in sync — a no-op. Fully idempotent: IF NOT EXISTS never
+  // touches an existing table, its columns, or its rows. Best-effort: a failure
+  // here is logged clearly and never breaks boot (db push will retry next boot).
+  const udpExperimentDdl = [
+    `CREATE TABLE IF NOT EXISTS "UdpExperiment" (
+      "id" SERIAL NOT NULL,
+      "runBy" BIGINT NOT NULL,
+      "kind" TEXT NOT NULL,
+      "target" TEXT NOT NULL,
+      "verdict" TEXT NOT NULL,
+      "packetsSent" INTEGER NOT NULL,
+      "packetsReceived" INTEGER NOT NULL,
+      "lossPct" DOUBLE PRECISION,
+      "rttAvgMs" DOUBLE PRECISION,
+      "jitterMs" DOUBLE PRECISION,
+      "durationMs" INTEGER NOT NULL,
+      "metrics" TEXT NOT NULL,
+      "startedAt" TIMESTAMP(3) NOT NULL,
+      "endedAt" TIMESTAMP(3) NOT NULL,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "UdpExperiment_pkey" PRIMARY KEY ("id")
+    )`,
+    'CREATE INDEX IF NOT EXISTS "UdpExperiment_runBy_createdAt_idx" ON "UdpExperiment"("runBy", "createdAt")',
+    'CREATE INDEX IF NOT EXISTS "UdpExperiment_createdAt_idx" ON "UdpExperiment"("createdAt")',
+  ];
+  for (const sql of udpExperimentDdl) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+    } catch (err) {
+      logger.error(
+        { err, ddl: sql.slice(0, 48) },
+        'ensureSchema: could not ensure UdpExperiment table/index (continuing; prisma db push will retry on next boot)',
+      );
+    }
+  }
 }
 
 export async function disconnectDatabase(): Promise<void> {

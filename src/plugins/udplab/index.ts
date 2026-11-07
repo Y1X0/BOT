@@ -79,16 +79,35 @@ const EXPLAIN =
   '5️⃣ <b>UDP Flood (مفهوم أمني فقط)</b>: إغراق هدف بحزم UDP لاستنزافه — هذا <b>هجوم</b>. المختبر هنا <b>لا</b> ينفّذه: المحاكاة محدودة المعدّل وعلى loopback فقط.\n\n' +
   '🔎 <b>ملاحظة أمانة علمية:</b> مكتبة py-tgcalls / Telegram API لا توفّر قياسات فعلية لجودة المكالمة (فقد/جودة الصوت الحقيقي)، فلا نخترع هذه الأرقام ولا ندّعي أن أي اختبار «أسقط مكالمة». أي قيمة غير مقاسة تظهر كـ <code>NOT_AVAILABLE</code>.';
 
+// Shown when the test ran fine but its result could not be persisted (e.g. the
+// DB was briefly unreachable). The measurement is still valid and displayed; we
+// only warn that it won't appear in /udp_report or /udp_history.
+const NOT_SAVED_NOTICE =
+  '\n\n⚠️ <i>اكتمل الاختبار وقيمه حقيقية، لكن تعذّر حفظه في قاعدة البيانات (قد تكون غير متصلة مؤقتاً). لن يظهر في /udp_report أو /udp_history.</i>';
+
+/** Run a test, persist it, and render it into the status message. Exported for
+ *  tests. If saving fails (saveExperiment → null) a clear notice is appended;
+ *  on success the message is exactly the rendered result (unchanged). */
+export async function executeRun(
+  ctx: BotContext,
+  kind: 'real' | 'sim',
+  statusId: number,
+  chatId: number,
+): Promise<void> {
+  const result: UdpResult = kind === 'real' ? await runRealUdpTest() : await runSimTest();
+  // Only treat it as "not saved" when a save was actually attempted (ctx.from
+  // present — always true on the owner-gated path) and it returned null.
+  const saved = ctx.from ? await saveExperiment(BigInt(ctx.from.id), result) : null;
+  const suffix = ctx.from && saved === null ? NOT_SAVED_NOTICE : '';
+  await ctx.telegram
+    .editMessageText(chatId, statusId, undefined, render(result) + suffix, { parse_mode: 'HTML', ...panelKeyboard() })
+    .catch(() => undefined);
+}
+
 /** Run a test detached (so it can exceed the 30s handler window), save it, and
  *  edit the status message with the rendered result + the panel buttons. */
 function runDetached(ctx: BotContext, kind: 'real' | 'sim', statusId: number, chatId: number): void {
-  void (async () => {
-    const result: UdpResult = kind === 'real' ? await runRealUdpTest() : await runSimTest();
-    if (ctx.from) await saveExperiment(BigInt(ctx.from.id), result);
-    await ctx.telegram
-      .editMessageText(chatId, statusId, undefined, render(result), { parse_mode: 'HTML', ...panelKeyboard() })
-      .catch(() => undefined);
-  })().catch(async (err) => {
+  void executeRun(ctx, kind, statusId, chatId).catch(async (err) => {
     log.error({ err, kind }, 'udp lab run failed');
     await ctx.telegram.editMessageText(chatId, statusId, undefined, '⚠️ تعذّر تشغيل الاختبار.').catch(() => undefined);
   });
