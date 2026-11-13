@@ -88,6 +88,61 @@ export function createServer(bot: Telegraf<BotContext>): Express {
     res.json({ ok: true });
   });
 
+  // The live voice-chat guard (streamer) calls this the instant it detects an
+  // account matching the flood signature (recent join + unmuted + actively
+  // transmitting), so the bot can alert the group/owner. Authenticated with
+  // STREAMER_TOKEN.
+  app.post('/vc/guard', async (req, res): Promise<void> => {
+    const token = process.env.STREAMER_TOKEN || '';
+    if (!token || req.header('X-Token') !== token) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    const body = (req.body ?? {}) as {
+      chat_id?: number | string;
+      event?: string;
+      account?: { id?: number; name?: string; username?: string | null };
+      joined_ago?: number;
+      reasons?: string[];
+      muted?: boolean;
+      reason?: string;
+    };
+    if (!body.chat_id) {
+      res.status(400).json({ ok: false, error: 'bad_request' });
+      return;
+    }
+    const chatId = Number(body.chat_id);
+    const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    try {
+      if (body.event === 'threat' && body.account) {
+        const a = body.account;
+        const uname = a.username ? ` @${esc(String(a.username))}` : '';
+        const reasons = (body.reasons ?? []).map((r) => esc(String(r))).join('، ');
+        const acted = body.muted
+          ? '🔇 <b>تم كتمه تلقائياً</b> — الكول محمي.'
+          : '⚠️ <b>غير مكتوم</b> — تصرّف يدوياً بسرعة.';
+        const text =
+          '🚨 <b>حارس الكول — حساب مشبوه</b>\n' +
+          '━━━━━━━━━━━━━\n' +
+          `👤 <b>${esc(String(a.name || 'بلا اسم'))}</b>${uname}\n` +
+          `🆔 <code>${a.id}</code>\n` +
+          `⏱ انضمّ قبل ${Math.max(0, Number(body.joined_ago ?? 0))}ث وبدأ يبثّ فوراً\n` +
+          (reasons ? `📌 ${reasons}\n` : '') +
+          '━━━━━━━━━━━━━\n' +
+          `${acted}\n🚫 للطرد: <code>/ban</code> أو <code>/kick</code> على الحساب.`;
+        await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' }).catch(() => undefined);
+      } else if (body.event === 'stopped') {
+        await bot.telegram
+          .sendMessage(chatId, `🛡 توقّف حارس الكول (${esc(String(body.reason || 'انتهى الكول'))}).`)
+          .catch(() => undefined);
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      log.warn({ err }, 'vc guard callback failed');
+      res.status(500).json({ ok: false });
+    }
+  });
+
   // The streamer calls this when a big YouTube download (course video) finishes
   // or fails. We persist the refreshed cookies (self-refresh, so the login stays
   // alive) and tell the requester in their chat. Authenticated with STREAMER_TOKEN.

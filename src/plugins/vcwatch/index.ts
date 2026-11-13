@@ -101,6 +101,7 @@ export const vcwatchPlugin: Plugin = {
   description: 'Owner: identify suspicious accounts inside the group voice chat (detection only)',
   commands: [
     { command: 'vcwatch', description: '🛡 كشف الحسابات المشبوهة بالكول (مالك)', staffOnly: true },
+    { command: 'vcguard', description: '🛰 حارس الكول الحيّ: تشغيل/إيقاف/كتم تلقائي (مالك)', staffOnly: true },
   ],
 
   register(bot: Telegraf<BotContext>) {
@@ -145,6 +146,52 @@ export const vcwatchPlugin: Plugin = {
         '🔎 <b>كشف فقط</b> — ما بطرد حدا. للطرد اليدوي استخدم <code>/ban</code> أو <code>/kick</code> على الحساب (بالآيدي أو بالرد).\n' +
         '🟢 مشرف/مساعد · 🟠 مشتبه · 🔴 اشتباه عالي';
       await render(`${header}\n${body}${extra}${foot}`);
+    });
+
+    // --- Live guard: continuous background watcher on the streamer ---
+    bot.command(['vcguard', 'callguard'], async (ctx) => {
+      if (!ctx.from || !isBotOwner(ctx.from.id)) return;
+      if (!ctx.chat || ctx.chat.type === 'private') {
+        return void ctx.reply('🛰 استخدم الأمر جوّه القروب اللي فيه الكول.');
+      }
+      if (!STREAMER_URL) {
+        return void ctx.reply('⚠️ خدمة الكول غير مهيّأة (STREAMER_URL غير مضبوط).');
+      }
+      const arg = (ctx.message.text.split(/\s+/)[1] || '').toLowerCase();
+      // on | تشغيل [mute|كتم] · off | ايقاف · status | حالة (default)
+      let action: 'on' | 'off' | 'status' = 'status';
+      if (['on', 'تشغيل', 'start', 'شغل'].includes(arg)) action = 'on';
+      else if (['off', 'ايقاف', 'إيقاف', 'stop', 'وقف'].includes(arg)) action = 'off';
+      const rest = (ctx.message.text.split(/\s+/)[2] || '').toLowerCase();
+      const automute = action === 'on' && ['mute', 'كتم', 'auto', 'تلقائي'].includes(rest);
+
+      const r = await callStreamer('/vcguard', { chat_id: ctx.chat.id, action, automute });
+      if (!r) return void ctx.reply('⚠️ خدمة الكول غير مهيّأة.');
+      if (!r.ok) {
+        const msg = ERRORS[r.error ?? ''] ?? `⚠️ تعذّر: ${esc(r.error ?? 'غير معروف')}`;
+        return void ctx.reply(msg, { parse_mode: 'HTML' });
+      }
+      const rr = r as unknown as { active?: boolean; automute?: boolean; already?: boolean; watching?: number };
+      if (action === 'off') {
+        return void ctx.reply('🛡 تم إيقاف حارس الكول.');
+      }
+      if (action === 'status') {
+        return void ctx.reply(
+          rr.active
+            ? `🛰 حارس الكول: <b>شغّال</b> ${rr.automute ? '(كتم تلقائي ✅)' : '(كشف وتنبيه فقط)'}`
+            : '🛡 حارس الكول: متوقّف. شغّله بـ <code>/vcguard on</code> (أو <code>/vcguard on mute</code> للكتم التلقائي).',
+          { parse_mode: 'HTML' },
+        );
+      }
+      // action === 'on'
+      await ctx.reply(
+        `🛰 <b>حارس الكول اشتغل</b> ${rr.already ? '(كان شغّال، حدّثت الإعداد)' : ''}\n` +
+          `• الوضع: ${automute ? '🔇 كتم تلقائي للمهاجم (الكول ما بيفصل)' : '🔔 كشف وتنبيه فقط'}\n` +
+          `• بيراقب كل ~1.5 ثانية وبيبلّغك أول ما يطلع حساب ببصمة الفيضان.\n` +
+          (automute ? '' : '💡 للكتم التلقائي: <code>/vcguard on mute</code>\n') +
+          '🛑 للإيقاف: <code>/vcguard off</code>',
+        { parse_mode: 'HTML' },
+      );
     });
   },
 };

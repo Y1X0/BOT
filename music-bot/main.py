@@ -639,22 +639,123 @@ async def stopvc(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "ended": ended})
 
 
+def _classify_participant(p, users: dict, admins: set, now: int) -> dict:
+    """Turn one raw GroupCallParticipant into a scored dict.
+
+    The score infers how likely this participant is the source of a
+    call-disrupting flood. Telegram relays media through its SFU, so raw
+    per-account UDP byte counts are NOT observable from a participant (confirmed:
+    py-tgcalls/ntgcalls expose no inbound per-source stats). Instead the signal
+    is the call SIGNALING: an instant/automated join, being unmuted AND actively
+    transmitting (active_date), plus new/anonymous-account flags. Admins and the
+    assistant are whitelisted (score -1) so they're never the hunted account."""
+    peer = getattr(p, "peer", None)
+    uid = getattr(peer, "user_id", None)
+    date = int(getattr(p, "date", now) or now)
+    joined_ago = max(0, now - date)
+    ad = getattr(p, "active_date", None)
+    active_ago = (now - int(ad)) if ad else None
+    muted = bool(getattr(p, "muted", False))
+    ssrc = int(getattr(p, "source", 0) or 0)
+    volume = getattr(p, "volume", None)
+
+    if uid is None:
+        cid = getattr(peer, "channel_id", None)
+        return {
+            "id": int(cid) if cid else 0, "name": "قناة/مشارك مجهول", "username": None,
+            "kind": "channel", "joined_ago": joined_ago, "active_ago": active_ago,
+            "muted": muted, "ssrc": ssrc, "volume": volume, "is_admin": False,
+            "is_assistant": False, "score": 2, "reasons": ["قناة/مجهول يبثّ بالكول"],
+        }
+
+    uid = int(uid)
+    u = users.get(uid)
+    name = (((getattr(u, "first_name", "") or "") + " " + (getattr(u, "last_name", "") or "")).strip()) if u else ""
+    username = getattr(u, "username", None) if u else None
+    if not name:
+        name = username or "بلا اسم"
+    is_assistant = (uid == _assistant_id)
+    is_admin = uid in admins
+
+    score = 0
+    reasons = []
+    if not muted:
+        score += 3
+        reasons.append("غير مكتوم")
+    if active_ago is not None and active_ago <= 10:
+        score += 3
+        reasons.append("نشِط الآن (يبثّ)")
+    if joined_ago <= 5:
+        score += 4
+        reasons.append("انضمام فوري (<5ث)")
+    elif joined_ago <= 30:
+        score += 2
+        reasons.append("انضمّ حديثاً")
+    if u is not None:
+        if not username and not getattr(u, "photo", None):
+            score += 1
+            reasons.append("بلا يوزر/صورة")
+        if getattr(u, "scam", False) or getattr(u, "fake", False):
+            score += 2
+            reasons.append("موسوم scam/fake")
+
+    if is_assistant or is_admin:
+        score = -1
+        reasons = ["المساعد — مستثنى"] if is_assistant else ["مشرف — مستثنى"]
+
+    return {
+        "id": uid, "name": name[:64], "username": username, "kind": "user",
+        "joined_ago": joined_ago, "active_ago": active_ago, "muted": muted,
+        "ssrc": ssrc, "volume": volume, "is_admin": is_admin,
+        "is_assistant": is_assistant, "score": score, "reasons": reasons,
+    }
+
+
+async def _fetch_call_admins(chat_id: int) -> set:
+    """Admin user ids (whitelist). Best-effort — a failure only risks flagging an
+    admin, never missing a real attacker."""
+    admins: set = set()
+    try:
+        from pyrogram.enums import ChatMembersFilter
+        async for m in assistant.get_chat_members(chat_id, filter=ChatMembersFilter.ADMINISTRATORS):
+            if getattr(m, "user", None):
+                admins.add(m.user.id)
+    except Exception as e:  # noqa: BLE001
+        log.info("call admin fetch failed for %s: %s", chat_id, e)
+    return admins
+
+
+async def _scan_call(chat_id: int):
+    """Return (call, {count, entries}) for the live VC, or (None, error_str).
+
+    Shared by /vcwatch (on-demand) and the /vcguard background monitor so both
+    rank participants identically."""
+    try:
+        call = await _active_call(assistant, chat_id)
+    except Exception as e:  # noqa: BLE001
+        if _is_no_access(e):
+            return (None, "not_member")
+        return (None, str(e)[:160])
+    if not call:
+        return (None, "no_call")
+    try:
+        res = await assistant.invoke(
+            GetGroupParticipants(call=call, ids=[], sources=[], offset="", limit=200)
+        )
+    except Exception as e:  # noqa: BLE001
+        return (None, f"{type(e).__name__}: {e}"[:200])
+    users = {u.id: u for u in getattr(res, "users", [])}
+    admins = await _fetch_call_admins(chat_id)
+    now = int(time.time())
+    entries = [_classify_participant(p, users, admins, now) for p in getattr(res, "participants", [])]
+    entries.sort(key=lambda x: x["score"], reverse=True)
+    return (call, {"count": getattr(res, "count", len(entries)), "entries": entries})
+
+
 @routes.post("/vcwatch")
 async def vcwatch(request: web.Request) -> web.Response:
-    """List the participants of the group's LIVE voice chat, ranked by how
-    suspicious each one looks as the source of a call-disrupting UDP flood.
-
-    DETECTION ONLY — it never mutes, kicks, or acts on anyone. It just NAMES the
-    accounts (id, @username, join time, stream state) so an admin can decide and
-    use the normal /ban or /kick manually.
-
-    Why the assistant USER account: a Bot-API bot cannot read phone.* methods, so
-    only the user account in the call can enumerate its participants (with each
-    one's SSRC, join date, active_date and muted flag). Telegram relays media
-    through its SFU, so raw per-account UDP packet counts are NOT observable —
-    instead we infer the attacker from call-level signals: an instant/automated
-    join, being unmuted AND actively streaming, and new/anonymous-account flags.
-    Admins and the assistant itself are whitelisted so they're never flagged."""
+    """List the live voice-chat participants, ranked most-suspicious first.
+    DETECTION ONLY — never mutes or kicks. The owner acts via /ban or /kick."""
     if not _authorized(request):
         return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
     if not _ready:
@@ -663,113 +764,141 @@ async def vcwatch(request: web.Request) -> web.Response:
     chat_id = int(data.get("chat_id") or 0)
     if not chat_id:
         return web.json_response({"ok": False, "error": "bad_request"}, status=400)
-
-    # Resolve the live InputGroupCall; distinguish "assistant not in group" from
-    # "no call open" so the bot can give the right hint.
-    try:
-        call = await _active_call(assistant, chat_id)
-    except Exception as e:  # noqa: BLE001
-        if _is_no_access(e):
-            return web.json_response({"ok": False, "error": "not_member"})
-        return web.json_response({"ok": False, "error": str(e)[:160]})
-    if not call:
-        return web.json_response({"ok": False, "error": "no_call"})
-
-    # Participant list (user account only — a bot can't call phone.*).
-    try:
-        res = await assistant.invoke(
-            GetGroupParticipants(call=call, ids=[], sources=[], offset="", limit=200)
-        )
-    except Exception as e:  # noqa: BLE001
-        return web.json_response({"ok": False, "error": f"{type(e).__name__}: {e}"[:200]})
-
-    users = {u.id: u for u in getattr(res, "users", [])}
-
-    # Admins are whitelisted (never flagged). Best-effort — if it fails we just
-    # don't whitelist, which only risks flagging an admin, never missing one.
-    admins: set = set()
-    try:
-        from pyrogram.enums import ChatMembersFilter
-        async for m in assistant.get_chat_members(chat_id, filter=ChatMembersFilter.ADMINISTRATORS):
-            if getattr(m, "user", None):
-                admins.add(m.user.id)
-    except Exception as e:  # noqa: BLE001
-        log.info("vcwatch: admin fetch failed for %s: %s", chat_id, e)
-
-    now = int(time.time())
-    out = []
-    for p in getattr(res, "participants", []):
-        peer = getattr(p, "peer", None)
-        uid = getattr(peer, "user_id", None)
-        date = int(getattr(p, "date", now) or now)
-        joined_ago = max(0, now - date)
-        ad = getattr(p, "active_date", None)
-        active_ago = (now - int(ad)) if ad else None
-        muted = bool(getattr(p, "muted", False))
-        ssrc = int(getattr(p, "source", 0) or 0)
-        volume = getattr(p, "volume", None)
-
-        if uid is None:
-            # A channel/anonymous participant streaming into the call is itself
-            # unusual — surface it but don't over-rank.
-            cid = getattr(peer, "channel_id", None)
-            out.append({
-                "id": int(cid) if cid else 0, "name": "قناة/مشارك مجهول", "username": None,
-                "kind": "channel", "joined_ago": joined_ago, "active_ago": active_ago,
-                "muted": muted, "ssrc": ssrc, "volume": volume,
-                "is_admin": False, "is_assistant": False, "score": 2,
-                "reasons": ["قناة/مجهول يبثّ بالكول"],
-            })
-            continue
-
-        uid = int(uid)
-        u = users.get(uid)
-        name = (((getattr(u, "first_name", "") or "") + " " + (getattr(u, "last_name", "") or "")).strip()) if u else ""
-        username = getattr(u, "username", None) if u else None
-        if not name:
-            name = username or "بلا اسم"
-        is_assistant = (uid == _assistant_id)
-        is_admin = uid in admins
-
-        score = 0
-        reasons = []
-        if not muted:
-            score += 3
-            reasons.append("غير مكتوم")
-        if active_ago is not None and active_ago <= 10:
-            score += 3
-            reasons.append("نشِط الآن (يبثّ)")
-        if joined_ago <= 5:
-            score += 4
-            reasons.append("انضمام فوري (<5ث)")
-        elif joined_ago <= 30:
-            score += 2
-            reasons.append("انضمّ حديثاً")
-        if u is not None:
-            if not username and not getattr(u, "photo", None):
-                score += 1
-                reasons.append("بلا يوزر/صورة")
-            if getattr(u, "scam", False) or getattr(u, "fake", False):
-                score += 2
-                reasons.append("موسوم scam/fake")
-
-        # Whitelist: the assistant and admins are never the attacker we hunt.
-        if is_assistant or is_admin:
-            score = -1
-            reasons = ["المساعد — مستثنى"] if is_assistant else ["مشرف — مستثنى"]
-
-        out.append({
-            "id": uid, "name": name[:64], "username": username, "kind": "user",
-            "joined_ago": joined_ago, "active_ago": active_ago, "muted": muted,
-            "ssrc": ssrc, "volume": volume, "is_admin": is_admin,
-            "is_assistant": is_assistant, "score": score, "reasons": reasons,
-        })
-
-    out.sort(key=lambda x: x["score"], reverse=True)
+    call, scan = await _scan_call(chat_id)
+    if call is None:
+        return web.json_response({"ok": False, "error": scan})
     return web.json_response({
         "ok": True, "chat_id": chat_id,
-        "count": getattr(res, "count", len(out)), "participants": out,
+        "count": scan["count"], "participants": scan["entries"],
     })
+
+
+# --- Live voice-chat guard: a background watcher per chat ---------------------
+# Continuously (every ~1.5s while a call is open) re-ranks participants and, the
+# INSTANT an account matching the flood signature appears (recently joined +
+# unmuted + actively transmitting, not an admin/assistant), alerts the owner —
+# and, if automute is on, force-mutes it so the call doesn't drop. There is no
+# per-account UDP byte count to read (the platform doesn't expose it), so "when
+# the UDP spiked" is detected as "when that account's stream went active".
+_guards: dict = {}  # chat_id -> {"task", "automute", "alerted": set, "since"}
+
+
+def _is_live_threat(e: dict) -> bool:
+    """The flood signature: a non-whitelisted account that JUST joined and is
+    already unmuted and actively transmitting. Requiring the recent-join gate is
+    what separates an attacker from a normal member who is simply talking."""
+    return (
+        e.get("score", -1) >= 0
+        and e.get("kind") == "user"
+        and not e.get("muted", False)
+        and e.get("joined_ago", 9999) <= 45
+        and e.get("active_ago") is not None
+        and e["active_ago"] <= 15
+    )
+
+
+async def _mute_in_call(call, uid: int) -> bool:
+    """Force-mute a participant in the group call (needs the assistant's
+    manage-call right). This is the only lever that keeps the call alive — you
+    cannot throttle another account's UDP. Returns True on success."""
+    try:
+        from pyrogram.raw.functions.phone import EditGroupCallParticipant
+        peer = await assistant.resolve_peer(uid)
+        await assistant.invoke(EditGroupCallParticipant(call=call, participant=peer, muted=True))
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.info("guard mute failed for %s: %s", uid, e)
+        return False
+
+
+async def _notify_guard(chat_id: int, payload: dict) -> None:
+    """Push a guard event to the management bot (which messages the group/owner)."""
+    if not config.BOT_CALLBACK_URL:
+        return
+    parts = urlsplit(config.BOT_CALLBACK_URL)
+    url = f"{parts.scheme}://{parts.netloc}/vc/guard"
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(
+                url, json={"chat_id": chat_id, **payload},
+                headers={"X-Token": config.STREAMER_TOKEN},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+    except Exception as e:  # noqa: BLE001
+        log.info("guard notify failed for %s: %s", chat_id, e)
+
+
+async def _vcguard_loop(chat_id: int, automute: bool) -> None:
+    log.info("vcguard started for %s (automute=%s)", chat_id, automute)
+    g = _guards.get(chat_id)
+    if g is None:
+        return
+    try:
+        while True:
+            call, scan = await _scan_call(chat_id)
+            if call is None:
+                if scan == "no_call":
+                    await _notify_guard(chat_id, {"event": "stopped", "reason": "انتهى الكول"})
+                break
+            for e in scan["entries"]:
+                if e["id"] in g["alerted"]:
+                    continue
+                if _is_live_threat(e):
+                    g["alerted"].add(e["id"])
+                    muted = await _mute_in_call(call, e["id"]) if automute else False
+                    await _notify_guard(chat_id, {
+                        "event": "threat",
+                        "account": {"id": e["id"], "name": e["name"], "username": e["username"]},
+                        "joined_ago": e["joined_ago"], "reasons": e["reasons"], "muted": muted,
+                    })
+            await asyncio.sleep(1.5)
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        log.warning("vcguard loop error for %s: %s", chat_id, e)
+    finally:
+        _guards.pop(chat_id, None)
+        log.info("vcguard stopped for %s", chat_id)
+
+
+@routes.post("/vcguard")
+async def vcguard(request: web.Request) -> web.Response:
+    """Start/stop the live voice-chat guard. Body: {chat_id, action, automute?}.
+      action = "on"     → begin watching (requires an open call)
+      action = "off"    → stop watching
+      action = "status" → report whether it's running
+    automute=True force-mutes a detected attacker (keeps the call alive);
+    default False = detect + alert only."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
+    data = await _body(request)
+    chat_id = int(data.get("chat_id") or 0)
+    action = str(data.get("action") or "status")
+    automute = bool(data.get("automute", False))
+    if not chat_id:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+
+    g = _guards.get(chat_id)
+    if action == "status":
+        return web.json_response({"ok": True, "active": bool(g), "automute": bool(g and g["automute"])})
+    if action == "off":
+        if g and g.get("task"):
+            g["task"].cancel()
+        return web.json_response({"ok": True, "active": False})
+
+    # action == "on": require a live call before arming.
+    call, scan = await _scan_call(chat_id)
+    if call is None:
+        return web.json_response({"ok": False, "error": scan})
+    if g and g.get("task") and not g["task"].done():
+        g["automute"] = automute  # let it be toggled live
+        return web.json_response({"ok": True, "active": True, "automute": automute, "already": True})
+    entry = {"task": None, "automute": automute, "alerted": set(), "since": int(time.time())}
+    _guards[chat_id] = entry
+    entry["task"] = asyncio.ensure_future(_vcguard_loop(chat_id, automute))
+    return web.json_response({"ok": True, "active": True, "automute": automute, "watching": scan["count"]})
 
 
 @routes.post("/queue")
