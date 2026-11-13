@@ -3,8 +3,12 @@ name: تنزيل (عبر البوت)
 # يُطلقه البوت تلقائيًا (workflow_dispatch عبر GitHub API) عند طلب تنزيل.
 # يشتغل على رَنر GitHub القوي (2 نواة / 7GB) — فالبوت على Render (0.1 نواة)
 # لا يتحمّل الترميز ولا ينهار. الحظر يُحَلّ بـ WARP (نفس طريقة البوت: wgcf +
-# wireproxy + عميل android)، بدون كوكيز. التسليم عبر جلسة مستخدم (upload.py)
-# فتصل الملفات حتى ~4GB مباشرةً لمحادثتك.
+# wireproxy + عميل android)، بدون كوكيز. التسليم عبر **توكن البوت مباشرة**
+# (sendAudio/sendVideo) — بلا جلسة مستخدم وبلا مخاطرة على أي حساب. حدّ الرفع
+# 50MB (حد Bot API)، والصوت يُرمَّز مونو 64k ليبقى تحته حتى للحلقات الطويلة.
+#
+# ملاحظة: TARGET لازم يكون محادثة يقدر البوت يرسل فيها (جروب فيه البوت، أو
+# مستخدم بدأ محادثة مع البوت). كلمة "me" لا تصلح مع توكن البوت.
 #
 # record.yml القديم يبقى كما هو (نقطة رجوع). هذا ملف منفصل تمامًا.
 
@@ -52,7 +56,7 @@ jobs:
           # yt-dlp (رسمي) + kurigram/tgcrypto للرفع
           python3 -m venv venv
           ./venv/bin/pip install -U pip
-          ./venv/bin/pip install -U "yt-dlp[default]" kurigram tgcrypto
+          ./venv/bin/pip install -U "yt-dlp[default]"
           ./venv/bin/yt-dlp --version
 
       - name: تنزيل عبر WARP (مع تدوير IP عند الحظر)
@@ -89,8 +93,10 @@ jobs:
             else
               # صوت: استخراج MP3 بجودة جيدة (القرص والـ CPU قويّان هنا، ولا حد 50MB
               # لأن الرفع عبر جلسة مستخدم حتى ~4GB).
+              # صوت مونو 64k: يبقى تحت 50MB حتى ~1.7 ساعة، وواضح للكلام/البودكاست.
               ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
-                -f "ba/ba*" -x --audio-format mp3 --audio-quality 2 --no-playlist \
+                -f "ba/ba*" -x --audio-format mp3 --audio-quality 64K \
+                --postprocessor-args "ffmpeg:-ac 1" --no-playlist \
                 -o "out/%(title)s [%(id)s].%(ext)s" "$URL"
             fi
           }
@@ -109,13 +115,34 @@ jobs:
             echo "❌ فشل التنزيل بعد كل المحاولات"; exit 1
           fi
 
-      - name: رفع لتيليجرام (جلسة مستخدم)
+      - name: رفع لتيليجرام (توكن البوت — بلا جلسة/حساب)
         env:
-          API_ID: ${{ secrets.API_ID }}
-          API_HASH: ${{ secrets.API_HASH }}
-          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           TARGET: ${{ github.event.inputs.target }}
-        run: ./venv/bin/python recorder/upload.py
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          set -e
+          [ -z "$BOT_TOKEN" ] && { echo "❌ سر BOT_TOKEN مفقود"; exit 1; }
+          FILE="$(ls -S out/* 2>/dev/null | head -1)"
+          [ -z "$FILE" ] && { echo "❌ لا يوجد ملف"; exit 1; }
+          SIZE=$(stat -c%s "$FILE")
+          echo "ملف: $(basename "$FILE") ($((SIZE/1024/1024)) MB)"
+          API="https://api.telegram.org/bot${BOT_TOKEN}"
+          CAP="$(basename "$FILE")"
+          # حد Bot API للرفع 50MB. لو أكبر، أبلغ المستخدم بوضوح.
+          if [ "$SIZE" -gt 52000000 ]; then
+            curl -s "$API/sendMessage" --data-urlencode "chat_id=${TARGET}" \
+              --data-urlencode "text=⚠️ الملف (${CAP}) أكبر من حد البوت 50MB. جرّب مقطعًا أقصر." >/dev/null || true
+            echo "too large for bot upload"; exit 1
+          fi
+          if [ "$MODE" = "video" ]; then
+            curl -sf -F chat_id="$TARGET" -F supports_streaming=true \
+              -F caption="🎬 ${CAP}" -F video=@"$FILE" "$API/sendVideo" >/dev/null
+          else
+            curl -sf -F chat_id="$TARGET" \
+              -F caption="🎵 ${CAP}" -F audio=@"$FILE" "$API/sendAudio" >/dev/null
+          fi
+          echo "✅ أُرسل إلى ${TARGET}"
 
       # ضمان ردّ دائم: لو فشل أي شيء (حظر مستمر/خطأ)، أبلغ المستخدم في محادثته
       # عبر توكن البوت — فلا يبقى بلا جواب أبدًا.
