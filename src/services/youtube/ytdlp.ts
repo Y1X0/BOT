@@ -49,18 +49,16 @@ function getCookiesPath(): string | null {
  * so those go first. `tv` is last (it caused "DRM protected" failures).
  * No cookies required; cookies (if set) attach to every attempt.
  */
-// Trimmed to the clients that actually yield downloadable audio, best-first.
-// Each extra client is a full failed round-trip when YouTube blocks the IP, so
-// fewer = faster failure to a working method. The mobile clients return normal
-// (non-DRM) audio; tv/web mostly returned DRM-protected formats we can't save.
-// With WARP egress unblocking YouTube, the `web` client becomes viable again
-// (its nsig JS challenge is solved by the bundled Deno), and it returns proper
-// audio-only DASH formats — so it's a strong fallback after the mobile clients.
+// ONLY the two light mobile clients. They return normal (non-DRM) audio-only
+// formats WITHOUT triggering the `nsig` JS challenge, so no Deno is spawned —
+// which matters on the 512MB tier where the `web` client's Deno run risks an
+// OOM, and each extra client is a ~10-13s wasted round-trip when a video is
+// walled. When BOTH of these fail (e.g. YouTube returns no formats without a
+// PO-token), the caller offloads to the GitHub Actions runner (fresh IP + full
+// resources), so dropping `web`/`tv` costs no reliability — it just fails fast.
 const CLIENT_FALLBACKS = [
   'android',
   'ios',
-  'web',
-  'tv_embedded',
 ];
 
 /** The ordered list of player clients to attempt for this environment. */

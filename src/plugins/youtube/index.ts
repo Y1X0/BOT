@@ -10,6 +10,7 @@ import { resolveSearch, resolveDownload } from '../../services/youtube/resolver'
 import { youtubeQueue } from '../../services/youtube/queue';
 import { youtubeConfig, setConfig, TELEGRAM_SEND_LIMIT, type YoutubeConfig } from '../../services/youtube/config';
 import { getCachedAudio, cacheAudio, bumpCacheHit, dropCachedAudio } from '../../services/youtube/cache';
+import { githubDlEnabled, dispatchGithubDownload } from '../../services/githubDl';
 import { MUSIC_LOCKED } from '../soundcloud';
 import { createLogger } from '../../core/logger';
 
@@ -343,6 +344,27 @@ async function deliverItem(
         { lowBitrate },
       );
       if ('error' in result) {
+        // Local (in-process) download failed — most often because YouTube now
+        // returns no downloadable formats to the light mobile clients without a
+        // PO-token ("Requested format is not available"). Offload to the strong
+        // GitHub Actions runner: fresh WARP IP, IP rotation, and the resources
+        // to solve the nsig challenge. It delivers the audio straight to this
+        // chat via the bot token, so the user still gets the song (~1 min) and
+        // is never left in silence.
+        if (githubDlEnabled()) {
+          const dispatched = await dispatchGithubDownload({
+            url: `https://www.youtube.com/watch?v=${item.videoId}`,
+            mode: 'audio',
+            chatId,
+          });
+          if (dispatched) {
+            if (statusId)
+              await telegram
+                .editMessageText(chatId, statusId, undefined, `⏳ جاري التحضير عبر خادم أقوى، بتوصلك خلال دقيقة تقريباً:\n🎧 ${item.title}`)
+                .catch(() => undefined);
+            return;
+          }
+        }
         if (statusId) await telegram.editMessageText(chatId, statusId, undefined, ERRORS[result.error]).catch(() => undefined);
         return;
       }
