@@ -89,8 +89,10 @@ const ALIASES: Alias[] = [
   { command: 'whisper', triggers: ['اهمس', 'همس', 'همسه', 'همسة', 'ه'] },
   { command: 'musaraha', triggers: ['مصارحه', 'مصارحة', 'صارحني', 'رسايل مجهوله'] },
   { command: 'yt', triggers: ['yt'] },
-  // "يوت"/"يوتيوب" → instant top result (SoundCloud, no cookies). "اغنيه" → list.
-  { command: 'ytall', triggers: ['يوت', 'يوتيوب'] },
+  // "يوت"/"يوتيوب" → instant top YouTube result (better search, delivered via
+  // WARP). "اغنيه" → SoundCloud list. (Was SoundCloud when YouTube was walled;
+  // WARP egress now makes YouTube viable again.)
+  { command: 'ytnow', triggers: ['يوت', 'يوتيوب'] },
   { command: 'song', triggers: ['اغنيه', 'اغنية', 'صوت', 'موسيقى', 'اغاني'] },
   { command: 'archivelist', triggers: ['الارشيف', 'الأرشيف', 'ارشيف'] },
   // NB: bare "تنزيل" belongs to /unrank (bot ranks); download keeps نزل/حمل.
