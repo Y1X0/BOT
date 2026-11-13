@@ -40,6 +40,7 @@ import { wav2voicePlugin } from './wav2voice';
 import { ttsPlugin } from './tts';
 import { netdiagPlugin } from './netdiag';
 import { udpLabPlugin } from './udplab';
+import { vcwatchPlugin } from './vcwatch';
 import { voiceChatPlugin } from './voicechat';
 import { musicPlugin } from './music';
 import { islamicPlugin } from './islamic';
@@ -164,6 +165,7 @@ allPlugins.push(
   ttsPlugin, // «نطق النص» → text-to-speech voice-over
   netdiagPlugin, // owner /udptest — checks if the host allows UDP (for the كول)
   udpLabPlugin, // owner educational UDP lab (/udp_lab, real STUN + loopback sim)
+  vcwatchPlugin, // owner /vcwatch — names suspicious accounts inside a live call (detection only)
   courseDlPlugin, // «نزّل <رابط يوتيوب>» → big-file download via assistant (before downloader)
   downloaderPlugin, // passive: auto-download known video links, calls next()
   notesPlugin, // passive: #hashtag recall, calls next()

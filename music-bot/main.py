@@ -43,9 +43,11 @@ from pytgcalls.types import MediaStream
 
 from typing import Optional
 
+from pyrogram.raw.functions.phone import GetGroupParticipants
+
 import config
 import queue_manager as qm
-from call_control import NoAccess, call_is_open, end_call, start_call
+from call_control import NoAccess, _active_call, _is_no_access, call_is_open, end_call, start_call
 from clients import assistant, calls
 from youtube import search
 
@@ -635,6 +637,139 @@ async def stopvc(request: web.Request) -> web.Response:
     except Exception as e:
         return web.json_response({"ok": False, "error": str(e)})
     return web.json_response({"ok": True, "ended": ended})
+
+
+@routes.post("/vcwatch")
+async def vcwatch(request: web.Request) -> web.Response:
+    """List the participants of the group's LIVE voice chat, ranked by how
+    suspicious each one looks as the source of a call-disrupting UDP flood.
+
+    DETECTION ONLY — it never mutes, kicks, or acts on anyone. It just NAMES the
+    accounts (id, @username, join time, stream state) so an admin can decide and
+    use the normal /ban or /kick manually.
+
+    Why the assistant USER account: a Bot-API bot cannot read phone.* methods, so
+    only the user account in the call can enumerate its participants (with each
+    one's SSRC, join date, active_date and muted flag). Telegram relays media
+    through its SFU, so raw per-account UDP packet counts are NOT observable —
+    instead we infer the attacker from call-level signals: an instant/automated
+    join, being unmuted AND actively streaming, and new/anonymous-account flags.
+    Admins and the assistant itself are whitelisted so they're never flagged."""
+    if not _authorized(request):
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not _ready:
+        return web.json_response({"ok": False, "error": "starting"})
+    data = await _body(request)
+    chat_id = int(data.get("chat_id") or 0)
+    if not chat_id:
+        return web.json_response({"ok": False, "error": "bad_request"}, status=400)
+
+    # Resolve the live InputGroupCall; distinguish "assistant not in group" from
+    # "no call open" so the bot can give the right hint.
+    try:
+        call = await _active_call(assistant, chat_id)
+    except Exception as e:  # noqa: BLE001
+        if _is_no_access(e):
+            return web.json_response({"ok": False, "error": "not_member"})
+        return web.json_response({"ok": False, "error": str(e)[:160]})
+    if not call:
+        return web.json_response({"ok": False, "error": "no_call"})
+
+    # Participant list (user account only — a bot can't call phone.*).
+    try:
+        res = await assistant.invoke(
+            GetGroupParticipants(call=call, ids=[], sources=[], offset="", limit=200)
+        )
+    except Exception as e:  # noqa: BLE001
+        return web.json_response({"ok": False, "error": f"{type(e).__name__}: {e}"[:200]})
+
+    users = {u.id: u for u in getattr(res, "users", [])}
+
+    # Admins are whitelisted (never flagged). Best-effort — if it fails we just
+    # don't whitelist, which only risks flagging an admin, never missing one.
+    admins: set = set()
+    try:
+        from pyrogram.enums import ChatMembersFilter
+        async for m in assistant.get_chat_members(chat_id, filter=ChatMembersFilter.ADMINISTRATORS):
+            if getattr(m, "user", None):
+                admins.add(m.user.id)
+    except Exception as e:  # noqa: BLE001
+        log.info("vcwatch: admin fetch failed for %s: %s", chat_id, e)
+
+    now = int(time.time())
+    out = []
+    for p in getattr(res, "participants", []):
+        peer = getattr(p, "peer", None)
+        uid = getattr(peer, "user_id", None)
+        date = int(getattr(p, "date", now) or now)
+        joined_ago = max(0, now - date)
+        ad = getattr(p, "active_date", None)
+        active_ago = (now - int(ad)) if ad else None
+        muted = bool(getattr(p, "muted", False))
+        ssrc = int(getattr(p, "source", 0) or 0)
+        volume = getattr(p, "volume", None)
+
+        if uid is None:
+            # A channel/anonymous participant streaming into the call is itself
+            # unusual — surface it but don't over-rank.
+            cid = getattr(peer, "channel_id", None)
+            out.append({
+                "id": int(cid) if cid else 0, "name": "قناة/مشارك مجهول", "username": None,
+                "kind": "channel", "joined_ago": joined_ago, "active_ago": active_ago,
+                "muted": muted, "ssrc": ssrc, "volume": volume,
+                "is_admin": False, "is_assistant": False, "score": 2,
+                "reasons": ["قناة/مجهول يبثّ بالكول"],
+            })
+            continue
+
+        uid = int(uid)
+        u = users.get(uid)
+        name = (((getattr(u, "first_name", "") or "") + " " + (getattr(u, "last_name", "") or "")).strip()) if u else ""
+        username = getattr(u, "username", None) if u else None
+        if not name:
+            name = username or "بلا اسم"
+        is_assistant = (uid == _assistant_id)
+        is_admin = uid in admins
+
+        score = 0
+        reasons = []
+        if not muted:
+            score += 3
+            reasons.append("غير مكتوم")
+        if active_ago is not None and active_ago <= 10:
+            score += 3
+            reasons.append("نشِط الآن (يبثّ)")
+        if joined_ago <= 5:
+            score += 4
+            reasons.append("انضمام فوري (<5ث)")
+        elif joined_ago <= 30:
+            score += 2
+            reasons.append("انضمّ حديثاً")
+        if u is not None:
+            if not username and not getattr(u, "photo", None):
+                score += 1
+                reasons.append("بلا يوزر/صورة")
+            if getattr(u, "scam", False) or getattr(u, "fake", False):
+                score += 2
+                reasons.append("موسوم scam/fake")
+
+        # Whitelist: the assistant and admins are never the attacker we hunt.
+        if is_assistant or is_admin:
+            score = -1
+            reasons = ["المساعد — مستثنى"] if is_assistant else ["مشرف — مستثنى"]
+
+        out.append({
+            "id": uid, "name": name[:64], "username": username, "kind": "user",
+            "joined_ago": joined_ago, "active_ago": active_ago, "muted": muted,
+            "ssrc": ssrc, "volume": volume, "is_admin": is_admin,
+            "is_assistant": is_assistant, "score": score, "reasons": reasons,
+        })
+
+    out.sort(key=lambda x: x["score"], reverse=True)
+    return web.json_response({
+        "ok": True, "chat_id": chat_id,
+        "count": getattr(res, "count", len(out)), "participants": out,
+    })
 
 
 @routes.post("/queue")
