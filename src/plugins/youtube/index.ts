@@ -240,6 +240,63 @@ export const youtubePlugin: Plugin = {
  * queue a download (via cobalt → yt-dlp → piped → invidious), send the audio, and
  * cache its file_id. Shared by the numbered picker and the instant «يوت».
  */
+/** Split a raw YouTube title into a performer + clean track name, stripping the
+ *  usual "(Official Video)" / "[Lyrics]" noise so the audio card looks tidy. */
+function parseMeta(raw: string): { performer?: string; title: string } {
+  const clean = String(raw).replace(/\s+/g, ' ').trim();
+  const stripped = clean
+    .replace(/[([][^)\]]*(official|lyric|audio|video|visualizer|hd|4k|remaster|cover|مترجم|كلمات|بدون\s*موسيقى|اغنية|أغنية)[^)\]]*[)\]]/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = stripped.split(/\s*[-–—|]\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) return { performer: parts[0], title: parts.slice(1).join(' — ') };
+  return { title: stripped || clean };
+}
+
+function fmtDur(sec: number | null | undefined): string {
+  if (!sec || sec <= 0) return '';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Best-effort YouTube cover for the audio thumbnail (small JPEG). null on fail. */
+async function fetchThumb(videoId: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > 0 && buf.length < 200 * 1024 ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Build pretty sendAudio options: clean title/performer, cover art, nice caption. */
+async function audioExtra(
+  videoId: string,
+  rawTitle: string,
+  duration: number | null | undefined,
+): Promise<Record<string, unknown>> {
+  const { performer, title } = parseMeta(rawTitle);
+  const dur = fmtDur(duration);
+  const caption =
+    `🎧 <b>${esc(title)}</b>` +
+    (performer ? `\n🎤 <i>${esc(performer)}</i>` : '') +
+    (dur ? `\n⏱️ <code>${dur}</code>` : '');
+  const extra: Record<string, unknown> = {
+    title,
+    performer: performer || 'YouTube',
+    caption,
+    parse_mode: 'HTML',
+  };
+  const thumb = await fetchThumb(videoId);
+  if (thumb) extra.thumbnail = Input.fromBuffer(thumb, 'cover.jpg');
+  return extra;
+}
+
 async function deliverItem(
   telegram: BotContext['telegram'],
   chatId: number,
@@ -250,7 +307,11 @@ async function deliverItem(
   if (cached) {
     const s = await telegram.sendMessage(chatId, `⚡️ من الأرشيف: ${item.title}`).catch(() => undefined);
     try {
-      await telegram.sendAudio(chatId, cached.fileId, { title: cached.title, performer: 'YouTube', caption: `🎵 ${cached.title}` });
+      await telegram.sendAudio(
+        chatId,
+        cached.fileId,
+        (await audioExtra(item.videoId, cached.title, item.duration)) as Parameters<typeof telegram.sendAudio>[2],
+      );
       await bumpCacheHit(item.videoId);
       if (s) await telegram.deleteMessage(chatId, s.message_id).catch(() => undefined);
       return;
@@ -294,11 +355,11 @@ async function deliverItem(
               .catch(() => undefined);
           return;
         }
-        const sent = await telegram.sendAudio(chatId, Input.fromLocalFile(result.filePath), {
-          title: result.title,
-          performer: 'YouTube',
-          caption: `🎵 ${result.title}`,
-        });
+        const sent = await telegram.sendAudio(
+          chatId,
+          Input.fromLocalFile(result.filePath),
+          (await audioExtra(item.videoId, result.title, item.duration)) as Parameters<typeof telegram.sendAudio>[2],
+        );
         const fileId = (sent as { audio?: { file_id?: string } }).audio?.file_id;
         if (fileId) await cacheAudio(item.videoId, fileId, result.title, item.duration).catch(() => undefined);
         if (statusId) await telegram.deleteMessage(chatId, statusId).catch(() => undefined);
