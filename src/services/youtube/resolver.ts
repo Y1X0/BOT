@@ -35,13 +35,20 @@ async function firstSuccess(
 }
 
 export async function resolveSearch(query: string, limit: number): Promise<SearchItem[] | { error: YtError }> {
-  // Run the HTTP engines (fast, on other IPs) AND yt-dlp IN PARALLEL and take the
-  // first that returns results. HTTP usually wins in ~1-2s, so search feels
-  // instant; yt-dlp is the reliable backstop when the public instances are down.
-  const attempts: Promise<SearchItem[] | { error: YtError }>[] = [ytSearch(query, limit)];
-  if (env.YT_PIPED_ENABLED) attempts.push(pipedSearch(query, limit));
-  if (env.YT_INVIDIOUS_ENABLED) attempts.push(invidiousSearch(query, limit));
-  return firstSuccess(attempts);
+  // Try the HTTP engines FIRST (fast, run on other IPs, use ~no local CPU). Only
+  // fall back to the yt-dlp search when they're all down. This matters on the
+  // 0.1-CPU host: running the CPU-heavy yt-dlp search in parallel used to keep
+  // chewing the CPU for ~20s even after an HTTP engine had already won, starving
+  // the audio DOWNLOAD that runs right after — so the song felt slow to arrive.
+  const http: Promise<SearchItem[] | { error: YtError }>[] = [];
+  if (env.YT_PIPED_ENABLED) http.push(pipedSearch(query, limit));
+  if (env.YT_INVIDIOUS_ENABLED) http.push(invidiousSearch(query, limit));
+  if (http.length) {
+    const r = await firstSuccess(http);
+    if (!('error' in r) && r.length) return r;
+  }
+  // HTTP engines down (or disabled) → reliable yt-dlp backstop.
+  return ytSearch(query, limit);
 }
 
 export async function resolveDownload(
