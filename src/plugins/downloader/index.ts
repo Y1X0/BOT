@@ -6,6 +6,7 @@ import type { BotContext } from '../../core/context';
 import type { Plugin } from '../../core/plugin';
 import { env } from '../../config/env';
 import { downloadVideo, downloadAudio, type DlError, type DlMode } from '../../services/downloader';
+import { githubDlEnabled, dispatchGithubDownload } from '../../services/githubDl';
 import { youtubeQueue } from '../../services/youtube/queue';
 import { youtubeConfig } from '../../services/youtube/config';
 import { TELEGRAM_SEND_LIMIT } from '../../services/youtube/config';
@@ -99,6 +100,29 @@ async function offerChoice(ctx: BotContext, url: string, silent: boolean): Promi
 }
 
 async function runDownload(telegram: Telegram, chatId: number, url: string, mode: DlMode, silent: boolean): Promise<void> {
+  // Prefer the GitHub Actions offload when configured: a strong runner downloads
+  // through WARP (no OOM here, far faster) and delivers the file — or a failure
+  // message — straight to the chat. If the dispatch itself fails, fall back to
+  // the local yt-dlp path below.
+  if (githubDlEnabled()) {
+    const gstatus = await telegram
+      .sendMessage(
+        chatId,
+        mode === 'audio'
+          ? '⏳ جاري تنزيل الصوت عبر خادم سريع... سيصلك خلال دقيقة تقريبًا.'
+          : '⏳ جاري تنزيل الفيديو عبر خادم سريع... سيصلك خلال دقيقة أو دقيقتين.',
+      )
+      .catch(() => undefined);
+    const ok = await dispatchGithubDownload({ url, mode, chatId });
+    if (ok) return; // the workflow delivers the file (or reports failure) to the chat
+    if (gstatus?.message_id) {
+      await telegram
+        .editMessageText(chatId, gstatus.message_id, undefined, '⚠️ تعذّر بدء الخادم السريع، أحاول محليًا...')
+        .catch(() => undefined);
+    }
+    // fall through to local download
+  }
+
   const status = await telegram
     .sendMessage(chatId, mode === 'audio' ? '🎵 جاري تنزيل الصوت...' : '🎬 جاري تنزيل الفيديو...')
     .catch(() => undefined);

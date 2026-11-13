@@ -168,6 +168,17 @@ const envSchema = z.object({
   // standalone yt-dlp binary can load it). Set in the Dockerfile.
   POT_PLUGIN_DIRS: z.string().default('/app/ytdlp-plugins'),
 
+  // GitHub Actions download offload. When GH_DL_TOKEN is set, the bot dispatches
+  // the `dl.yml` workflow (strong 2-core runner + WARP for the bot-wall) instead
+  // of running yt-dlp on this 0.1-CPU host — so it never OOMs and is far faster.
+  // The workflow delivers the file via a user session (up to ~4GB) straight to
+  // the chat, and reports a failure there too. Empty token = disabled (the bot
+  // falls back to the local yt-dlp path — the current working behavior).
+  GH_DL_TOKEN: z.string().optional(), // GitHub PAT / fine-grained token, actions:write
+  GH_DL_REPO: z.string().default('Y1X0/BOT'), // owner/repo that holds dl.yml
+  GH_DL_REF: z.string().default('claude/telegram-group-bot-xenp00'), // branch holding dl.yml
+  GH_DL_WORKFLOW: z.string().default('dl.yml'),
+
   // MTProto (gramjs) credentials so the BOT itself can list a group's full
   // members (channels.getParticipants) — no assistant/streamer needed. Same
   // API_ID/API_HASH from my.telegram.org used by the streamer; the bot logs in

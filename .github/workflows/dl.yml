@@ -1,0 +1,133 @@
+name: تنزيل (عبر البوت)
+
+# يُطلقه البوت تلقائيًا (workflow_dispatch عبر GitHub API) عند طلب تنزيل.
+# يشتغل على رَنر GitHub القوي (2 نواة / 7GB) — فالبوت على Render (0.1 نواة)
+# لا يتحمّل الترميز ولا ينهار. الحظر يُحَلّ بـ WARP (نفس طريقة البوت: wgcf +
+# wireproxy + عميل android)، بدون كوكيز. التسليم عبر جلسة مستخدم (upload.py)
+# فتصل الملفات حتى ~4GB مباشرةً لمحادثتك.
+#
+# record.yml القديم يبقى كما هو (نقطة رجوع). هذا ملف منفصل تمامًا.
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "الرابط"
+        required: true
+      mode:
+        description: "audio أو video"
+        required: false
+        default: "audio"
+      target:
+        description: "chat_id الوجهة (محادثتك/جروبك)"
+        required: true
+      quality:
+        description: "أقصى دقة للفيديو (best/1080/720/480)"
+        required: false
+        default: "720"
+
+concurrency:
+  # لا نشغّل أكثر من تنزيل لنفس الوجهة في آنٍ واحد.
+  group: dl-${{ github.event.inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: تثبيت الأدوات + WARP
+        run: |
+          set -e
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          # wgcf + wireproxy — نفس إصدارات البوت (Dockerfile)
+          sudo wget -q https://github.com/ViRb3/wgcf/releases/download/v2.2.29/wgcf_2.2.29_linux_amd64 -O /usr/local/bin/wgcf
+          sudo chmod a+rx /usr/local/bin/wgcf
+          wget -q https://github.com/whyvl/wireproxy/releases/download/v1.1.3/wireproxy_linux_amd64.tar.gz -O /tmp/wireproxy.tgz
+          sudo tar xzf /tmp/wireproxy.tgz -C /usr/local/bin wireproxy
+          sudo chmod a+rx /usr/local/bin/wireproxy
+          # yt-dlp (رسمي) + kurigram/tgcrypto للرفع
+          python3 -m venv venv
+          ./venv/bin/pip install -U pip
+          ./venv/bin/pip install -U "yt-dlp[default]" kurigram tgcrypto
+          ./venv/bin/yt-dlp --version
+
+      - name: تنزيل عبر WARP (مع تدوير IP عند الحظر)
+        env:
+          URL: ${{ github.event.inputs.url }}
+          MODE: ${{ github.event.inputs.mode }}
+          QUALITY: ${{ github.event.inputs.quality }}
+        run: |
+          set -e
+          mkdir -p out
+          PROXY="socks5://127.0.0.1:40000"
+          CLIENT="youtube:player_client=android,tv,web"
+
+          warp_up() {
+            pkill -f wireproxy 2>/dev/null || true
+            rm -f wgcf-account.toml wgcf-profile.conf
+            wgcf register --accept-tos >/dev/null 2>&1
+            wgcf generate >/dev/null 2>&1
+            { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = 127.0.0.1:40000\n'; } > wireproxy.conf
+            nohup wireproxy -c wireproxy.conf >/tmp/wireproxy.log 2>&1 &
+            for i in $(seq 1 25); do
+              (exec 3<>/dev/tcp/127.0.0.1/40000) >/dev/null 2>&1 && { exec 3>&- ; echo "WARP up"; return 0; }
+              sleep 1
+            done
+            echo "WARP لم يأتِ"; return 1
+          }
+
+          dl_once() {
+            if [ "$MODE" = "video" ]; then
+              case "$QUALITY" in best|"") FMT="bv*+ba/b" ;; *) FMT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b" ;; esac
+              ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+                -f "$FMT" --merge-output-format mp4 --no-playlist \
+                -o "out/%(title)s [%(id)s].%(ext)s" "$URL"
+            else
+              # صوت: استخراج MP3 بجودة جيدة (القرص والـ CPU قويّان هنا، ولا حد 50MB
+              # لأن الرفع عبر جلسة مستخدم حتى ~4GB).
+              ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+                -f "ba/ba*" -x --audio-format mp3 --audio-quality 2 --no-playlist \
+                -o "out/%(title)s [%(id)s].%(ext)s" "$URL"
+            fi
+          }
+
+          warp_up
+          ok=0
+          for attempt in 1 2 3 4; do
+            echo "::group::محاولة التنزيل $attempt"
+            if dl_once; then ok=1; echo "::endgroup::"; break; fi
+            echo "::endgroup::"
+            echo "محاولة $attempt فشلت — أدوّر WARP لعنوان جديد وأعيد"
+            warp_up || true
+          done
+          echo "--- الملفات ---"; ls -lh out || true
+          if [ "$ok" != "1" ] || [ -z "$(ls -A out 2>/dev/null)" ]; then
+            echo "❌ فشل التنزيل بعد كل المحاولات"; exit 1
+          fi
+
+      - name: رفع لتيليجرام (جلسة مستخدم)
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          TARGET: ${{ github.event.inputs.target }}
+        run: ./venv/bin/python recorder/upload.py
+
+      # ضمان ردّ دائم: لو فشل أي شيء (حظر مستمر/خطأ)، أبلغ المستخدم في محادثته
+      # عبر توكن البوت — فلا يبقى بلا جواب أبدًا.
+      - name: إبلاغ بالفشل
+        if: failure()
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TARGET: ${{ github.event.inputs.target }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -z "$BOT_TOKEN" ] && exit 0
+          curl -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TARGET}" \
+            --data-urlencode "text=❌ تعذّر التنزيل عبر GitHub (حظر مستمر أو خطأ بالرابط). جرّب لاحقًا أو رابطًا آخر." \
+            >/dev/null 2>&1 || true
