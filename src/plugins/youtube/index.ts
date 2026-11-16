@@ -360,7 +360,7 @@ async function deliverItem(
           if (dispatched) {
             if (statusId)
               await telegram
-                .editMessageText(chatId, statusId, undefined, `⏳ جاري التحضير عبر خادم أقوى، بتوصلك خلال دقيقة تقريباً:\n🎧 ${item.title}`)
+                .editMessageText(chatId, statusId, undefined, `⏳ جاري التحضير، بتوصلك خلال دقيقة تقريباً:\n🎧 ${item.title}`)
                 .catch(() => undefined);
             return;
           }

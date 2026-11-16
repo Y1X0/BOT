@@ -156,5 +156,5 @@ jobs:
           [ -z "$BOT_TOKEN" ] && exit 0
           curl -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TARGET}" \
-            --data-urlencode "text=❌ تعذّر التنزيل عبر GitHub (حظر مستمر أو خطأ بالرابط). جرّب لاحقًا أو رابطًا آخر." \
+            --data-urlencode "text=❌ تعذّر تنزيل هذا الرابط حالياً (محظور مؤقتاً أو الرابط غير صالح). جرّب لاحقاً أو رابطاً آخر." \
             >/dev/null 2>&1 || true
