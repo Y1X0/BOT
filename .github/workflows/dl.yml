@@ -38,7 +38,7 @@ concurrency:
 jobs:
   download:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -78,7 +78,10 @@ jobs:
           # the profile is non-empty before trusting it, then cache + reuse it.
           register_warp() {
             [ -s wireproxy.conf ] && return 0
-            for r in 1 2 3 4 5; do
+            # Short, fixed backoff (reliable AND fast). wgcf register rarely fails;
+            # when it does it's a brief hiccup, so a few quick tries beat a long
+            # accumulating backoff that made the whole run crawl for minutes.
+            for r in 1 2 3; do
               rm -f wgcf-account.toml wgcf-profile.conf
               wgcf register --accept-tos >/dev/null 2>&1 || true
               wgcf generate >/dev/null 2>&1 || true
@@ -86,9 +89,9 @@ jobs:
                 { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = 127.0.0.1:40000\n'; } > wireproxy.conf
                 echo "WARP profile ready (try $r)"; return 0
               fi
-              echo "wgcf register failed (try $r) — backing off"; sleep $((r * 5))
+              echo "wgcf register failed (try $r) — retrying"; sleep 3
             done
-            echo "wgcf register failed permanently"; return 1
+            echo "wgcf register failed"; return 1
           }
 
           # (Re)start wireproxy from the cached profile and wait for the socks port.
@@ -106,17 +109,19 @@ jobs:
             echo "WARP لم يأتِ"; tail -5 /tmp/wireproxy.log 2>/dev/null || true; return 1
           }
 
+          # --socket-timeout fails a stalled connection fast; `timeout` caps the
+          # whole attempt so a hung download can never stall the run for minutes.
           dl_once() {
             if [ "$MODE" = "video" ]; then
               case "$QUALITY" in best|"") FMT="bv*+ba/b" ;; *) FMT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b" ;; esac
-              ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+              timeout 240 ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+                --socket-timeout 20 --retries 2 --fragment-retries 2 \
                 -f "$FMT" --merge-output-format mp4 --no-playlist \
                 -o "out/%(title)s [%(id)s].%(ext)s" "$URL"
             else
-              # صوت: استخراج MP3 بجودة جيدة (القرص والـ CPU قويّان هنا، ولا حد 50MB
-              # لأن الرفع عبر جلسة مستخدم حتى ~4GB).
               # صوت مونو 64k: يبقى تحت 50MB حتى ~1.7 ساعة، وواضح للكلام/البودكاست.
-              ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+              timeout 180 ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+                --socket-timeout 20 --retries 2 --fragment-retries 2 \
                 -f "ba/ba*" -x --audio-format mp3 --audio-quality 64K \
                 --postprocessor-args "ffmpeg:-ac 1" --no-playlist \
                 -o "out/%(title)s [%(id)s].%(ext)s" "$URL"
@@ -124,13 +129,12 @@ jobs:
           }
 
           ok=0
-          for attempt in 1 2 3 4; do
-            # Attempt 3: two tries on this IP failed, so rotate to a FRESH WARP
-            # account ONCE (in case YouTube walled this egress IP). Attempts 1,2
-            # and 4 reuse the current account, so we register at most twice — well
-            # under Cloudflare's rate limit.
-            if [ "$attempt" = "3" ]; then
-              echo "تدوير WARP لعنوان جديد (محاولتان فشلتا)"
+          for attempt in 1 2 3; do
+            # Attempt 2: the first try on this IP failed, so rotate to a FRESH WARP
+            # account ONCE (in case YouTube walled this egress IP). We register at
+            # most twice — well under Cloudflare's rate limit.
+            if [ "$attempt" = "2" ]; then
+              echo "تدوير WARP لعنوان جديد"
               rm -f wgcf-account.toml wgcf-profile.conf wireproxy.conf
             fi
             echo "::group::محاولة التنزيل $attempt"
