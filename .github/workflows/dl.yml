@@ -109,19 +109,33 @@ jobs:
             echo "WARP لم يأتِ"; tail -5 /tmp/wireproxy.log 2>/dev/null || true; return 1
           }
 
+          # Try to swap to a FRESH WARP account WITHOUT losing the working one.
+          # Cloudflare rate-limits registration, so if the new register fails we
+          # restore the previous profile instead of ending up with no WARP at all.
+          rotate_warp() {
+            cp -f wireproxy.conf wireproxy.conf.bak 2>/dev/null || true
+            rm -f wgcf-account.toml wgcf-profile.conf wireproxy.conf
+            if register_warp; then
+              rm -f wireproxy.conf.bak; echo "تم التدوير لعنوان WARP جديد"
+            else
+              mv -f wireproxy.conf.bak wireproxy.conf 2>/dev/null || true
+              echo "تعذّر التدوير (rate-limit) — أبقى على WARP الحالي"
+            fi
+          }
+
           # --socket-timeout fails a stalled connection fast; `timeout` caps the
           # whole attempt so a hung download can never stall the run for minutes.
           dl_once() {
             if [ "$MODE" = "video" ]; then
               case "$QUALITY" in best|"") FMT="bv*+ba/b" ;; *) FMT="bv*[height<=$QUALITY]+ba/b[height<=$QUALITY]/b" ;; esac
-              timeout 240 ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
-                --socket-timeout 20 --retries 2 --fragment-retries 2 \
+              timeout 180 ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+                --socket-timeout 15 --retries 2 --fragment-retries 2 \
                 -f "$FMT" --merge-output-format mp4 --no-playlist \
                 -o "out/%(title)s [%(id)s].%(ext)s" "$URL"
             else
               # صوت مونو 64k: يبقى تحت 50MB حتى ~1.7 ساعة، وواضح للكلام/البودكاست.
-              timeout 180 ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
-                --socket-timeout 20 --retries 2 --fragment-retries 2 \
+              timeout 90 ./venv/bin/yt-dlp --proxy "$PROXY" --extractor-args "$CLIENT" \
+                --socket-timeout 15 --retries 2 --fragment-retries 2 \
                 -f "ba/ba*" -x --audio-format mp3 --audio-quality 64K \
                 --postprocessor-args "ffmpeg:-ac 1" --no-playlist \
                 -o "out/%(title)s [%(id)s].%(ext)s" "$URL"
@@ -133,10 +147,7 @@ jobs:
             # Attempt 2: the first try on this IP failed, so rotate to a FRESH WARP
             # account ONCE (in case YouTube walled this egress IP). We register at
             # most twice — well under Cloudflare's rate limit.
-            if [ "$attempt" = "2" ]; then
-              echo "تدوير WARP لعنوان جديد"
-              rm -f wgcf-account.toml wgcf-profile.conf wireproxy.conf
-            fi
+            [ "$attempt" = "2" ] && rotate_warp
             echo "::group::محاولة التنزيل $attempt"
             if start_warp && dl_once; then ok=1; echo "::endgroup::"; break; fi
             echo "::endgroup::"
