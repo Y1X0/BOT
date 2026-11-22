@@ -59,6 +59,16 @@ jobs:
           ./venv/bin/pip install -U "yt-dlp[default]"
           ./venv/bin/yt-dlp --version
 
+      # Persist ONE WARP account across runs. After the first successful register
+      # the account is cached, so every later run regenerates its profile from the
+      # cache WITHOUT calling Cloudflare's registration API — immune to the
+      # registration rate-limit that otherwise breaks downloads in bursts.
+      - name: كاش حساب WARP
+        uses: actions/cache@v4
+        with:
+          path: wgcf-account.toml
+          key: warp-account-v1
+
       - name: تنزيل عبر WARP (مع تدوير IP عند الحظر)
         env:
           URL: ${{ github.event.inputs.url }}
@@ -76,8 +86,20 @@ jobs:
           # config → the socks port never opened → every yt-dlp attempt died with
           # "Connection refused". Here we retry registration with backoff and VERIFY
           # the profile is non-empty before trusting it, then cache + reuse it.
+          build_wireproxy_conf() {
+            [ -s wgcf-profile.conf ] || return 1
+            { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = 127.0.0.1:40000\n'; } > wireproxy.conf
+            return 0
+          }
+
           register_warp() {
             [ -s wireproxy.conf ] && return 0
+            # FAST PATH: a cached WARP account (from a previous run) → just
+            # regenerate its profile, NO registration call → never rate-limited.
+            if [ -s wgcf-account.toml ]; then
+              wgcf generate >/dev/null 2>&1 || true
+              if build_wireproxy_conf; then echo "WARP من حساب مخزّن"; return 0; fi
+            fi
             # Short, fixed backoff (reliable AND fast). wgcf register rarely fails;
             # when it does it's a brief hiccup, so a few quick tries beat a long
             # accumulating backoff that made the whole run crawl for minutes.
@@ -114,11 +136,14 @@ jobs:
           # restore the previous profile instead of ending up with no WARP at all.
           rotate_warp() {
             cp -f wireproxy.conf wireproxy.conf.bak 2>/dev/null || true
+            cp -f wgcf-account.toml wgcf-account.toml.bak 2>/dev/null || true
             rm -f wgcf-account.toml wgcf-profile.conf wireproxy.conf
             if register_warp; then
-              rm -f wireproxy.conf.bak; echo "تم التدوير لعنوان WARP جديد"
+              rm -f wireproxy.conf.bak wgcf-account.toml.bak
+              echo "تم التدوير لعنوان WARP جديد"
             else
               mv -f wireproxy.conf.bak wireproxy.conf 2>/dev/null || true
+              mv -f wgcf-account.toml.bak wgcf-account.toml 2>/dev/null || true
               echo "تعذّر التدوير (rate-limit) — أبقى على WARP الحالي"
             fi
           }
