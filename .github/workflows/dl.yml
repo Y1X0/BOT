@@ -70,18 +70,40 @@ jobs:
           PROXY="socks5://127.0.0.1:40000"
           CLIENT="youtube:player_client=android,tv,web"
 
-          warp_up() {
+          # Register a WARP account ONCE and build the wireproxy config. Cloudflare
+          # rate-limits registration, so the old code (which re-registered on EVERY
+          # retry) often got refused → an empty wgcf-profile.conf → wireproxy had no
+          # config → the socks port never opened → every yt-dlp attempt died with
+          # "Connection refused". Here we retry registration with backoff and VERIFY
+          # the profile is non-empty before trusting it, then cache + reuse it.
+          register_warp() {
+            [ -s wireproxy.conf ] && return 0
+            for r in 1 2 3 4 5; do
+              rm -f wgcf-account.toml wgcf-profile.conf
+              wgcf register --accept-tos >/dev/null 2>&1 || true
+              wgcf generate >/dev/null 2>&1 || true
+              if [ -s wgcf-profile.conf ]; then
+                { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = 127.0.0.1:40000\n'; } > wireproxy.conf
+                echo "WARP profile ready (try $r)"; return 0
+              fi
+              echo "wgcf register failed (try $r) — backing off"; sleep $((r * 5))
+            done
+            echo "wgcf register failed permanently"; return 1
+          }
+
+          # (Re)start wireproxy from the cached profile and wait for the socks port.
+          # Retries reuse the SAME WARP account (no re-register → no rate-limit); a
+          # fresh IP is only forced once, by the loop, when YouTube actually walls it.
+          start_warp() {
+            register_warp || return 1
             pkill -f wireproxy 2>/dev/null || true
-            rm -f wgcf-account.toml wgcf-profile.conf
-            wgcf register --accept-tos >/dev/null 2>&1
-            wgcf generate >/dev/null 2>&1
-            { cat wgcf-profile.conf; printf '\n[Socks5]\nBindAddress = 127.0.0.1:40000\n'; } > wireproxy.conf
+            sleep 1
             nohup wireproxy -c wireproxy.conf >/tmp/wireproxy.log 2>&1 &
-            for i in $(seq 1 25); do
+            for i in $(seq 1 30); do
               (exec 3<>/dev/tcp/127.0.0.1/40000) >/dev/null 2>&1 && { exec 3>&- ; echo "WARP up"; return 0; }
               sleep 1
             done
-            echo "WARP لم يأتِ"; return 1
+            echo "WARP لم يأتِ"; tail -5 /tmp/wireproxy.log 2>/dev/null || true; return 1
           }
 
           dl_once() {
@@ -101,14 +123,20 @@ jobs:
             fi
           }
 
-          warp_up
           ok=0
           for attempt in 1 2 3 4; do
+            # Attempt 3: two tries on this IP failed, so rotate to a FRESH WARP
+            # account ONCE (in case YouTube walled this egress IP). Attempts 1,2
+            # and 4 reuse the current account, so we register at most twice — well
+            # under Cloudflare's rate limit.
+            if [ "$attempt" = "3" ]; then
+              echo "تدوير WARP لعنوان جديد (محاولتان فشلتا)"
+              rm -f wgcf-account.toml wgcf-profile.conf wireproxy.conf
+            fi
             echo "::group::محاولة التنزيل $attempt"
-            if dl_once; then ok=1; echo "::endgroup::"; break; fi
+            if start_warp && dl_once; then ok=1; echo "::endgroup::"; break; fi
             echo "::endgroup::"
-            echo "محاولة $attempt فشلت — أدوّر WARP لعنوان جديد وأعيد"
-            warp_up || true
+            echo "محاولة $attempt فشلت — أعيد"
           done
           echo "--- الملفات ---"; ls -lh out || true
           if [ "$ok" != "1" ] || [ -z "$(ls -A out 2>/dev/null)" ]; then

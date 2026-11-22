@@ -35,20 +35,28 @@ async function firstSuccess(
 }
 
 export async function resolveSearch(query: string, limit: number): Promise<SearchItem[] | { error: YtError }> {
-  // Try the HTTP engines FIRST (fast, run on other IPs, use ~no local CPU). Only
-  // fall back to the yt-dlp search when they're all down. This matters on the
-  // 0.1-CPU host: running the CPU-heavy yt-dlp search in parallel used to keep
-  // chewing the CPU for ~20s even after an HTTP engine had already won, starving
-  // the audio DOWNLOAD that runs right after — so the song felt slow to arrive.
-  const http: Promise<SearchItem[] | { error: YtError }>[] = [];
-  if (env.YT_PIPED_ENABLED) http.push(pipedSearch(query, limit));
-  if (env.YT_INVIDIOUS_ENABLED) http.push(invidiousSearch(query, limit));
-  if (http.length) {
-    const r = await firstSuccess(http);
-    if (!('error' in r) && r.length) return r;
-  }
-  // HTTP engines down (or disabled) → reliable yt-dlp backstop.
-  return ytSearch(query, limit);
+  // Try the HTTP engines (fast, run on other IPs, use ~no local CPU). But the
+  // public Piped/Invidious instances are frequently ALL dead at once, and each
+  // one is tried until it times out — so waiting for them alone made search
+  // crawl (and flooded the logs with "fetch failed"). So we ALSO race the
+  // reliable yt-dlp flat search, started after a short grace period: a healthy
+  // HTTP instance still answers first and yt-dlp never spawns (keeping the
+  // 0.1-CPU host free for the download that follows), but when the instances are
+  // all down the yt-dlp backstop returns in ~2-3s instead of ~20s of timeouts.
+  const attempts: Promise<SearchItem[] | { error: YtError }>[] = [];
+  if (env.YT_PIPED_ENABLED) attempts.push(pipedSearch(query, limit));
+  if (env.YT_INVIDIOUS_ENABLED) attempts.push(invidiousSearch(query, limit));
+  if (!attempts.length) return ytSearch(query, limit);
+  // Flat yt-dlp search is light and short-lived; the delay keeps it from
+  // spawning when HTTP is healthy. firstSuccess returns as soon as ANY source
+  // yields results, so it never waits out the dead instances' timeouts.
+  const delayedYt = new Promise<SearchItem[] | { error: YtError }>((resolve) => {
+    setTimeout(() => {
+      ytSearch(query, limit).then(resolve, () => resolve({ error: 'failed' }));
+    }, 2500);
+  });
+  attempts.push(delayedYt);
+  return firstSuccess(attempts);
 }
 
 export async function resolveDownload(
