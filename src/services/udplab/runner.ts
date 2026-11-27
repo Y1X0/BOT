@@ -26,6 +26,7 @@ import {
   lossComparison,
   shouldDropDeterministic,
   round,
+  type NotAvailable,
 } from './stats';
 import type { RealUdpResult, SimUdpResult } from './types';
 
@@ -347,5 +348,142 @@ export async function runSimTest(opts: SimTestOptions = {}): Promise<SimUdpResul
     // PASS = the clean baseline actually delivered its packets over loopback.
     verdict: verdict(baseline.sent, baseline.received, 5),
     note: `الفقد في وضع المحاكاة مصطنع ومحقون برمجياً داخل المستقبِل فقط (ليس فقداً حقيقياً من الشبكة). الإسقاط حتمي ومربوط برقم تسلسل كل حزمة (القاعدة: تُسقَط الحزمة i إذا كان ⌊(i+1)·p⌋ > ⌊i·p⌋ حيث p=نسبة الفقد)، فالنتيجة قابلة للتكرار بدقة (~${round(injectedLossPct)}٪) في كل تشغيل. الحزم تنتقل فعلياً عبر 127.0.0.1 ولا تغادر الجهاز.`,
+  };
+}
+
+export interface NetSimOptions {
+  packets?: number; // number of packets to send (default 100)
+  lossPct?: number; // injected packet-loss % 0..90 (default 10)
+  jitterMs?: number; // max injected jitter in ms 0..200 (default 15)
+}
+
+export interface NetSimResult {
+  injectedLossPct: number;
+  injectedJitterMs: number;
+  packetsSent: number;
+  packetsReceived: number;
+  lossPct: number;
+  outOfOrder: number;
+  avgRttMs: number | NotAvailable;
+  jitterStdMs: number | NotAvailable;
+  jitterRfcMs: number | NotAvailable;
+  durationMs: number;
+}
+
+/**
+ * Parametrized loopback UDP networks-lab simulation. A receiver on 127.0.0.1
+ * echoes each packet back, but SIMULATES a real network: it drops a configurable
+ * fraction (packet loss) and waits a random delay before echoing (jitter). The
+ * sender pings sequentially and measures RTT, loss, out-of-order, and jitter in
+ * two forms — the std-dev of RTT and the RFC 3550 running-mean of |ΔRTT|. Real
+ * UDP packets, but they never leave the machine. Never throws.
+ */
+export async function runNetSim(opts: NetSimOptions = {}): Promise<NetSimResult> {
+  const packets = Math.max(1, Math.min(500, Math.round(opts.packets ?? 100)));
+  const lossPct = Math.max(0, Math.min(90, opts.lossPct ?? 10));
+  const jitterCap = Math.max(0, Math.min(200, Math.round(opts.jitterMs ?? 15)));
+  const loss = lossPct / 100;
+
+  const t0 = performance.now();
+  const rtts: number[] = [];
+  let lost = 0;
+  let outOfOrder = 0;
+  let lastSeq = 0;
+
+  const rx = dgram.createSocket('udp4');
+  const tx = dgram.createSocket('udp4');
+  // One ping in flight at a time; `settle` is the current ping's completion.
+  let pending: { settle: (rtt: number | null, seq: number) => void } | null = null;
+  let pendingStart = 0;
+
+  // Receiver: echo back, but inject loss (drop) and jitter (random delay).
+  rx.on('message', (msg, rinfo) => {
+    if (Math.random() < loss) return; // "lost"
+    const delay = jitterCap > 0 ? Math.random() * jitterCap : 0;
+    setTimeout(() => rx.send(msg, rinfo.port, rinfo.address, () => undefined), delay);
+  });
+  rx.on('error', () => undefined);
+  // Sender: match an echo to the pending ping.
+  tx.on('message', (msg) => {
+    if (!pending) return;
+    const rtt = performance.now() - pendingStart;
+    const seq = Number(msg.toString()) || 0;
+    pending.settle(rtt, seq);
+  });
+  tx.on('error', () => undefined);
+
+  const bind = (sock: dgram.Socket): Promise<number> =>
+    new Promise((res) => sock.bind(0, '127.0.0.1', () => res(sock.address().port)));
+
+  const pingOnce = (seq: number, rxPort: number): Promise<void> =>
+    new Promise((resolve) => {
+      let done = false;
+      const settle = (rtt: number | null, echoedSeq: number): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        pending = null;
+        if (rtt !== null && rtt >= 0) {
+          if (echoedSeq < lastSeq) outOfOrder++;
+          lastSeq = echoedSeq;
+          rtts.push(round(rtt));
+        } else {
+          lost++;
+        }
+        resolve();
+      };
+      const timer = setTimeout(() => settle(null, seq), 1000);
+      pending = { settle };
+      pendingStart = performance.now();
+      tx.send(Buffer.from(String(seq)), rxPort, '127.0.0.1', (err) => {
+        if (err) settle(null, seq);
+      });
+    });
+
+  try {
+    const rxPort = await bind(rx);
+    await bind(tx);
+    for (let i = 1; i <= packets; i++) {
+      await pingOnce(i, rxPort);
+      if (i < packets) await sleep(20); // pacing, like the lab script
+    }
+  } catch {
+    /* ignore — partial results still returned */
+  } finally {
+    try {
+      rx.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      tx.close();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const durationMs = Math.round(performance.now() - t0);
+  const received = rtts.length;
+  const avg = received ? round(rtts.reduce((a, b) => a + b, 0) / received) : NOT_AVAILABLE;
+  let std: number | NotAvailable = NOT_AVAILABLE;
+  if (received > 1) {
+    const m = rtts.reduce((a, b) => a + b, 0) / received;
+    std = round(Math.sqrt(rtts.reduce((a, b) => a + (b - m) ** 2, 0) / (received - 1)));
+  }
+  let rfc = 0;
+  for (let k = 1; k < rtts.length; k++) rfc += (Math.abs(rtts[k] - rtts[k - 1]) - rfc) / 16;
+  const jitterRfc: number | NotAvailable = received > 1 ? round(rfc) : NOT_AVAILABLE;
+
+  return {
+    injectedLossPct: round(lossPct),
+    injectedJitterMs: jitterCap,
+    packetsSent: packets,
+    packetsReceived: received,
+    lossPct: round(((packets - received) / packets) * 100),
+    outOfOrder,
+    avgRttMs: avg,
+    jitterStdMs: std,
+    jitterRfcMs: jitterRfc,
+    durationMs,
   };
 }

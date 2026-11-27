@@ -5,7 +5,7 @@ import type { Plugin } from '../../core/plugin';
 import { isBotOwner } from '../../utils/permissions';
 import { createLogger } from '../../core/logger';
 import { NOT_AVAILABLE, fmt, type Verdict } from '../../services/udplab/stats';
-import { runRealUdpTest, runSimTest } from '../../services/udplab/runner';
+import { runRealUdpTest, runSimTest, runNetSim, type NetSimResult } from '../../services/udplab/runner';
 import { saveExperiment, lastExperiment, experimentHistory, parseStored } from '../../services/udplab/store';
 import type { RealUdpResult, SimUdpResult, UdpResult } from '../../services/udplab/types';
 
@@ -67,6 +67,32 @@ function renderSim(r: SimUdpResult): string {
 
 function render(result: UdpResult): string {
   return result.kind === 'real' ? renderReal(result) : renderSim(result);
+}
+
+/** Render the parametrized networks-lab simulation (loss + jitter). */
+function renderNetSim(r: NetSimResult): string {
+  return (
+    '🔬 <b>محاكاة أداء UDP (مختبر الشبكات)</b>\n' +
+    '✦ ┈┈┈┈┈┈┈┈┈┈ ✦\n' +
+    `<b>الإعداد:</b> فقد ${r.injectedLossPct}% · اهتزاز ≤ ${r.injectedJitterMs}ms · ${r.packetsSent} حزمة\n` +
+    '┈┈┈┈┈┈┈┈┈┈\n' +
+    `<b>Total Sent Packets</b>     : ${r.packetsSent}\n` +
+    `<b>Received Packets</b>       : ${r.packetsReceived}\n` +
+    `<b>Packet Loss Rate</b>       : ${na(r.lossPct, '%')}\n` +
+    `<b>Out-of-order Packets</b>   : ${r.outOfOrder}\n` +
+    `<b>Average RTT</b>            : ${na(r.avgRttMs, ' ms')}\n` +
+    `<b>Jitter (Std Deviation)</b> : ${na(r.jitterStdMs, ' ms')}\n` +
+    `<b>Jitter (RFC 3550)</b>      : ${na(r.jitterRfcMs, ' ms')}\n` +
+    `<b>المدة</b>                  : ${r.durationMs} ms\n\n` +
+    '⚠️ <i>الفقد والاهتزاز مُحقَّنان برمجياً داخل المستقبِل (ليسا من الشبكة). الحزم حقيقية لكن تنتقل عبر 127.0.0.1 ولا تغادر الجهاز.</i>'
+  );
+}
+
+/** Parse "/udp_sim [loss%] [jitterMs] [packets]" → options. */
+function parseSimArgs(text: string): { lossPct?: number; jitterMs?: number; packets?: number } {
+  const [, a, b, c] = text.split(/\s+/);
+  const num = (s?: string): number | undefined => (s !== undefined && /^\d+(\.\d+)?$/.test(s) ? Number(s) : undefined);
+  return { lossPct: num(a), jitterMs: num(b), packets: num(c) };
 }
 
 const EXPLAIN =
@@ -174,6 +200,7 @@ export const udpLabPlugin: Plugin = {
   commands: [
     { command: 'udp_lab', description: '🧰 لوحة مختبر UDP (مالك)', staffOnly: true },
     { command: 'udp_test', description: '🧪 تشغيل اختبار UDP حقيقي — أضف sim للمحاكاة (مالك)', staffOnly: true },
+    { command: 'udp_sim', description: '🔬 محاكاة أداء UDP: /udp_sim [فقد%] [اهتزاز] [حزم] (مالك)', staffOnly: true },
     { command: 'udp_report', description: '📊 آخر تقرير UDP (مالك)', staffOnly: true },
     { command: 'udp_history', description: '📜 سجل تجارب UDP (مالك)', staffOnly: true },
   ],
@@ -188,6 +215,32 @@ export const udpLabPlugin: Plugin = {
       if (!owner(ctx)) return;
       const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase();
       await startRun(ctx, arg === 'sim' || arg === 'محاكاة' ? 'sim' : 'real');
+    });
+
+    bot.command('udp_sim', async (ctx) => {
+      if (!owner(ctx)) return;
+      if (!ctx.chat) return;
+      const opts = parseSimArgs(ctx.message.text);
+      const sent = await ctx
+        .reply('⏳ جاري تشغيل محاكاة أداء UDP (loopback)…')
+        .catch(() => undefined);
+      if (!sent) return;
+      const chatId = ctx.chat.id;
+      void runNetSim(opts)
+        .then((r) =>
+          ctx.telegram
+            .editMessageText(chatId, sent.message_id, undefined, renderNetSim(r), {
+              parse_mode: 'HTML',
+              ...panelKeyboard(),
+            })
+            .catch(() => undefined),
+        )
+        .catch(async (err) => {
+          log.error({ err }, 'udp sim failed');
+          await ctx.telegram
+            .editMessageText(chatId, sent.message_id, undefined, '⚠️ تعذّر تشغيل المحاكاة.')
+            .catch(() => undefined);
+        });
     });
 
     bot.command('udp_report', async (ctx) => {
