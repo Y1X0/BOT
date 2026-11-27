@@ -22,7 +22,9 @@ The assistant must be an admin with the "manage voice chats" right.
 """
 import asyncio
 import logging
+import os
 import random
+import statistics
 import time
 from urllib.parse import urlsplit
 
@@ -37,7 +39,8 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 from aiohttp import web
-from pyrogram import Client
+from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 from pytgcalls import filters as call_filters
 from pytgcalls.types import MediaStream
 
@@ -1451,6 +1454,144 @@ def _udp_ok() -> bool:
     except Exception as e:
         log.warning("UDP check failed to run: %s", e)
         return False
+
+
+# --- /call_lab : honest in-call network lab (admins only) ---------------------
+# Joins the group's OPEN voice chat, streams a short tone, and during streaming
+# measures REAL control-plane values (RTT to Telegram + jitter + local loop
+# jitter + signaling-request loss). The call's media-path metrics (UDP/SRTP
+# packet loss and bitrate) are NOT measurable from py-tgcalls/ntgcalls, so they
+# are reported honestly as NOT_AVAILABLE — no invented/assumed numbers.
+_CALL_LAB_TONE = "/tmp/call_lab_tone.wav"
+
+
+def _ensure_tone() -> bool:
+    if os.path.exists(_CALL_LAB_TONE):
+        return True
+    try:
+        import subprocess
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=70",
+             "-filter:a", "volume=0.15", "-ar", "48000", "-ac", "2", _CALL_LAB_TONE],
+            check=True, capture_output=True, timeout=30,
+        )
+        return os.path.exists(_CALL_LAB_TONE)
+    except Exception as e:  # noqa: BLE001
+        log.warning("call_lab tone generation failed: %s", e)
+        return False
+
+
+def _rfc_jitter(vals: list) -> float:
+    j = 0.0
+    for a, b in zip(vals, vals[1:]):
+        j += (abs(b - a) - j) / 16.0
+    return j
+
+
+@assistant.on_message(filters.command("call_lab") & filters.group)
+async def call_lab_handler(_, message) -> None:
+    chat_id = message.chat.id
+    uid = message.from_user.id if message.from_user else 0
+    # Admins only (prevents random members from making the assistant join/leave).
+    try:
+        from pyrogram.enums import ChatMemberStatus
+        m = await assistant.get_chat_member(chat_id, uid)
+        if m.status not in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR):
+            return
+    except Exception:  # noqa: BLE001
+        return
+
+    parts = (message.text or "").split()
+    duration = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 15
+    duration = max(5, min(60, duration))
+
+    status = await message.reply_text(
+        "🎙️ <b>مختبر مكالمة تيليجرام الحي (call_lab)</b>\n"
+        f"• القروب: <code>{chat_id}</code> | المدة: <code>{duration}s</code>\n"
+        "• جارٍ الربط بالمكالمة وتجهيز القياس…",
+        parse_mode=ParseMode.HTML,
+    )
+
+    if not _ensure_tone():
+        await status.edit_text("❌ تعذّر تجهيز ملف الصوت (ffmpeg).")
+        return
+
+    try:
+        await calls.play(chat_id, _audio(_CALL_LAB_TONE))
+    except Exception as e:  # noqa: BLE001
+        await status.edit_text(
+            "❌ تعذّر الانضمام للمكالمة — تأكد أنها <b>مفتوحة</b> (شغّلها عبر /vcstart):\n"
+            f"<code>{type(e).__name__}: {e}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    rtts: list = []
+    loop_iv: list = []
+    failed = 0
+    t0 = time.perf_counter()
+    last = t0
+    last_edit = 0.0
+    ticks = 0
+
+    while (time.perf_counter() - t0) < duration:
+        ts = time.perf_counter()
+        try:
+            await assistant.get_me()
+            rtts.append((time.perf_counter() - ts) * 1000.0)
+        except Exception:  # noqa: BLE001
+            failed += 1
+        now = time.perf_counter()
+        loop_iv.append((now - last) * 1000.0)
+        last = now
+        ticks += 1
+        if now - last_edit >= 2.0:
+            avg = statistics.mean(rtts) if rtts else 0.0
+            jit = _rfc_jitter(rtts)
+            try:
+                await status.edit_text(
+                    f"📡 <b>قياس مباشر داخل المكالمة</b> ({now - t0:.0f}/{duration}s)\n"
+                    f"• زمن استجابة التحكّم (Control-plane RTT): <code>{avg:.1f} ms</code>\n"
+                    f"• تذبذب (RFC 3550): <code>{jit:.2f} ms</code>\n"
+                    "• مقاييس صوت المكالمة (UDP/SRTP): <code>NOT_AVAILABLE</code>",
+                    parse_mode=ParseMode.HTML,
+                )
+                last_edit = now
+            except Exception:  # noqa: BLE001
+                pass
+        await asyncio.sleep(0.25)
+
+    try:
+        await calls.leave_call(chat_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+    total = time.perf_counter() - t0
+    avg = statistics.mean(rtts) if rtts else 0.0
+    mn = min(rtts) if rtts else 0.0
+    mx = max(rtts) if rtts else 0.0
+    net_jit = _rfc_jitter(rtts)
+    sched_jit = statistics.stdev(loop_iv) if len(loop_iv) > 1 else 0.0
+    sig_loss = failed / max(ticks, 1) * 100.0
+
+    await status.edit_text(
+        "✅ <b>تقرير مختبر مكالمة تيليجرام (قياس صادق)</b>\n\n"
+        "• الحالة: انضمّ المساعد وبثّ داخل مكالمة القروب فعلياً\n"
+        f"• المدة: <code>{total:.1f} s</code>\n\n"
+        "<b>— طبقة التحكّم/الإشارة (حقيقية، لكنها ليست مسار الصوت) —</b>\n"
+        f"• Control-plane RTT: <code>{avg:.1f} ms</code> (أدنى <code>{mn:.1f}</code> / أقصى <code>{mx:.1f}</code>)\n"
+        f"• Network Jitter (RFC 3550): <code>{net_jit:.2f} ms</code>\n"
+        f"• Local Loop Jitter: <code>{sched_jit:.2f} ms</code>\n"
+        f"• Signaling Request Loss (فشل طلبات تحكّم): <code>{sig_loss:.2f}%</code>\n\n"
+        "<b>— مقاييس مسار صوت المكالمة (UDP/SRTP) —</b>\n"
+        "• Packet Loss: <code>NOT_AVAILABLE</code> (غير مكشوف في py-tgcalls/ntgcalls)\n"
+        "• SRTP Bitrate: <code>NOT_AVAILABLE</code> (يحتاج التقاط حزم خارج الحاوية)\n\n"
+        "📌 <i>للتقرير: الصوت يُنقل عبر UDP/SRTP لخوادم تيليجرام الوسيطة. القيم أعلاه "
+        "من طبقة التحكّم وتوقيت العملية — ومقاييس مسار الصوت تُعرض NOT_AVAILABLE بأمانة "
+        "لأنها غير مكشوفة في هذه الطبقة (تُقاس بالتقاط حزم خارجي فقط).</i>",
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 async def _serve() -> None:
