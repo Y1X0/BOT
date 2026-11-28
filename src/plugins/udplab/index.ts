@@ -74,7 +74,8 @@ function renderNetSim(r: NetSimResult): string {
   return (
     '🔬 <b>محاكاة أداء UDP (مختبر الشبكات)</b>\n' +
     '✦ ┈┈┈┈┈┈┈┈┈┈ ✦\n' +
-    `<b>الإعداد:</b> فقد ${r.injectedLossPct}% · اهتزاز ≤ ${r.injectedJitterMs}ms · ${r.packetsSent} حزمة\n` +
+    `<b>الإعداد:</b> فقد ${r.injectedLossPct}% · اهتزاز ≤ ${r.injectedJitterMs}ms · ${r.packetsSent} حزمة · ` +
+    `الوضع: ${r.deterministic ? '🎯 حتمي (قابل للتكرار)' : '🎲 عشوائي'}\n` +
     '┈┈┈┈┈┈┈┈┈┈\n' +
     `<b>Total Sent Packets</b>     : ${r.packetsSent}\n` +
     `<b>Received Packets</b>       : ${r.packetsReceived}\n` +
@@ -88,11 +89,14 @@ function renderNetSim(r: NetSimResult): string {
   );
 }
 
-/** Parse "/udp_sim [loss%] [jitterMs] [packets]" → options. */
-function parseSimArgs(text: string): { lossPct?: number; jitterMs?: number; packets?: number } {
-  const [, a, b, c] = text.split(/\s+/);
-  const num = (s?: string): number | undefined => (s !== undefined && /^\d+(\.\d+)?$/.test(s) ? Number(s) : undefined);
-  return { lossPct: num(a), jitterMs: num(b), packets: num(c) };
+/** Parse "/udp_sim [loss%] [jitterMs] [packets] [--det]" → options. The numeric
+ *  args are positional (in order); the deterministic flag may appear anywhere
+ *  (--det / --deterministic / det / حتمي). */
+function parseSimArgs(text: string): { lossPct?: number; jitterMs?: number; packets?: number; deterministic?: boolean } {
+  const tokens = text.split(/\s+/).slice(1);
+  const deterministic = tokens.some((t) => /^(--?det(erministic)?|حتمي)$/i.test(t));
+  const nums = tokens.filter((t) => /^\d+(\.\d+)?$/.test(t)).map(Number);
+  return { lossPct: nums[0], jitterMs: nums[1], packets: nums[2], deterministic };
 }
 
 const EXPLAIN =
@@ -200,7 +204,7 @@ export const udpLabPlugin: Plugin = {
   commands: [
     { command: 'udp_lab', description: '🧰 لوحة مختبر UDP (مالك)', staffOnly: true },
     { command: 'udp_test', description: '🧪 تشغيل اختبار UDP حقيقي — أضف sim للمحاكاة (مالك)', staffOnly: true },
-    { command: 'udp_sim', description: '🔬 محاكاة أداء UDP: /udp_sim [فقد%] [اهتزاز] [حزم] (مالك)', staffOnly: true },
+    { command: 'udp_sim', description: '🔬 محاكاة فقد UDP: /udp_sim [فقد%] [اهتزاز] [حزم] [--det] (مالك)', staffOnly: true },
     { command: 'udp_report', description: '📊 آخر تقرير UDP (مالك)', staffOnly: true },
     { command: 'udp_history', description: '📜 سجل تجارب UDP (مالك)', staffOnly: true },
   ],

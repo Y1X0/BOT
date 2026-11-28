@@ -355,11 +355,13 @@ export interface NetSimOptions {
   packets?: number; // number of packets to send (default 100)
   lossPct?: number; // injected packet-loss % 0..90 (default 10)
   jitterMs?: number; // max injected jitter in ms 0..200 (default 15)
+  deterministic?: boolean; // true = reproducible loss keyed to packet seq (default false = random)
 }
 
 export interface NetSimResult {
   injectedLossPct: number;
   injectedJitterMs: number;
+  deterministic: boolean;
   packetsSent: number;
   packetsReceived: number;
   lossPct: number;
@@ -369,6 +371,13 @@ export interface NetSimResult {
   jitterRfcMs: number | NotAvailable;
   durationMs: number;
 }
+
+// A lost (never-echoed) packet is detected by this per-packet timeout. On
+// loopback a real round-trip is sub-millisecond, so 300ms is far more than
+// enough to tell "delivered" from "dropped" — and it makes high-loss runs fast
+// (at 70% loss, 1000ms wasted ~70s; 300ms cuts that to ~20s) without affecting
+// the measured loss (nothing on 127.0.0.1 legitimately takes >300ms).
+const NETSIM_LOST_TIMEOUT_MS = 300;
 
 /**
  * Parametrized loopback UDP networks-lab simulation. A receiver on 127.0.0.1
@@ -383,6 +392,7 @@ export async function runNetSim(opts: NetSimOptions = {}): Promise<NetSimResult>
   const lossPct = Math.max(0, Math.min(90, opts.lossPct ?? 10));
   const jitterCap = Math.max(0, Math.min(200, Math.round(opts.jitterMs ?? 15)));
   const loss = lossPct / 100;
+  const deterministic = opts.deterministic ?? false;
 
   const t0 = performance.now();
   const rtts: number[] = [];
@@ -397,8 +407,20 @@ export async function runNetSim(opts: NetSimOptions = {}): Promise<NetSimResult>
   let pendingStart = 0;
 
   // Receiver: echo back, but inject loss (drop) and jitter (random delay).
+  // Loss is either RANDOM (Bernoulli) or DETERMINISTIC — keyed to each packet's
+  // sequence number so the exact same packets drop on every run (reproducible
+  // results for the report). Deterministic uses the shared Bresenham rule in
+  // stats.ts; the packet's seq is carried in its payload (sent as String(seq),
+  // 1-based → 0-based index here).
   rx.on('message', (msg, rinfo) => {
-    if (Math.random() < loss) return; // "lost"
+    let drop: boolean;
+    if (deterministic) {
+      const seq = Number(msg.toString()) || 0;
+      drop = shouldDropDeterministic(Math.max(0, seq - 1), lossPct);
+    } else {
+      drop = Math.random() < loss;
+    }
+    if (drop) return; // "lost"
     const delay = jitterCap > 0 ? Math.random() * jitterCap : 0;
     setTimeout(() => rx.send(msg, rinfo.port, rinfo.address, () => undefined), delay);
   });
@@ -432,7 +454,7 @@ export async function runNetSim(opts: NetSimOptions = {}): Promise<NetSimResult>
         }
         resolve();
       };
-      const timer = setTimeout(() => settle(null, seq), 1000);
+      const timer = setTimeout(() => settle(null, seq), NETSIM_LOST_TIMEOUT_MS);
       pending = { settle };
       pendingStart = performance.now();
       tx.send(Buffer.from(String(seq)), rxPort, '127.0.0.1', (err) => {
@@ -477,6 +499,7 @@ export async function runNetSim(opts: NetSimOptions = {}): Promise<NetSimResult>
   return {
     injectedLossPct: round(lossPct),
     injectedJitterMs: jitterCap,
+    deterministic,
     packetsSent: packets,
     packetsReceived: received,
     lossPct: round(((packets - received) / packets) * 100),
