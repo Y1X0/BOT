@@ -11,6 +11,24 @@ import type { RealUdpResult, SimUdpResult, UdpResult } from '../../services/udpl
 
 const log = createLogger('plugin:udplab');
 
+// Streamer (assistant) health probe — used by /udp_full's Call-Lab stage to
+// report HONESTLY whether the assistant is online, without ever fabricating the
+// (unavailable) media-path metrics.
+const STREAMER_URL = (process.env.STREAMER_URL || '').replace(/\/+$/, '');
+
+async function checkCallLab(): Promise<{ online: boolean; detail: string }> {
+  if (!STREAMER_URL) return { online: false, detail: 'خدمة المساعد غير مهيّأة (STREAMER_URL)' };
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 6000);
+    const res = await fetch(`${STREAMER_URL}/health`, { signal: c.signal }).finally(() => clearTimeout(t));
+    if (res.ok) return { online: true, detail: 'المساعد متصل' };
+    return { online: false, detail: `المساعد غير جاهز (health ${res.status})` };
+  } catch {
+    return { online: false, detail: 'المساعد غير مستجيب (موقوف/نائم)' };
+  }
+}
+
 const esc = (s: string): string => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const owner = (ctx: BotContext): boolean => !!ctx.from && isBotOwner(ctx.from.id);
 const vIcon = (v: Verdict): string => (v === 'PASS' ? '🟢 PASS' : v === 'FAIL' ? '🔴 FAIL' : '⚪️ NOT_AVAILABLE');
@@ -86,6 +104,55 @@ function renderNetSim(r: NetSimResult): string {
     `<b>Jitter (RFC 3550)</b>      : ${na(r.jitterRfcMs, ' ms')}\n` +
     `<b>المدة</b>                  : ${r.durationMs} ms\n\n` +
     '⚠️ <i>الفقد والاهتزاز مُحقَّنان برمجياً داخل المستقبِل (ليسا من الشبكة). الحزم حقيقية لكن تنتقل عبر 127.0.0.1 ولا تغادر الجهاز.</i>'
+  );
+}
+
+/**
+ * Unified report for /udp_full. Three honest stages, each clearly labelled as to
+ * what it actually measures:
+ *   ① Controlled simulation (loopback, software-injected loss/jitter)
+ *   ② Real network UDP test (actual STUN packets over the wire)
+ *   ③ Call-lab status (assistant online? — media-path metrics stay NOT_AVAILABLE)
+ * No audio/call quality number is ever fabricated: the media path is unmeasurable
+ * from here, so it is reported as NOT_AVAILABLE, not guessed.
+ */
+function renderFull(sim: NetSimResult, real: RealUdpResult, call: { online: boolean; detail: string }): string {
+  const realRtt = real.rtt === NOT_AVAILABLE ? NOT_AVAILABLE : `${real.rtt.min} / ${real.rtt.avg} / ${real.rtt.max} ms`;
+  const delivery = sim.packetsSent > 0 ? `${Math.round((sim.packetsReceived / sim.packetsSent) * 1000) / 10}%` : NOT_AVAILABLE;
+
+  const callBlock = call.online
+    ? `<b>المساعد:</b> 🟢 متصل\n` +
+      `<b>Real Media UDP Loss:</b> <code>NOT_AVAILABLE</code>\n` +
+      `<b>SRTP Bitrate:</b> <code>NOT_AVAILABLE</code>\n` +
+      `<i>مقاييس مسار الصوت تُقاس فقط داخل كول مفتوح عبر /call_lab؛ py-tgcalls لا يكشف فقد/معدّل الصوت الوارد.</i>`
+    : `<b>الحالة:</b> <code>NOT_AVAILABLE</code> — ${esc(call.detail)}\n` +
+      `<i>(المساعد غير نشط أو لا يوجد كول مفتوح — لا مقاييس مسار صوت.)</i>`;
+
+  return (
+    '🧪📡 <b>UDP FULL — تقرير موحّد (3 مراحل)</b>\n' +
+    '✦ ┈┈┈┈┈┈┈┈┈┈ ✦\n\n' +
+    '① <b>محاكاة متحكَّم بها (loopback)</b>\n' +
+    `<b>الوضع:</b> ${sim.deterministic ? '🎯 حتمي (قابل للتكرار)' : '🎲 عشوائي'}\n` +
+    `<b>الفقد المحقون:</b> ${sim.injectedLossPct}% · <b>اهتزاز ≤</b> ${sim.injectedJitterMs}ms\n` +
+    `<b>الحزم:</b> مرسلة ${sim.packetsSent} · مستقبلة ${sim.packetsReceived}\n` +
+    `<b>الفقد المقاس:</b> ${na(sim.lossPct, '%')} · <b>نسبة التسليم:</b> ${delivery}\n` +
+    `<b>خارج الترتيب:</b> ${sim.outOfOrder}\n` +
+    `<b>RTT متوسط:</b> ${na(sim.avgRttMs, ' ms')}\n` +
+    `<b>Jitter (StdDev / RFC3550):</b> ${na(sim.jitterStdMs, ' ms')} / ${na(sim.jitterRfcMs, ' ms')}\n` +
+    `<b>المدة:</b> ${sim.durationMs} ms\n` +
+    '┈┈┈┈┈┈┈┈┈┈\n\n' +
+    '② <b>اختبار UDP حقيقي (STUN عبر الشبكة)</b>\n' +
+    `<b>النتيجة:</b> ${vIcon(real.verdict)}\n` +
+    `<b>الهدف:</b> <code>${esc(real.target)}</code>\n` +
+    `<b>الحزم:</b> مرسلة ${real.packetsSent} · مستقبلة ${real.packetsReceived}\n` +
+    `<b>الفقد:</b> ${na(real.lossPct, '%')}\n` +
+    `<b>RTT (min/avg/max):</b> ${realRtt}\n` +
+    `<b>Jitter:</b> ${na(real.jitterMs, ' ms')}\n` +
+    `<b>العنوان الانعكاسي:</b> <code>${esc(real.reflexiveAddress)}</code>\n` +
+    '┈┈┈┈┈┈┈┈┈┈\n\n' +
+    '③ <b>مختبر المكالمة (Call Lab)</b>\n' +
+    callBlock +
+    '\n\n⚠️ <i>المرحلة ① فقد/اهتزاز مُحقَّن برمجياً على 127.0.0.1 (لا يغادر الجهاز). المرحلة ② حزم حقيقية عبر الشبكة. المرحلة ③ لا تُختلق فيها أرقام صوت أبداً.</i>'
   );
 }
 
@@ -205,6 +272,7 @@ export const udpLabPlugin: Plugin = {
     { command: 'udp_lab', description: '🧰 لوحة مختبر UDP (مالك)', staffOnly: true },
     { command: 'udp_test', description: '🧪 تشغيل اختبار UDP حقيقي — أضف sim للمحاكاة (مالك)', staffOnly: true },
     { command: 'udp_sim', description: '🔬 محاكاة فقد UDP: /udp_sim [فقد%] [اهتزاز] [حزم] [--det] (مالك)', staffOnly: true },
+    { command: 'udp_full', description: '🧪📡 تقرير UDP موحّد (محاكاة + STUN حقيقي + حالة الكول) (مالك)', staffOnly: true },
     { command: 'udp_report', description: '📊 آخر تقرير UDP (مالك)', staffOnly: true },
     { command: 'udp_history', description: '📜 سجل تجارب UDP (مالك)', staffOnly: true },
   ],
@@ -245,6 +313,44 @@ export const udpLabPlugin: Plugin = {
             .editMessageText(chatId, sent.message_id, undefined, '⚠️ تعذّر تشغيل المحاكاة.')
             .catch(() => undefined);
         });
+    });
+
+    bot.command('udp_full', async (ctx) => {
+      if (!owner(ctx)) return;
+      if (!ctx.chat) return;
+      const a = parseSimArgs(ctx.message.text);
+      // /udp_full defaults to deterministic (reproducible for the report); pass
+      // --rand / عشوائي to force random Bernoulli loss instead.
+      const random = /(^|\s)(--?rand(om)?|عشوائي)(\s|$)/i.test(ctx.message.text);
+      const opts = {
+        lossPct: a.lossPct ?? 25,
+        jitterMs: a.jitterMs ?? 30,
+        packets: a.packets ?? 100,
+        deterministic: !random,
+      };
+      const sent = await ctx.reply('⏳ <b>UDP FULL</b> — المرحلة 1/3: محاكاة مُتحكَّم بها…', { parse_mode: 'HTML' }).catch(() => undefined);
+      if (!sent) return;
+      const chatId = ctx.chat.id;
+      const edit = (t: string): Promise<unknown> =>
+        ctx.telegram.editMessageText(chatId, sent.message_id, undefined, t, { parse_mode: 'HTML' }).catch(() => undefined);
+      void (async () => {
+        try {
+          const sim = await runNetSim(opts);
+          await edit('⏳ <b>UDP FULL</b> — المرحلة 2/3: اختبار UDP حقيقي (STUN)…');
+          const real = await runRealUdpTest();
+          await edit('⏳ <b>UDP FULL</b> — المرحلة 3/3: فحص حالة مختبر المكالمة…');
+          const call = await checkCallLab();
+          await ctx.telegram
+            .editMessageText(chatId, sent.message_id, undefined, renderFull(sim, real, call), {
+              parse_mode: 'HTML',
+              ...panelKeyboard(),
+            })
+            .catch(() => undefined);
+        } catch (err) {
+          log.error({ err }, 'udp full failed');
+          await edit('⚠️ تعذّر تشغيل /udp_full.');
+        }
+      })();
     });
 
     bot.command('udp_report', async (ctx) => {
